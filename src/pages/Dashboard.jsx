@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Wallet, Users, TrendingUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
+import { useSocket } from '../context/SocketContext';
 import Navbar from '../components/layout/Navbar';
 import GroupCard from '../components/common/GroupCard';
 import { Button } from '../components/ui/button';
@@ -10,7 +11,21 @@ import { Button } from '../components/ui/button';
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
-  const { groups, expenses } = useGroups();
+  const { groups, expenses, refreshData } = useGroups();
+  const { subscribe } = useSocket();
+  // Subscribe to global events for dashboard aggregates
+  useEffect(() => {
+    const unsubscribes = [
+      subscribe('expense_added', refreshData),
+      subscribe('expense_updated', refreshData),
+      subscribe('expense_deleted', refreshData),
+      subscribe('settlement_created', refreshData),
+      subscribe('member_joined', refreshData),
+    ];
+    return () => {
+      unsubscribes.forEach(unsub => unsub && unsub());
+    };
+  }, [subscribe, refreshData]);
 
   // useEffect to redirect if not authenticated
   useEffect(() => {

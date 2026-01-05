@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { useAuth } from './AuthContext';
+import { useSocket } from './SocketContext';
 import apiClient from '../lib/apiClient';
 
 const NotificationContext = createContext(undefined);
@@ -7,6 +8,7 @@ const NotificationContext = createContext(undefined);
 export const NotificationProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
   const { user } = useAuth();
+  const { subscribe } = useSocket();
 
   // Load notifications from API
   const loadNotifications = useCallback(async () => {
@@ -43,14 +45,27 @@ export const NotificationProvider = ({ children }) => {
     }
   }, [user]);
 
+  // Initial fetch for hydration
   useEffect(() => {
     loadNotifications();
-    
-    // Poll for new notifications every 30 seconds
-    const interval = setInterval(loadNotifications, 30000);
-    
-    return () => clearInterval(interval);
   }, [loadNotifications]);
+
+  // WebSocket subscription for notifications
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = subscribe('notification', (notif) => {
+      setNotifications(prev => [
+        {
+          ...notif,
+          timestamp: notif.timestamp ? new Date(notif.timestamp) : new Date(),
+        },
+        ...prev,
+      ]);
+    });
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user, subscribe]);
 
   // Check if user needs to add UPI ID and show notification every app open
   useEffect(() => {

@@ -1,15 +1,12 @@
 import webpush from 'web-push';
+import PushSubscription from '../models/PushSubscription.js';
 
 // Configure web-push with VAPID keys lazily
-// Generate keys with: npx web-push generate-vapid-keys
 let vapidConfigured = false;
-
 const configureVapid = () => {
   if (vapidConfigured) return;
-  
   const publicKey = process.env.VAPID_PUBLIC_KEY || '';
   const privateKey = process.env.VAPID_PRIVATE_KEY || '';
-  
   if (publicKey && privateKey) {
     webpush.setVapidDetails(
       process.env.VAPID_SUBJECT || 'mailto:admin@split-it.app',
@@ -21,44 +18,47 @@ const configureVapid = () => {
   }
 };
 
-// Store subscriptions (in production, store in database)
-const subscriptions = new Map(); // userId -> subscription[]
+let pushDisabled = false;
+export const setPushDisabled = (val) => { pushDisabled = !!val; };
 
-// Add subscription
-export const addSubscription = (userId, subscription) => {
+// Add subscription (upsert by endpoint)
+export const addSubscription = async (userId, subscription) => {
+  if (pushDisabled) return;
   configureVapid();
-  const userSubs = subscriptions.get(userId) || [];
-  // Check if subscription already exists
-  const exists = userSubs.some(s => s.endpoint === subscription.endpoint);
-  if (!exists) {
-    userSubs.push(subscription);
-    subscriptions.set(userId, userSubs);
-  }
+  await PushSubscription.findOneAndUpdate(
+    { endpoint: subscription.endpoint },
+    { userId, subscription, endpoint: subscription.endpoint, createdAt: new Date() },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
 };
 
-// Remove subscription
-export const removeSubscription = (userId, endpoint) => {
-  const userSubs = subscriptions.get(userId) || [];
-  subscriptions.set(userId, userSubs.filter(s => s.endpoint !== endpoint));
+// Remove subscription by endpoint
+export const removeSubscriptionByEndpoint = async (endpoint) => {
+  if (pushDisabled) return;
+  await PushSubscription.deleteOne({ endpoint });
 };
 
-// Remove subscription by endpoint (for any user)
-export const removeSubscriptionByEndpoint = (endpoint) => {
-  for (const [userId, subs] of subscriptions.entries()) {
-    subscriptions.set(userId, subs.filter(s => s.endpoint !== endpoint));
-  }
+// Remove all subscriptions for a user
+export const removeSubscriptionsByUser = async (userId) => {
+  if (pushDisabled) return;
+  await PushSubscription.deleteMany({ userId });
+};
+
+// Get all subscriptions for a user
+export const getSubscriptionsByUser = async (userId) => {
+  if (pushDisabled) return [];
+  return PushSubscription.find({ userId });
 };
 
 // Send push notification to a user
 export const sendPushNotification = async (userId, payload) => {
+  if (pushDisabled) return;
   configureVapid();
-  const userSubs = subscriptions.get(userId) || [];
-  
-  if (userSubs.length === 0) {
+  const userSubs = await getSubscriptionsByUser(userId);
+  if (!userSubs.length) {
     console.log(`No push subscriptions for user ${userId}`);
     return;
   }
-
   const notification = JSON.stringify({
     title: payload.title,
     body: payload.body,
@@ -68,29 +68,26 @@ export const sendPushNotification = async (userId, payload) => {
     data: payload.data || {},
     actions: payload.actions || [],
   });
-
   const results = await Promise.allSettled(
-    userSubs.map(async (subscription) => {
+    userSubs.map(async (subDoc) => {
       try {
-        await webpush.sendNotification(subscription, notification);
+        await webpush.sendNotification(subDoc.subscription, notification);
       } catch (error) {
         if (error.statusCode === 404 || error.statusCode === 410) {
-          // Subscription expired or invalid, remove it
-          removeSubscription(userId, subscription.endpoint);
+          await removeSubscriptionByEndpoint(subDoc.endpoint);
         }
         throw error;
       }
     })
   );
-
   const successful = results.filter(r => r.status === 'fulfilled').length;
   const failed = results.filter(r => r.status === 'rejected').length;
-  
   console.log(`Push notification to ${userId}: ${successful} sent, ${failed} failed`);
 };
 
 // Send push notification to multiple users
 export const sendPushToUsers = async (userIds, payload) => {
+  if (pushDisabled) return;
   await Promise.allSettled(
     userIds.map(userId => sendPushNotification(userId, payload))
   );
@@ -111,7 +108,6 @@ export const pushPayloads = {
       { action: 'view', title: 'View' },
     ],
   }),
-
   settlementReceived: (data) => ({
     title: 'Payment Received',
     body: `${data.fromName} sent you ₹${data.amount.toFixed(2)}`,
@@ -126,7 +122,6 @@ export const pushPayloads = {
       { action: 'view', title: 'View' },
     ],
   }),
-
   budgetAlert: (data) => ({
     title: '⚠️ Budget Alert',
     body: `${data.groupName} has reached ${data.percentage}% of budget`,
@@ -136,7 +131,6 @@ export const pushPayloads = {
       groupId: data.groupId,
     },
   }),
-
   memberJoined: (data) => ({
     title: 'New Member',
     body: `${data.newMemberName} joined ${data.groupName}`,
@@ -155,8 +149,9 @@ export const getVapidPublicKey = () => {
 
 export default {
   addSubscription,
-  removeSubscription,
   removeSubscriptionByEndpoint,
+  removeSubscriptionsByUser,
+  getSubscriptionsByUser,
   sendPushNotification,
   sendPushToUsers,
   pushPayloads,

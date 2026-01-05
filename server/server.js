@@ -6,6 +6,7 @@ import connectDB from './config/db.js';
 import { createIndexes } from './utils/dbIndexes.js';
 import { securityHeaders, sanitizeInput, rateLimit } from './middleware/security.js';
 import { initializeSocket } from './utils/socketManager.js';
+import webpush from 'web-push';
 import { startReminderScheduler } from './utils/settlementReminders.js';
 import authRoutes from './routes/authRoutes.js';
 import groupRoutes from './routes/groupRoutes.js';
@@ -15,9 +16,26 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import recurringExpenseRoutes from './routes/recurringExpenseRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
+import * as pushNotifications from './utils/pushNotifications.js';
 
 // Load environment variables
 dotenv.config();
+
+// VAPID key validation (serverless compatible)
+const vapidPublic = process.env.VAPID_PUBLIC_KEY;
+const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
+let pushDisabled = false;
+if (!vapidPublic || !vapidPrivate) {
+  console.warn('WARNING: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not set. Push notifications are DISABLED.');
+  pushDisabled = true;
+} else {
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT || 'mailto:admin@split-it.app',
+    vapidPublic,
+    vapidPrivate
+  );
+}
+pushNotifications.setPushDisabled && pushNotifications.setPushDisabled(pushDisabled);
 
 // Connect to MongoDB and create indexes
 connectDB().then(() => {

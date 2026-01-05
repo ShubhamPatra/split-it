@@ -3,6 +3,8 @@ import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
+import { sendPushToUsers, pushPayloads } from '../utils/pushNotifications.js';
+import { emitMemberJoined } from '../utils/socketManager.js';
 
 // @desc    Get all groups for user
 // @route   GET /api/groups
@@ -59,6 +61,25 @@ export const createGroup = async (req, res) => {
     const populatedGroup = await Group.findById(group._id)
       .populate('createdBy', 'name email upiId')
       .populate('members', 'name email upiId');
+
+    // Emit socket event (if using socketManager, not shown here)
+    // After socket emit, send push notifications to new group members (except creator)
+    try {
+      const notifyMembers = (members || [req.user._id])
+        .filter(memberId => memberId.toString() !== req.user._id.toString());
+      if (notifyMembers.length > 0) {
+        await sendPushToUsers(
+          notifyMembers.map(id => id.toString()),
+          pushPayloads.memberJoined({
+            newMemberName: req.user.name,
+            groupName: group.name,
+            groupId: group._id.toString(),
+          })
+        );
+      }
+    } catch (pushError) {
+      console.error('Push notification error:', pushError);
+    }
 
     res.status(201).json(populatedGroup);
   } catch (error) {
@@ -154,6 +175,9 @@ export const addMember = async (req, res) => {
     const updatedGroup = await Group.findById(group._id)
       .populate('createdBy', 'name email upiId')
       .populate('members', 'name email upiId');
+
+    // Emit socket event for real-time update
+    emitMemberJoined(group._id, { groupId: group._id, userId: memberId });
 
     // Create notification for the new member
     await Notification.create({
