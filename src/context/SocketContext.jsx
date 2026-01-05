@@ -19,7 +19,9 @@ export const SocketProvider = ({ children }) => {
       return;
     }
 
-    const serverUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+    const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+    // Ensure we don't have the /api suffix for socket connections
+    const serverUrl = baseUrl.replace(/\/api$/, '');
     
     // Disconnect existing socket before creating new one
     if (socketRef.current) {
@@ -30,7 +32,7 @@ export const SocketProvider = ({ children }) => {
       auth: {
         userId: user.id,
       },
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'], // Start with polling for better compatibility on Vercel
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
