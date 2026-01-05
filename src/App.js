@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import { Analytics as VercelAnalytics } from '@vercel/analytics/react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { GroupProvider } from './context/GroupContext';
 import { NotificationProvider } from './context/NotificationContext';
@@ -55,6 +56,7 @@ function App() {
                         <OfflineIndicator />
                         <PwaInstallPrompt />
                         <Toaster />
+                        <VercelAnalytics />
                         <Suspense fallback={<Loading />}>
                           <Routes>
                             {/* Public Routes */}
