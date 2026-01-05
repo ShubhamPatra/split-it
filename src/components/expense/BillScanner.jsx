@@ -23,6 +23,8 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
   const [scanProgress, setScanProgress] = useState(0);
   const [scanStatus, setScanStatus] = useState(''); // 'idle', 'scanning', 'success', 'error'
   const [extractedData, setExtractedData] = useState(null);
+  const [rawOcrText, setRawOcrText] = useState(''); // Store raw OCR text for debugging
+  const [showRawText, setShowRawText] = useState(false); // Toggle to show raw text
   const fileInputRef = useRef(null);
   const { toast } = useToast();
 
@@ -68,68 +70,134 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
 
   /**
    * Extract expense details from OCR text
+   * Handles noisy OCR output with artifacts
    */
   const extractExpenseData = (text) => {
-    console.log('OCR Text:', text);
+    console.log('=== RAW OCR TEXT ===');
+    console.log(text);
     
     const data = {
       amount: null,
       date: null,
       merchantName: null,
+      items: [],
+      tax: null,
+      tip: null,
       rawText: text
     };
 
-    // Extract amount - look for common patterns
-    // Patterns: Total: 1234.56, Rs. 1234, ₹1234, $1234.56, Total 1234
-    const amountPatterns = [
-      /(?:total|amount|sum|grand\s*total|bill\s*amount)[:\s]*[₹$€£rs.]*\s*(\d{1,6}(?:[.,]\d{2})?)/i,
-      /[₹$€£]\s*(\d{1,6}(?:[.,]\d{2})?)/,
-      /(?:rs|inr)[.\s]*(\d{1,6}(?:[.,]\d{2})?)/i,
-      /\b(\d{1,6}[.,]\d{2})\b/
-    ];
+    if (!text || text.trim().length < 10) {
+      console.log('No meaningful text extracted');
+      return data;
+    }
 
-    for (const pattern of amountPatterns) {
-      const match = text.match(pattern);
-      if (match) {
-        let amount = match[1].replace(',', '');
-        data.amount = parseFloat(amount);
-        if (data.amount && !isNaN(data.amount) && data.amount > 0) {
-          break;
+    // STEP 1: Clean the text aggressively
+    const cleanText = text
+      .replace(/[=\-_|\\/<>'"~`!@#%^&*[\]{}]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    console.log('=== CLEANED TEXT ===');
+    console.log(cleanText);
+
+    // STEP 2: Extract AMOUNT
+    let amountMatch = cleanText.match(/grand\s*total[:\s]*(?:rs\.?)?[\s]*(\d+\.?\d*)/i);
+    if (!amountMatch) {
+      amountMatch = cleanText.match(/total[:\s]*(?:rs\.?)?[\s]*(\d{3,}\.?\d*)/i);
+    }
+    if (!amountMatch) {
+      amountMatch = cleanText.match(/rs\.?\s*(\d{3,}\.?\d*)/i);
+    }
+    if (!amountMatch) {
+      const allPrices = cleanText.match(/\d{3,}\.?\d*/g) || [];
+      const validPrices = allPrices.map(p => parseFloat(p)).filter(p => p >= 100 && p <= 100000);
+      if (validPrices.length > 0) {
+        data.amount = Math.max(...validPrices);
+      }
+    }
+    
+    if (amountMatch) {
+      data.amount = parseFloat(amountMatch[1]);
+    }
+    console.log('Amount:', data.amount);
+
+    // STEP 3: Extract DATE
+    const dateMatch = cleanText.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})/);
+    if (dateMatch) {
+      data.date = parseDate(dateMatch[1]);
+      console.log('Date:', data.date);
+    }
+
+    // STEP 4: Extract MERCHANT NAME
+    const merchantMatch = cleanText.match(/([A-Za-z]+\s*RESTAURANT|[A-Za-z]+\s*HOTEL|[A-Za-z]+\s*CAFE)/i);
+    if (merchantMatch) {
+      data.merchantName = merchantMatch[1].trim();
+      console.log('Merchant:', data.merchantName);
+    }
+
+    // STEP 5: Extract ITEMS - Line by line analysis
+    const lines = text.split('\n');
+    
+    // Skip keywords - lines containing these are not items
+    const skipPatterns = /total|cgst|sgst|tax|sub\s*total|grand|thank|visit|powered|qty|price|amt|item|date|table|section|cashier|bill\s*no|dine/i;
+    
+    for (const rawLine of lines) {
+      // Clean the line
+      const line = rawLine.replace(/[=\-_|\\/<>'"~`!@#%^&*[\]{}]+/g, ' ').trim();
+      
+      if (line.length < 5) continue;
+      if (skipPatterns.test(line)) continue;
+      
+      // Look for pattern: text followed by numbers (qty, price, amount)
+      // Pattern: "item name" + numbers like "2 139.00 278.00" or just "278.00"
+      const numbers = line.match(/(\d+\.?\d*)/g);
+      
+      if (numbers && numbers.length >= 1) {
+        // Get prices (numbers >= 10, likely prices not quantities)
+        const prices = numbers.map(n => parseFloat(n)).filter(n => n >= 15 && n <= 10000);
+        
+        if (prices.length > 0) {
+          // Last price is usually the total amount for the item
+          const price = prices[prices.length - 1];
+          
+          // Extract item name - everything before the first number
+          const firstNumIndex = line.search(/\d/);
+          let itemName = firstNumIndex > 0 ? line.substring(0, firstNumIndex).trim() : '';
+          
+          // Clean up item name
+          itemName = itemName
+            .replace(/[^a-zA-Z\s()]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          
+          // Skip if name is too short or looks like noise
+          if (itemName.length < 3) continue;
+          if (/^[A-Z\s]{1,3}$/.test(itemName)) continue; // Skip single letters/short caps
+          
+          // Check it's not a duplicate (same price within last few items)
+          const isDuplicate = data.items.some(i => 
+            Math.abs(i.price - price) < 0.01 || 
+            i.name.toLowerCase() === itemName.toLowerCase()
+          );
+          
+          if (!isDuplicate) {
+            // Capitalize first letter of each word
+            itemName = itemName.split(' ')
+              .filter(w => w.length > 0)
+              .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+              .join(' ');
+            
+            console.log('Item found:', itemName, '- ₹' + price);
+            data.items.push({ name: itemName, price: price });
+          }
         }
       }
     }
 
-    // Extract date - various formats
-    const datePatterns = [
-      /(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})/,  // DD-MM-YYYY or DD/MM/YYYY
-      /(\d{4}[-/]\d{1,2}[-/]\d{1,2})/,     // YYYY-MM-DD
-      /(\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4})/i
-    ];
-
-    for (const pattern of datePatterns) {
-      const match = text.match(pattern);
-      if (match) {
-        const dateStr = match[1];
-        const parsedDate = parseDate(dateStr);
-        if (parsedDate) {
-          data.date = parsedDate;
-          break;
-        }
-      }
-    }
-
-    // Extract merchant name - usually at the top
-    const lines = text.split('\n').filter(line => line.trim().length > 0);
-    if (lines.length > 0) {
-      // Take first non-empty line that's not just numbers
-      for (const line of lines.slice(0, 5)) {
-        if (line.length > 3 && line.length < 50 && !/^\d+$/.test(line.trim())) {
-          data.merchantName = line.trim();
-          break;
-        }
-      }
-    }
-
+    console.log('=== EXTRACTED DATA ===');
+    console.log('Items count:', data.items.length);
+    console.log(data);
+    
     return data;
   };
 
@@ -138,38 +206,25 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
    */
   const parseDate = (dateStr) => {
     try {
-      // Try different date formats
-      const date = new Date(dateStr);
-      if (!isNaN(date.getTime())) {
-        return date.toISOString().split('T')[0];
-      }
-
-      // Try DD-MM-YYYY format
-      const parts = dateStr.split(/[-/]/);
+      // Try DD/MM/YY or DD/MM/YYYY format first (common in India)
+      const parts = dateStr.split(/[/\-.]/);
       if (parts.length === 3) {
-        let day, month, year;
-        
-        // Check if it's DD-MM-YYYY or YYYY-MM-DD
-        if (parts[0].length === 4) {
-          // YYYY-MM-DD
-          year = parts[0];
-          month = parts[1];
-          day = parts[2];
-        } else {
-          // DD-MM-YYYY
-          day = parts[0];
-          month = parts[1];
-          year = parts[2];
-        }
+        let day = parts[0];
+        let month = parts[1];
+        let year = parts[2];
 
         // Handle 2-digit year
         if (year.length === 2) {
           year = '20' + year;
         }
 
-        const testDate = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+        // Pad day and month
+        day = day.padStart(2, '0');
+        month = month.padStart(2, '0');
+
+        const testDate = new Date(`${year}-${month}-${day}`);
         if (!isNaN(testDate.getTime())) {
-          return testDate.toISOString().split('T')[0];
+          return `${year}-${month}-${day}`;
         }
       }
 
@@ -195,13 +250,20 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
     setIsScanning(true);
     setScanStatus('scanning');
     setScanProgress(0);
+    setRawOcrText('');
 
     try {
+      // Use imagePreview (base64) for better compatibility
+      const imageSource = imagePreview || image;
+      
+      console.log('Starting OCR scan...');
+      
       const result = await Tesseract.recognize(
-        image,
+        imageSource,
         'eng',
         {
           logger: (m) => {
+            console.log('Tesseract status:', m.status, m.progress);
             if (m.status === 'recognizing text') {
               setScanProgress(Math.round(m.progress * 100));
             }
@@ -210,25 +272,41 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
       );
 
       const text = result.data.text;
+      console.log('=== RAW OCR OUTPUT ===');
+      console.log(text);
+      console.log('=== END OCR OUTPUT ===');
+      
+      setRawOcrText(text); // Store for display
+      
+      if (!text || text.trim().length < 5) {
+        toast({
+          title: "No text detected",
+          description: "Could not read any text from the image. Try a clearer image.",
+          variant: "destructive",
+        });
+        setScanStatus('error');
+        return;
+      }
+      
       const extracted = extractExpenseData(text);
+      console.log('Extracted Data:', extracted);
       
       setExtractedData(extracted);
       setScanStatus('success');
       
-      if (!extracted.amount && !extracted.date && !extracted.merchantName) {
+      if (!extracted.amount && !extracted.date && !extracted.merchantName && extracted.items.length === 0) {
         toast({
-          title: "No data extracted",
-          description: "Could not extract expense details. Please enter manually.",
-          variant: "destructive",
+          title: "Text found but no data extracted",
+          description: "OCR found text but couldn't parse it. Click 'Show Raw Text' to see what was detected.",
         });
-        setScanStatus('error');
       } else {
         toast({
           title: "Scan successful!",
           description: `Extracted ${[
             extracted.amount ? 'amount' : null,
             extracted.date ? 'date' : null,
-            extracted.merchantName ? 'merchant' : null
+            extracted.merchantName ? 'merchant' : null,
+            extracted.items.length > 0 ? `${extracted.items.length} items` : null
           ].filter(Boolean).join(', ')}`,
         });
       }
@@ -238,7 +316,7 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
       setScanStatus('error');
       toast({
         title: "Scan failed",
-        description: "Failed to scan the image. Please try again or enter manually.",
+        description: error.message || "Failed to scan the image. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -255,6 +333,9 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
         amount: extractedData.amount || '',
         date: extractedData.date || '',
         description: extractedData.merchantName || '',
+        items: extractedData.items || [],
+        tax: extractedData.tax || 0,
+        tip: extractedData.tip || 0,
       });
       handleClose();
     }
@@ -270,6 +351,8 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
     setScanProgress(0);
     setScanStatus('idle');
     setExtractedData(null);
+    setRawOcrText('');
+    setShowRawText(false);
     if (onClose) onClose();
   };
 
@@ -383,7 +466,7 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
                     <div className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm">
                       {extractedData.amount && (
                         <div className="flex justify-between gap-2">
-                          <span className="text-muted-foreground">Amount:</span>
+                          <span className="text-muted-foreground">Total Amount:</span>
                           <span className="font-medium">₹{extractedData.amount}</span>
                         </div>
                       )}
@@ -399,7 +482,59 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
                           <span className="font-medium truncate">{extractedData.merchantName}</span>
                         </div>
                       )}
+                      
+                      {/* Items Found */}
+                      {extractedData.items && extractedData.items.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-primary/20">
+                          <div className="flex justify-between gap-2 mb-2">
+                            <span className="text-muted-foreground font-medium">Items Found:</span>
+                            <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
+                              {extractedData.items.length} items
+                            </span>
+                          </div>
+                          <div className="max-h-32 overflow-y-auto space-y-1">
+                            {extractedData.items.slice(0, 5).map((item, index) => (
+                              <div key={index} className="flex justify-between gap-2 text-xs bg-background/50 px-2 py-1 rounded">
+                                <span className="truncate">{item.name}</span>
+                                <span className="font-medium text-primary">₹{item.price.toFixed(2)}</span>
+                              </div>
+                            ))}
+                            {extractedData.items.length > 5 && (
+                              <div className="text-xs text-muted-foreground text-center py-1">
+                                +{extractedData.items.length - 5} more items...
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Tax & Tip */}
+                      {(extractedData.tax > 0 || extractedData.tip > 0) && (
+                        <div className="mt-3 pt-3 border-t border-primary/20 space-y-1">
+                          {extractedData.tax > 0 && (
+                            <div className="flex justify-between gap-2">
+                              <span className="text-muted-foreground">Tax:</span>
+                              <span className="font-medium">₹{extractedData.tax.toFixed(2)}</span>
+                            </div>
+                          )}
+                          {extractedData.tip > 0 && (
+                            <div className="flex justify-between gap-2">
+                              <span className="text-muted-foreground">Tip:</span>
+                              <span className="font-medium">₹{extractedData.tip.toFixed(2)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
+                    
+                    {/* Itemized Split Hint */}
+                    {extractedData.items && extractedData.items.length > 0 && (
+                      <div className="mt-3 p-2 bg-primary/10 rounded-lg">
+                        <p className="text-xs text-primary">
+                          💡 Items detected! You can use "Split by Items" to assign individual items to specific people.
+                        </p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               )}
@@ -418,6 +553,30 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
                 </Card>
               )}
 
+              {/* Raw OCR Text (for debugging) */}
+              {rawOcrText && (scanStatus === 'success' || scanStatus === 'error') && (
+                <div className="space-y-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground"
+                    onClick={() => setShowRawText(!showRawText)}
+                  >
+                    {showRawText ? 'Hide' : 'Show'} Raw OCR Text (Debug)
+                  </Button>
+                  {showRawText && (
+                    <Card className="bg-muted/50">
+                      <CardContent className="pt-3 p-3">
+                        <p className="text-xs font-medium text-muted-foreground mb-2">Raw text detected by OCR:</p>
+                        <pre className="text-xs whitespace-pre-wrap break-words max-h-48 overflow-y-auto bg-background p-2 rounded border">
+                          {rawOcrText || 'No text detected'}
+                        </pre>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
                 <Button
@@ -428,6 +587,8 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
                     setImagePreview(null);
                     setScanStatus('idle');
                     setExtractedData(null);
+                    setRawOcrText('');
+                    setShowRawText(false);
                   }}
                 >
                   Choose Different Image

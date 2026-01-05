@@ -55,9 +55,20 @@ const settlementSchema = new mongoose.Schema({
     trim: true,
     maxlength: 500,
   },
+  // Reminder tracking
+  reminderSentAt: {
+    type: Date,
+  },
+  reminderCount: {
+    type: Number,
+    default: 0,
+  },
 }, {
   timestamps: true,
 });
+
+// Index for finding overdue pending settlements
+settlementSchema.index({ paymentStatus: 1, createdAt: 1 });
 
 const Settlement = mongoose.model('Settlement', settlementSchema);
 

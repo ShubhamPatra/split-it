@@ -104,23 +104,7 @@ const Index = () => {
             );
           })}
         </div>
-
-        {/* Demo Hint */}
-        <div className="max-w-md mx-auto text-center py-6 sm:py-8 px-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">
-            <strong>Demo credentials:</strong> rahul@example.com / password123
-          </p>
-        </div>
       </div>
-
-      {/* Footer */}
-      <footer className="border-t border-border py-6 sm:py-8">
-        <div className="container mx-auto px-4 text-center">
-          <p className="text-xs sm:text-sm text-muted-foreground">
-            Built with React • Academic Project
-          </p>
-        </div>
-      </footer>
     </div>
   );
 };

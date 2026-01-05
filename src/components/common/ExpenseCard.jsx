@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Trash2, Pencil, IndianRupee, Calendar, Shield } from 'lucide-react';
 import { categories, getCategoryById } from '../../data/categories';
 import { useGroups } from '../../context/GroupContext';

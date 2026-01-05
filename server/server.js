@@ -1,15 +1,20 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { createServer } from 'http';
 import connectDB from './config/db.js';
 import { createIndexes } from './utils/dbIndexes.js';
 import { securityHeaders, sanitizeInput, rateLimit } from './middleware/security.js';
+import { initializeSocket } from './utils/socketManager.js';
+import { startReminderScheduler } from './utils/settlementReminders.js';
 import authRoutes from './routes/authRoutes.js';
 import groupRoutes from './routes/groupRoutes.js';
 import expenseRoutes from './routes/expenseRoutes.js';
 import settlementRoutes from './routes/settlementRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import userRoutes from './routes/userRoutes.js';
+import recurringExpenseRoutes from './routes/recurringExpenseRoutes.js';
+import categoryRoutes from './routes/categoryRoutes.js';
 
 // Load environment variables
 dotenv.config();
@@ -21,6 +26,10 @@ connectDB().then(() => {
 
 // Initialize Express app
 const app = express();
+const server = createServer(app);
+
+// Initialize WebSocket
+initializeSocket(server);
 
 // Security middleware (should be first)
 app.use(securityHeaders);
@@ -58,6 +67,8 @@ app.use('/api/expenses', expenseRoutes);
 app.use('/api/settlements', settlementRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/recurring-expenses', recurringExpenseRoutes);
+app.use('/api/categories', categoryRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {
@@ -96,6 +107,11 @@ app.use((req, res) => {
 
 // Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  console.log('WebSocket server initialized');
+  
+  // Start settlement reminder scheduler
+  startReminderScheduler();
+  console.log('Settlement reminder scheduler started');
 });

@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, ArrowRight, Trash2 } from 'lucide-react';
 import { useGroups } from '../../context/GroupContext';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../hooks/use-toast';
 import {
   AlertDialog,
@@ -19,7 +20,11 @@ import { Button } from '../ui/button';
 const GroupCard = React.memo(({ group }) => {
   const navigate = useNavigate();
   const { getTotalExpenses, deleteGroup, getGroupExpenses, getGroupSettlements, getUserProfile } = useGroups();
+  const { user } = useAuth();
   const { toast } = useToast();
+  
+  // Check if current user is the admin (creator) of the group
+  const isAdmin = user?.id === group.createdBy || user?._id === group.createdBy;
   
   // Memoize expensive calculations
   const totalExpenses = useMemo(() => getTotalExpenses(group.id), [group.id, getTotalExpenses]);
@@ -43,28 +48,30 @@ const GroupCard = React.memo(({ group }) => {
           <p className="text-xs sm:text-sm text-muted-foreground">Created on {formattedDate}</p>
         </div>
         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-destructive" 
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Trash2 size={18} />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete Group</AlertDialogTitle>
-                <AlertDialogDescription>Are you sure you want to delete "{group.name}"? This will also delete {expenseCount} expense{expenseCount !== 1 ? 's' : ''} and {settlementCount} settlement{settlementCount !== 1 ? 's' : ''}. This action cannot be undone.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel className="min-h-[44px]">Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90 min-h-[44px]">Delete Group</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          {isAdmin && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-destructive" 
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Trash2 size={18} />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Group</AlertDialogTitle>
+                  <AlertDialogDescription>Are you sure you want to delete "{group.name}"? This will also delete {expenseCount} expense{expenseCount !== 1 ? 's' : ''} and {settlementCount} settlement{settlementCount !== 1 ? 's' : ''}. This action cannot be undone.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="min-h-[44px]">Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90 min-h-[44px]">Delete Group</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
           <ArrowRight className="text-muted-foreground group-hover/card:text-primary transition-colors flex-shrink-0" size={20} />
         </div>
       </div>

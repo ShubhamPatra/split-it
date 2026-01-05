@@ -94,6 +94,7 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
     if (showPaymentDialog && !isMobile) {
       setTimeout(generateQRCode, 100);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showPaymentDialog, isMobile]);
 
   const handlePayNow = () => {

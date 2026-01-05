@@ -3,6 +3,7 @@ import Group from '../models/Group.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import { validateUpiId, validatePaymentAmount, generateTransactionRef } from '../utils/upiValidation.js';
+import { sendPushNotification, pushPayloads } from '../utils/pushNotifications.js';
 
 // @desc    Get all settlements for user's groups
 // @route   GET /api/settlements
@@ -126,6 +127,19 @@ export const createSettlement = async (req, res) => {
       relatedId: settlement._id,
       actionCompleted: false,
     });
+
+    // Send push notification to the receiver
+    try {
+      await sendPushNotification(toUserId.toString(), pushPayloads.settlementReceived({
+        fromName: payer.name,
+        amount: amount,
+        groupId: groupId,
+        settlementId: settlement._id.toString(),
+      }));
+    } catch (pushError) {
+      console.error('Push notification error:', pushError);
+      // Don't fail the request if push fails
+    }
 
     res.status(201).json(populatedSettlement);
   } catch (error) {

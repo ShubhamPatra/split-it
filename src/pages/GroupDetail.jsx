@@ -279,7 +279,7 @@ const GroupDetail = () => {
     }
   };
 
-  const handleRemoveMember = (memberId) => {
+  const handleRemoveMember = async (memberId) => {
     if (memberId === group.createdBy) {
       toast({ title: "Cannot remove creator", description: "The group creator cannot be removed from the group.", variant: "destructive" });
       return;
@@ -289,8 +289,13 @@ const GroupDetail = () => {
       toast({ title: "Cannot remove member", description: `${getUserProfile(memberId)?.name || 'User'} has an outstanding balance of ₹${Math.abs(memberBalance).toFixed(0)}. Settle up first.`, variant: "destructive" });
       return;
     }
-    removeMemberFromGroup(group.id, memberId);
-    toast({ title: "Member removed", description: `${getUserProfile(memberId)?.name || 'User'} has been removed from the group.` });
+    const memberName = getUserProfile(memberId)?.name || 'User';
+    const success = await removeMemberFromGroup(group.id, memberId);
+    if (success) {
+      toast({ title: "Member removed", description: `${memberName} has been removed from the group.` });
+    } else {
+      toast({ title: "Error", description: "Failed to remove member. Please try again.", variant: "destructive" });
+    }
   };
 
   return (
@@ -616,7 +621,7 @@ const GroupDetail = () => {
                         {isCreator && <Badge variant="outline" className="text-[10px] flex-shrink-0">Creator</Badge>}
                         {memberId === user?.id && <Badge variant="secondary" className="text-[10px] flex-shrink-0">You</Badge>}
                       </div>
-                      {!isCreator && memberId !== user?.id && canManageMembers(user?.id || '') && (
+                      {!isCreator && memberId !== user?.id && (user?.id === group.createdBy) && (
                         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive min-h-[44px] min-w-[44px] flex-shrink-0" onClick={() => handleRemoveMember(memberId)} disabled={hasBalance}>
                           <UserMinus size={14} />
                         </Button>

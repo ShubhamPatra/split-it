@@ -1,5 +1,6 @@
 import Expense from '../models/Expense.js';
 import Group from '../models/Group.js';
+import { sendPushToUsers, pushPayloads } from '../utils/pushNotifications.js';
 
 // @desc    Get all expenses for user's groups
 // @route   GET /api/expenses
@@ -107,6 +108,25 @@ export const createExpense = async (req, res) => {
       .populate('paidBy', 'name email')
       .populate('splitAmong', 'name email')
       .populate('groupId', 'name');
+
+    // Send push notifications to group members (except the creator)
+    try {
+      const notifyMembers = group.members
+        .filter(memberId => memberId.toString() !== req.user._id.toString());
+      
+      if (notifyMembers.length > 0) {
+        await sendPushToUsers(notifyMembers.map(id => id.toString()), pushPayloads.expenseAdded({
+          paidByName: populatedExpense.paidBy.name,
+          description: populatedExpense.description,
+          amount: populatedExpense.amount,
+          groupId: groupId,
+          expenseId: expense._id.toString(),
+        }));
+      }
+    } catch (pushError) {
+      console.error('Push notification error:', pushError);
+      // Don't fail the request if push fails
+    }
 
     res.status(201).json(populatedExpense);
   } catch (error) {
