@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Trash2, Pencil, IndianRupee, Calendar, Shield } from 'lucide-react';
-import { getUserName } from '../../data/mockData';
 import { categories, getCategoryById } from '../../data/categories';
 import { useGroups } from '../../context/GroupContext';
 import { useNotifications } from '../../context/NotificationContext';
@@ -14,7 +13,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 
 const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isAdmin = false }) => {
-  const { deleteExpense, updateExpense, getGroupById } = useGroups();
+  const { deleteExpense, updateExpense, getGroupById, getUserProfile } = useGroups();
   const { addNotification } = useNotifications();
   const { toast } = useToast();
   
@@ -63,7 +62,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <h4 className="font-medium text-sm sm:text-base text-foreground truncate">{expense.description}</h4>
-                <p className="text-xs sm:text-sm text-muted-foreground truncate">Paid by {getUserName(expense.paidBy)}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground truncate">Paid by {getUserProfile(expense.paidBy)?.name || 'User'}</p>
                 <span className={`inline-flex items-center gap-1 text-[10px] sm:text-xs mt-1 ${category.color}`}>
                   <CategoryIcon size={12} className="flex-shrink-0" />
                   {category.name}
@@ -161,7 +160,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {group.members.map(m => (<SelectItem key={m} value={m}>{getUserName(m)}</SelectItem>))}
+                    {group.members.map(m => (<SelectItem key={m} value={m}>{getUserProfile(m)?.name || 'User'}</SelectItem>))}
                   </SelectContent>
                 </Select>
               </div>

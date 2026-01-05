@@ -52,6 +52,30 @@ export const NotificationProvider = ({ children }) => {
     return () => clearInterval(interval);
   }, [loadNotifications]);
 
+  // Check if user needs to add UPI ID and show notification every app open
+  useEffect(() => {
+    if (user && !user.upiId) {
+      // Add a local notification to remind user to add UPI ID
+      const upiReminder = {
+        id: 'upi-reminder-' + Date.now(),
+        type: 'warning',
+        title: 'Add Your UPI ID',
+        message: 'Add your UPI ID in Profile Settings to receive payments easily from group members.',
+        timestamp: new Date(),
+        read: false,
+        actionType: 'navigate',
+        relatedId: '/profile',
+      };
+      
+      // Add to the beginning of notifications list (local only, not persisted)
+      setNotifications(prev => {
+        // Remove any existing UPI reminder first
+        const filtered = prev.filter(n => !n.id.toString().startsWith('upi-reminder'));
+        return [upiReminder, ...filtered];
+      });
+    }
+  }, [user]);
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const addNotification = useCallback(async (notification) => {

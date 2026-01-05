@@ -40,19 +40,17 @@ export const CurrencyProvider = ({ children }) => {
     return inrAmount * toCurrency.rate;
   }, [getCurrency]);
 
-  const formatAmount = useCallback((amount, currencyCode) => {
-    const currency = currencyCode ? getCurrency(currencyCode) : displayCurrency;
-    if (!currency) return `${amount.toLocaleString()}`;
+  const formatAmount = useCallback((amount, sourceCurrencyCode = 'INR') => {
+    if (!amount && amount !== 0) return `${displayCurrency.symbol}0`;
     
-    const convertedAmount = currencyCode 
-      ? amount 
-      : convert(amount, baseCurrency.code, displayCurrency.code);
+    // Convert from source currency to display currency
+    const convertedAmount = convert(amount, sourceCurrencyCode, displayCurrency.code);
     
-    return `${currency.symbol}${convertedAmount.toLocaleString(undefined, { 
+    return `${displayCurrency.symbol}${convertedAmount.toLocaleString(undefined, { 
       minimumFractionDigits: 0,
       maximumFractionDigits: 2 
     })}`;
-  }, [displayCurrency, getCurrency, convert, baseCurrency.code]);
+  }, [displayCurrency, convert]);
 
   return (
     <CurrencyContext.Provider

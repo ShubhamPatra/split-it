@@ -4,7 +4,6 @@ import { Home, Users, PlusCircle, PieChart, LogOut, Settings, BarChart3 } from '
 import { useAuth } from '../../context/AuthContext';
 import Logo from '../common/Logo';
 import NotificationDropdown from '../common/NotificationDropdown';
-import CurrencySelector from '../common/CurrencySelector';
 import { Button } from '../ui/button';
 import {
   DropdownMenu,
@@ -44,80 +43,81 @@ const Navbar = () => {
   };
 
   return (
-    <nav className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-border safe-top">
-      <div className="container-responsive">
-        <div className="flex items-center justify-between h-14 sm:h-16">
-          <div onClick={() => navigate('/dashboard')} className="cursor-pointer min-h-[44px] min-w-[44px] flex items-center">
-            <Logo size="sm" />
-          </div>
-
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center gap-1">
-            {navItems.map(item => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.path;
-              
-              return (
-                <button
-                  key={item.path}
-                  onClick={() => navigate(item.path)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors min-h-[44px]
-                    ${isActive 
-                      ? 'bg-primary text-primary-foreground' 
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                    }`}
-                >
-                  <Icon size={18} />
-                  <span className="text-sm font-medium">{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* User Menu & Notifications */}
-          <div className="flex items-center gap-2">
-            <div className="hidden lg:block">
-              <CurrencySelector compact />
+    <>
+      {/* Top Navbar */}
+      <nav className="sticky top-0 z-50 bg-background border-b border-border">
+        <div className="container-responsive">
+          <div className="flex items-center justify-between h-14 sm:h-16">
+            <div onClick={() => navigate('/dashboard')} className="cursor-pointer min-h-[44px] min-w-[44px] flex items-center">
+              <Logo size="sm" />
             </div>
-            <NotificationDropdown />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-10 w-10 rounded-full min-h-[44px] min-w-[44px] p-0">
-                  <Avatar className="h-9 w-9">
-                    <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                      {user?.name ? getInitials(user.name) : 'U'}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 bg-popover z-[60]">
-                <DropdownMenuLabel>
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">{user?.name}</p>
-                    <p className="text-xs text-muted-foreground leading-none">{user?.email}</p>
-                    {user?.upiId && (
-                      <p className="text-xs text-muted-foreground font-mono leading-none mt-1">{user.upiId}</p>
-                    )}
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => navigate('/profile')} className="cursor-pointer min-h-[44px]">
-                  <Settings size={16} className="mr-2" />
-                  Profile Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive min-h-[44px]">
-                  <LogOut size={16} className="mr-2" />
-                  Log out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+
+            {/* Desktop Navigation */}
+            <div className="hidden md:flex items-center gap-1">
+              {navItems.map(item => {
+                const Icon = item.icon;
+                const isActive = location.pathname === item.path;
+                
+                return (
+                  <button
+                    key={item.path}
+                    onClick={() => navigate(item.path)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors min-h-[44px]
+                      ${isActive 
+                        ? 'bg-primary text-primary-foreground' 
+                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                      }`}
+                  >
+                    <Icon size={18} />
+                    <span className="text-sm font-medium">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* User Menu & Notifications */}
+            <div className="flex items-center gap-2">
+              <NotificationDropdown />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="relative h-10 w-10 rounded-full min-h-[44px] min-w-[44px] p-0">
+                    <Avatar className="h-9 w-9">
+                      <AvatarFallback className="bg-primary text-primary-foreground text-sm">
+                        {user?.name ? getInitials(user.name) : 'U'}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56 bg-popover z-[60]">
+                  <DropdownMenuLabel>
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium leading-none">{user?.name}</p>
+                      <p className="text-xs text-muted-foreground leading-none">{user?.email}</p>
+                      {user?.upiId && (
+                        <p className="text-xs text-muted-foreground font-mono leading-none mt-1">{user.upiId}</p>
+                      )}
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => navigate('/profile')} className="cursor-pointer min-h-[44px]">
+                    <Settings size={16} className="mr-2" />
+                    Profile Settings
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive min-h-[44px]">
+                    <LogOut size={16} className="mr-2" />
+                    Log out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
+      </nav>
 
-        {/* Mobile Bottom Navigation */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-md border-t border-border z-40">
-          <div className="flex items-center justify-around px-2 py-2 pb-safe">
+      {/* Mobile Bottom Navigation - Completely separate from top nav */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background border-t border-border z-50" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        <div className="flex items-center justify-around w-full px-1 py-1">
           {navItems.slice(0, 4).map(item => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
@@ -126,21 +126,20 @@ const Navbar = () => {
               <button
                 key={item.path}
                 onClick={() => navigate(item.path)}
-                className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg transition-colors min-h-[56px] min-w-[64px]
+                className={`flex flex-col items-center justify-center gap-0.5 px-2 py-2 rounded-lg transition-colors min-h-[56px] flex-1 max-w-[80px]
                   ${isActive 
                     ? 'text-primary bg-primary/10' 
                     : 'text-muted-foreground hover:text-foreground'
                   }`}
               >
-                <Icon size={22} className="flex-shrink-0" />
-                <span className="text-[10px] font-medium leading-tight">{item.label}</span>
+                <Icon size={20} className="flex-shrink-0" />
+                <span className="text-[9px] font-medium leading-tight truncate w-full text-center">{item.label}</span>
               </button>
             );
           })}
-          </div>
         </div>
       </div>
-    </nav>
+    </>
   );
 };
 

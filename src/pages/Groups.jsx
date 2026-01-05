@@ -3,13 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
-import { users } from '../data/mockData';
 import Navbar from '../components/layout/Navbar';
 import GroupCard from '../components/common/GroupCard';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Checkbox } from '../components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -28,7 +26,6 @@ const Groups = () => {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [groupName, setGroupName] = useState('');
-  const [selectedMembers, setSelectedMembers] = useState([]);
 
   // useEffect to redirect if not authenticated
   useEffect(() => {
@@ -39,15 +36,6 @@ const Groups = () => {
 
   // Filter groups for current user
   const userGroups = groups.filter(g => g.members.includes(user?.id || ''));
-
-  // Handle member selection
-  const handleMemberToggle = (memberId) => {
-    setSelectedMembers(prev =>
-      prev.includes(memberId)
-        ? prev.filter(id => id !== memberId)
-        : [...prev, memberId]
-    );
-  };
 
   // Handle group creation
   const handleCreateGroup = () => {
@@ -60,25 +48,20 @@ const Groups = () => {
       return;
     }
 
-    // Add current user to members (members are optional, can add later)
-    const allMembers = [...new Set([user?.id || '', ...selectedMembers])];
-    addGroup(groupName, allMembers, user?.id || '');
+    // Create group with only current user
+    addGroup(groupName, [user?.id || ''], user?.id || '');
 
     toast({
       title: "Group created!",
-      description: `${groupName} has been created successfully.`,
+      description: `${groupName} has been created successfully. You can add members from the group settings.`,
     });
 
     // Reset form
     setGroupName('');
-    setSelectedMembers([]);
     setIsDialogOpen(false);
   };
 
   if (!isAuthenticated) return null;
-
-  // Filter out current user from available members
-  const availableMembers = users.filter(u => u.id !== user?.id);
 
   return (
     <div className="min-h-screen bg-background">
@@ -123,32 +106,9 @@ const Groups = () => {
                   />
                 </div>
 
-                <div className="space-y-3">
-                  <Label className="text-sm sm:text-base">Select Members (Optional)</Label>
-                  <p className="text-xs sm:text-sm text-muted-foreground">You can add members now or later from the group settings</p>
-                  <div className="space-y-2 max-h-48 overflow-y-auto mobile-scroll">
-                    {availableMembers.map(member => (
-                      <div
-                        key={member.id}
-                        className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-accent transition-colors min-h-[44px]"
-                      >
-                        <Checkbox
-                          id={member.id}
-                          checked={selectedMembers.includes(member.id)}
-                          onCheckedChange={() => handleMemberToggle(member.id)}
-                          className="min-h-[24px] min-w-[24px]"
-                        />
-                        <label
-                          htmlFor={member.id}
-                          className="flex-1 cursor-pointer min-h-[44px] flex flex-col justify-center"
-                        >
-                          <p className="font-medium text-foreground text-sm sm:text-base">{member.name}</p>
-                          <p className="text-xs sm:text-sm text-muted-foreground">{member.email}</p>
-                        </label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <p className="text-xs sm:text-sm text-muted-foreground">
+                  You can add members after creating the group from the group settings.
+                </p>
 
                 <Button onClick={handleCreateGroup} className="w-full min-h-[44px] h-auto">
                   Create Group

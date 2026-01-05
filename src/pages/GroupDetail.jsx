@@ -5,7 +5,6 @@ import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useGroupRoles } from '../hooks/useGroupRoles';
-import { getUserName } from '../data/mockData';
 import { getCategoryById } from '../data/categories';
 import apiClient from '../lib/apiClient';
 import { 
@@ -287,11 +286,11 @@ const GroupDetail = () => {
     }
     const memberBalance = balances[memberId] || 0;
     if (Math.abs(memberBalance) > 0.01) {
-      toast({ title: "Cannot remove member", description: `${getUserName(memberId)} has an outstanding balance of ₹${Math.abs(memberBalance).toFixed(0)}. Settle up first.`, variant: "destructive" });
+      toast({ title: "Cannot remove member", description: `${getUserProfile(memberId)?.name || 'User'} has an outstanding balance of ₹${Math.abs(memberBalance).toFixed(0)}. Settle up first.`, variant: "destructive" });
       return;
     }
     removeMemberFromGroup(group.id, memberId);
-    toast({ title: "Member removed", description: `${getUserName(memberId)} has been removed from the group.` });
+    toast({ title: "Member removed", description: `${getUserProfile(memberId)?.name || 'User'} has been removed from the group.` });
   };
 
   return (
@@ -358,14 +357,14 @@ const GroupDetail = () => {
                     <DropdownMenuTrigger asChild>
                       <button className={`px-3 py-3 text-xs sm:text-sm rounded-full flex items-center gap-1.5 transition-colors min-h-[44px] ${isMemberAdmin ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}>
                         {isMemberAdmin && <Crown size={12} />}
-                        {getUserName(memberId)}{isCurrentUser && ' (You)'}
+                        {getUserProfile(memberId)?.name || 'User'}{isCurrentUser && ' (You)'}
                       </button>
                     </DropdownMenuTrigger>
                     {canManageRoles(user?.id || '') && !isCurrentUser && (
                       <DropdownMenuContent align="start" className="bg-popover">
                         <DropdownMenuLabel>Role Management</DropdownMenuLabel>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => { setMemberRole(memberId, isMemberAdmin ? 'member' : 'admin'); toast({ title: isMemberAdmin ? 'Admin removed' : 'Admin added', description: `${getUserName(memberId)} is now ${isMemberAdmin ? 'a member' : 'an admin'}` }); }} className="cursor-pointer">
+                        <DropdownMenuItem onClick={() => { setMemberRole(memberId, isMemberAdmin ? 'member' : 'admin'); toast({ title: isMemberAdmin ? 'Admin removed' : 'Admin added', description: `${getUserProfile(memberId)?.name || 'User'} is now ${isMemberAdmin ? 'a member' : 'an admin'}` }); }} className="cursor-pointer">
                           {isMemberAdmin ? <>Remove Admin</> : <><Crown size={14} className="mr-2" />Make Admin</>}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -444,7 +443,7 @@ const GroupDetail = () => {
                 balances={balances}
                 settlements={settlements}
                 profiles={group.members.reduce((acc, memberId) => {
-                  acc[memberId] = { name: getUserName(memberId) };
+                  acc[memberId] = { name: getUserProfile(memberId)?.name || 'User' };
                   return acc;
                 }, {})}
                 onSettleClick={(fromId, toId, amount) => {
@@ -492,16 +491,16 @@ const GroupDetail = () => {
       </main>
 
       <Dialog open={isSettleDialogOpen} onOpenChange={setIsSettleDialogOpen}>
-        <DialogContent>
+        <DialogContent className="w-[calc(100%-2rem)] sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Record Settlement</DialogTitle>
-            <DialogDescription>Record a payment between group members to settle up</DialogDescription>
+            <DialogTitle className="text-base sm:text-lg">Record Settlement</DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">Record a payment between group members to settle up</DialogDescription>
           </DialogHeader>
-          <div className="space-y-6 py-4">
+          <div className="space-y-4 sm:space-y-6 py-4">
             <div className="space-y-2">
-              <Label>Who paid?</Label>
+              <Label className="text-sm sm:text-base">Who paid?</Label>
               <Select value={settlePaidBy} onValueChange={(val) => { setSettlePaidBy(val); suggestAmount(); }}>
-                <SelectTrigger><SelectValue placeholder="Select payer" /></SelectTrigger>
+                <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select payer" /></SelectTrigger>
                 <SelectContent>
                   {group.members.map(memberId => (
                     <SelectItem key={memberId} value={memberId}>
@@ -512,9 +511,9 @@ const GroupDetail = () => {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Who received?</Label>
+              <Label className="text-sm sm:text-base">Who received?</Label>
               <Select value={settlePaidTo} onValueChange={(val) => { setSettlePaidTo(val); suggestAmount(); }}>
-                <SelectTrigger><SelectValue placeholder="Select receiver" /></SelectTrigger>
+                <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select receiver" /></SelectTrigger>
                 <SelectContent>
                   {group.members.filter(m => m !== settlePaidBy).map(memberId => (
                     <SelectItem key={memberId} value={memberId}>
@@ -525,17 +524,17 @@ const GroupDetail = () => {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="settleAmount">Amount</Label>
-              <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" />
+              <Label htmlFor="settleAmount" className="text-sm sm:text-base">Amount</Label>
+              <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" className="min-h-[44px]" />
             </div>
             <div className="space-y-2">
-              <Label>Payment Method</Label>
+              <Label className="text-sm sm:text-base">Payment Method</Label>
               <div className="flex gap-2">
-                <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1" onClick={() => setPaymentMethod('cash')}>✓ Paid</Button>
+                <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>✓ Paid</Button>
                 <Button 
                   type="button" 
                   variant={paymentMethod === 'upi' ? 'default' : 'outline'} 
-                  className="flex-1" 
+                  className="flex-1 min-h-[44px] h-auto text-sm" 
                   onClick={() => setPaymentMethod('upi')}
                   disabled={!settlePaidTo || !getUserProfile(settlePaidTo)?.upiId}
                   title={!settlePaidTo ? 'Select receiver first' : !getUserProfile(settlePaidTo)?.upiId ? 'Receiver has not set up UPI ID' : 'Pay via UPI'}
@@ -550,30 +549,30 @@ const GroupDetail = () => {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="settleDate">Date</Label>
-              <Input id="settleDate" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} />
+              <Label htmlFor="settleDate" className="text-sm sm:text-base">Date</Label>
+              <Input id="settleDate" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} className="min-h-[44px]" />
             </div>
-            <Button onClick={handleSettle} className="w-full"><CheckCircle size={18} />Record Settlement</Button>
+            <Button onClick={handleSettle} className="w-full min-h-[44px] h-auto"><CheckCircle size={18} />Record Settlement</Button>
           </div>
         </DialogContent>
       </Dialog>
 
       <Dialog open={isMemberDialogOpen} onOpenChange={setIsMemberDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100%-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Manage Members</DialogTitle>
-            <DialogDescription>Invite new members by email or manage existing members</DialogDescription>
+            <DialogTitle className="text-base sm:text-lg">Manage Members</DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">Invite new members by email or manage existing members</DialogDescription>
           </DialogHeader>
-          <div className="space-y-6 py-4">
+          <div className="space-y-4 sm:space-y-6 py-4">
             <div className="space-y-3">
-              <Label className="flex items-center gap-2"><Link size={16} />Invite by Link</Label>
+              <Label className="flex items-center gap-2 text-sm sm:text-base"><Link size={16} />Invite by Link</Label>
               <div className="space-y-2">
                 {!inviteLink && !group?.inviteCode ? (
                   <Button 
                     onClick={handleGenerateInviteLink} 
                     disabled={isGeneratingLink}
                     variant="outline"
-                    className="w-full"
+                    className="w-full min-h-[44px] h-auto"
                   >
                     <Link size={16} className="mr-2" />
                     {isGeneratingLink ? 'Generating...' : 'Generate Invite Link'}
@@ -584,9 +583,9 @@ const GroupDetail = () => {
                       type="text" 
                       value={inviteLink || `${window.location.origin}/join/${group?.inviteCode}`} 
                       readOnly 
-                      className="flex-1 font-mono text-sm" 
+                      className="flex-1 font-mono text-xs sm:text-sm min-h-[44px]" 
                     />
-                    <Button onClick={handleCopyInviteLink} variant="outline">
+                    <Button onClick={handleCopyInviteLink} variant="outline" className="min-h-[44px] min-w-[44px]">
                       {linkCopied ? <Check size={16} /> : <Copy size={16} />}
                     </Button>
                   </div>
@@ -595,30 +594,30 @@ const GroupDetail = () => {
               </div>
             </div>
             <div className="space-y-3">
-              <Label className="flex items-center gap-2"><UserPlus size={16} />Invite by Email</Label>
+              <Label className="flex items-center gap-2 text-sm sm:text-base"><UserPlus size={16} />Invite by Email</Label>
               <div className="flex gap-2">
-                <Input type="email" placeholder="Enter email address" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleInviteMember(); } }} className="flex-1" />
-                <Button onClick={handleInviteMember} disabled={!inviteEmail.trim()}><Plus size={16} />Invite</Button>
+                <Input type="email" placeholder="Enter email address" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleInviteMember(); } }} className="flex-1 min-h-[44px]" />
+                <Button onClick={handleInviteMember} disabled={!inviteEmail.trim()} className="min-h-[44px]"><Plus size={16} />Invite</Button>
               </div>
             </div>
             <div className="space-y-3">
-              <Label className="flex items-center gap-2"><Users size={16} />Current Members ({group.members.length})</Label>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
+              <Label className="flex items-center gap-2 text-sm sm:text-base"><Users size={16} />Current Members ({group.members.length})</Label>
+              <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto mobile-scroll">
                 {group.members.map(memberId => {
                   const memberRole = getMemberRole(memberId);
                   const isCreator = memberId === group.createdBy;
                   const memberBalance = balances[memberId] || 0;
                   const hasBalance = Math.abs(memberBalance) > 0.01;
                   return (
-                    <div key={memberId} className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        {memberRole === 'admin' && <Crown size={14} className="text-primary" />}
-                        <span className="font-medium">{getUserName(memberId)}</span>
-                        {isCreator && <Badge variant="outline" className="text-xs">Creator</Badge>}
-                        {memberId === user?.id && <Badge variant="secondary" className="text-xs">You</Badge>}
+                    <div key={memberId} className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg gap-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {memberRole === 'admin' && <Crown size={14} className="text-primary flex-shrink-0" />}
+                        <span className="font-medium text-sm truncate">{getUserProfile(memberId)?.name || 'User'}</span>
+                        {isCreator && <Badge variant="outline" className="text-[10px] flex-shrink-0">Creator</Badge>}
+                        {memberId === user?.id && <Badge variant="secondary" className="text-[10px] flex-shrink-0">You</Badge>}
                       </div>
                       {!isCreator && memberId !== user?.id && canManageMembers(user?.id || '') && (
-                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleRemoveMember(memberId)} disabled={hasBalance}>
+                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive min-h-[44px] min-w-[44px] flex-shrink-0" onClick={() => handleRemoveMember(memberId)} disabled={hasBalance}>
                           <UserMinus size={14} />
                         </Button>
                       )}

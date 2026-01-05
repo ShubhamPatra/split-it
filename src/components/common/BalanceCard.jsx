@@ -1,11 +1,13 @@
 import React from 'react';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
-import { getUserName } from '../../data/mockData';
+import { useGroups } from '../../context/GroupContext';
 
 const BalanceCard = ({ memberId, balance }) => {
+  const { getUserProfile } = useGroups();
   const isPositive = balance > 0;
   const isNegative = balance < 0;
   const isSettled = balance === 0;
+  const userName = getUserProfile(memberId)?.name || 'User';
 
   return (
     <div className="glass-card rounded-lg sm:rounded-xl p-3 sm:p-4 animate-fade-in w-full">
@@ -16,10 +18,10 @@ const BalanceCard = ({ memberId, balance }) => {
             ${isNegative ? 'bg-destructive/10 text-destructive' : ''}
             ${isSettled ? 'bg-muted text-muted-foreground' : ''}
           `}>
-            {getUserName(memberId).charAt(0)}
+            {userName.charAt(0)}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm sm:text-base text-foreground truncate">{getUserName(memberId)}</p>
+            <p className="font-medium text-sm sm:text-base text-foreground truncate">{userName}</p>
             <p className="text-xs sm:text-sm text-muted-foreground">
               {isPositive && 'gets back'}
               {isNegative && 'owes'}

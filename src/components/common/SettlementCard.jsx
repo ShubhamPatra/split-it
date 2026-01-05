@@ -1,6 +1,5 @@
 import React from 'react';
 import { ArrowRight, Trash2, Clock, Smartphone, CreditCard, CheckCircle, Building2, Wallet } from 'lucide-react';
-import { getUserName } from '../../data/mockData';
 import { useGroups } from '../../context/GroupContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../hooks/use-toast';
@@ -48,9 +47,9 @@ const SettlementCard = ({ settlement }) => {
         </div>
         <div className="flex-1 min-w-0 w-full sm:w-auto">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="font-medium text-sm sm:text-base text-foreground truncate">{getUserName(settlement.fromUserId)}</span>
+            <span className="font-medium text-sm sm:text-base text-foreground truncate">{getUserProfile(settlement.fromUserId)?.name || 'User'}</span>
             <ArrowRight size={16} className="text-muted-foreground flex-shrink-0" />
-            <span className="font-medium text-sm sm:text-base text-foreground truncate">{getUserName(settlement.toUserId)}</span>
+            <span className="font-medium text-sm sm:text-base text-foreground truncate">{getUserProfile(settlement.toUserId)?.name || 'User'}</span>
             <Badge variant="outline" className="text-[10px] sm:text-xs gap-1 flex-shrink-0">
               {getPaymentMethodIcon()}
               {getPaymentMethodLabel()}

@@ -4,7 +4,6 @@ import { ArrowLeft, Receipt, IndianRupee, Calendar, Users, Settings2, Scan, Aler
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useNotifications } from '../context/NotificationContext';
-import { getUserName } from '../data/mockData';
 import { categories } from '../data/categories';
 import { sanitizeInput } from '../lib/utils';
 import Navbar from '../components/layout/Navbar';
@@ -26,7 +25,7 @@ const AddExpense = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user, isAuthenticated } = useAuth();
-  const { groups, addExpense } = useGroups();
+  const { groups, addExpense, getUserProfile } = useGroups();
   const { addNotification } = useNotifications();
   const { toast } = useToast();
 
@@ -354,7 +353,7 @@ const AddExpense = () => {
                 <Select value={paidBy} onValueChange={setPaidBy}>
                   <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Who paid?" /></SelectTrigger>
                   <SelectContent>
-                    {currentGroup.members.map(memberId => (<SelectItem key={memberId} value={memberId}>{getUserName(memberId)}{memberId === user?.id && ' (You)'}</SelectItem>))}
+                    {currentGroup.members.map(memberId => (<SelectItem key={memberId} value={memberId}>{getUserProfile(memberId)?.name || 'User'}{memberId === user?.id && ' (You)'}</SelectItem>))}
                   </SelectContent>
                 </Select>
               </div>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Bell, Check, Trash2, Receipt, Wallet, Users, Info, CheckCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, Check, Trash2, Receipt, Wallet, Users, Info, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useNotifications } from '../../context/NotificationContext';
 import apiClient from '../../lib/apiClient';
 import { Button } from '../ui/button';
@@ -30,11 +31,13 @@ const getNotificationIcon = (type) => {
     case 'balance_update': return <Wallet size={16} className="text-warning" />;
     case 'settlement': return <Check size={16} className="text-success" />;
     case 'role_change': return <Users size={16} className="text-accent-foreground" />;
+    case 'warning': return <AlertTriangle size={16} className="text-yellow-500" />;
     default: return <Info size={16} className="text-muted-foreground" />;
   }
 };
 
 const NotificationDropdown = () => {
+  const navigate = useNavigate();
   const { notifications, unreadCount, markAsRead, markAllAsRead, removeNotification, clearNotifications, refreshNotifications } = useNotifications();
   const { toast } = useToast();
   const [processingAction, setProcessingAction] = useState(null);
@@ -109,7 +112,13 @@ const NotificationDropdown = () => {
               <DropdownMenuItem 
                 key={notification.id} 
                 className={`flex items-start gap-3 p-3 cursor-pointer min-h-[72px] ${!notification.read ? 'bg-accent/50' : ''}`} 
-                onClick={() => markAsRead(notification.id)}
+                onClick={() => {
+                  markAsRead(notification.id);
+                  // Handle navigation action type
+                  if (notification.actionType === 'navigate' && notification.relatedId) {
+                    navigate(notification.relatedId);
+                  }
+                }}
               >
                 <div className="mt-1 flex-shrink-0">{getNotificationIcon(notification.type)}</div>
                 <div className="flex-1 min-w-0">

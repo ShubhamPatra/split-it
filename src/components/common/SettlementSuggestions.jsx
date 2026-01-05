@@ -58,23 +58,23 @@ const SettlementSuggestions = ({ balances, settlements, profiles, onSettleClick 
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <div>
-              <p className="text-sm text-muted-foreground">Total to Settle</p>
-              <p className="text-2xl font-bold text-foreground">₹{stats.remainingToSettle.toLocaleString()}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Total to Settle</p>
+              <p className="text-lg sm:text-2xl font-bold text-foreground">₹{stats.remainingToSettle.toLocaleString()}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Transactions Needed</p>
-              <p className="text-2xl font-bold text-primary">{stats.optimalTransactionCount}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Transactions Needed</p>
+              <p className="text-lg sm:text-2xl font-bold text-primary">{stats.optimalTransactionCount}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Settled</p>
-              <p className="text-2xl font-bold text-success">₹{stats.settledAmount.toLocaleString()}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Settled</p>
+              <p className="text-lg sm:text-2xl font-bold text-success">₹{stats.settledAmount.toLocaleString()}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Progress</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">Progress</p>
               <div className="flex items-center gap-2">
-                <p className="text-2xl font-bold text-foreground">{stats.settlementProgress}%</p>
+                <p className="text-lg sm:text-2xl font-bold text-foreground">{stats.settlementProgress}%</p>
               </div>
             </div>
           </div>
@@ -118,45 +118,56 @@ const SettlementSuggestions = ({ balances, settlements, profiles, onSettleClick 
             return (
               <div 
                 key={`${settlement.from}-${settlement.to}-${index}`}
-                className="glass-card p-4 rounded-lg hover:shadow-md transition-all"
+                className="glass-card p-3 sm:p-4 rounded-lg hover:shadow-md transition-all"
               >
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3 flex-1">
-                    <div className="p-2 rounded-lg bg-destructive/10">
-                      <TrendingDown className="text-destructive" size={20} />
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+                  {/* From User */}
+                  <div className="flex items-center gap-3 w-full sm:flex-1">
+                    <div className="p-2 rounded-lg bg-destructive/10 flex-shrink-0">
+                      <TrendingDown className="text-destructive" size={18} />
                     </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-foreground">{fromUser}</p>
-                      <p className="text-sm text-muted-foreground">Pays</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-foreground text-sm sm:text-base truncate">{fromUser}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Pays</p>
+                    </div>
+                    {/* Amount - shown inline on mobile */}
+                    <div className="flex sm:hidden items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-lg">
+                      <ArrowRight className="text-primary" size={14} />
+                      <span className="font-bold text-base text-primary">
+                        ₹{settlement.amount.toLocaleString()}
+                      </span>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-lg">
+                  {/* Amount - shown separately on desktop */}
+                  <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-lg flex-shrink-0">
                     <ArrowRight className="text-primary" size={16} />
                     <span className="font-bold text-lg text-primary">
                       ₹{settlement.amount.toLocaleString()}
                     </span>
                   </div>
                   
-                  <div className="flex items-center gap-3 flex-1">
-                    <div className="p-2 rounded-lg bg-success/10">
-                      <TrendingUp className="text-success" size={20} />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-foreground">{toUser}</p>
-                        {hasUpi && providerIcon && (
-                          <Badge variant="ghost" className="text-xs">
-                            {providerIcon}
+                  {/* To User & Settle Button */}
+                  <div className="flex items-center justify-between w-full sm:w-auto sm:flex-1 gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="p-2 rounded-lg bg-success/10 flex-shrink-0">
+                        <TrendingUp className="text-success" size={18} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-foreground text-sm sm:text-base truncate">{toUser}</p>
+                          {hasUpi && providerIcon && (
+                            <Badge variant="ghost" className="text-xs flex-shrink-0">
+                              {providerIcon}
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground">Receives</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Receives</p>
                     </div>
                   </div>
                   
                   {/* Payment Method Selector */}
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-shrink-0">
                     {hasUpi && (
                       <UpiPaymentButton
                         amount={settlement.amount}
@@ -175,11 +186,13 @@ const SettlementSuggestions = ({ balances, settlements, profiles, onSettleClick 
                         onClick={() => onSettleClick(settlement.from, settlement.to, settlement.amount, 'cash')}
                         size="sm"
                         variant="default"
+                        className="min-h-[44px] h-auto"
                       >
-                        <Wallet size={16} className="mr-2" />
-                        Settle
+                        <Wallet size={16} className="mr-1 sm:mr-2" />
+                        <span className="text-xs sm:text-sm">Settle</span>
                       </Button>
                     )}
+                  </div>
                   </div>
                 </div>
                 {hasUpi && toUserUpiId && (

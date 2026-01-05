@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Percent, DollarSign } from 'lucide-react';
-import { getUserName } from '../../data/mockData';
+import { useGroups } from '../../context/GroupContext';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
@@ -8,6 +8,7 @@ import { Checkbox } from '../ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 
 const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, currentSplit, onSave }) => {
+  const { getUserProfile } = useGroups();
   const [splitType, setSplitType] = useState(currentSplit.type);
   const [shares, setShares] = useState(currentSplit.shares);
   const [selectedMembers, setSelectedMembers] = useState(Object.keys(currentSplit.shares).filter(m => currentSplit.shares[m] > 0) || members);
@@ -197,7 +198,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                       onCheckedChange={(checked) => handleMemberToggle(memberId, checked)}
                       className="flex-shrink-0"
                     />
-                    <span className="font-medium text-sm sm:text-base truncate">{getUserName(memberId)}</span>
+                    <span className="font-medium text-sm sm:text-base truncate">{getUserProfile(memberId)?.name || 'User'}</span>
                   </div>
                   <span className="text-xs sm:text-sm text-muted-foreground flex-shrink-0">
                     {selectedMembers.includes(memberId) ? `₹${equalShare.toFixed(2)}` : '-'}
@@ -211,7 +212,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
             <div className="space-y-2 flex-1 overflow-y-auto pr-1">
               {members.map(memberId => (
                 <div key={memberId} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 gap-2">
-                  <span className="font-medium text-sm sm:text-base truncate flex-1 min-w-0">{getUserName(memberId)}</span>
+                  <span className="font-medium text-sm sm:text-base truncate flex-1 min-w-0">{getUserProfile(memberId)?.name || 'User'}</span>
                   <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                     <span className="text-xs sm:text-sm text-muted-foreground">₹</span>
                     <Input 
@@ -238,7 +239,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                 const amount = (percentage / 100) * totalAmount; 
                 return (
                   <div key={memberId} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 gap-2">
-                    <span className="font-medium text-sm sm:text-base truncate flex-1 min-w-0">{getUserName(memberId)}</span>
+                    <span className="font-medium text-sm sm:text-base truncate flex-1 min-w-0">{getUserProfile(memberId)?.name || 'User'}</span>
                     <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
                       <span className="text-xs sm:text-sm text-muted-foreground hidden sm:inline">₹{amount.toFixed(2)}</span>
                       <div className="flex items-center gap-1">
