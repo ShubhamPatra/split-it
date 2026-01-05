@@ -2,7 +2,7 @@
 
 A modern, full-stack expense sharing application that makes splitting bills with friends easy and organized. Built with React 19, Express.js, MongoDB, and featuring real-time updates with WebSockets.
 
-![Split-It Banner](public/image.png)
+![Split-It Banner](public/banner.png)
 
 ## ✨ Features
 
