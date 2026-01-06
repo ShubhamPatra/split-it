@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, User, Smartphone, Save, Check, AlertCircle, Moon, Sun, Bell } from 'lucide-react';
+import { ArrowLeft, User, Smartphone, Save, Check, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../context/ThemeContext';
 import Navbar from '../components/layout/Navbar';
-import PushNotificationToggle from '../components/common/PushNotificationToggle';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -15,7 +13,6 @@ import { isValidUpiId } from '../lib/utils';
 const Profile = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated, updateUserProfile } = useAuth();
-  const { theme, setLightTheme, setDarkTheme } = useTheme();
   const { toast } = useToast();
 
   const [name, setName] = useState('');
@@ -239,63 +236,6 @@ const Profile = () => {
                 ))}
               </div>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Appearance Settings */}
-        <Card className="mb-4 sm:mb-6 animate-fade-in" style={{ animationDelay: '0.2s' }}>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-              {theme === 'dark' ? <Moon size={18} /> : <Sun size={18} />}
-              Appearance
-            </CardTitle>
-            <CardDescription className="text-xs sm:text-sm">
-              Choose your preferred theme
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={setLightTheme}
-                className={`flex items-center justify-center gap-2 p-4 rounded-lg border-2 transition-all ${
-                  theme === 'light' 
-                    ? 'border-primary bg-primary/10' 
-                    : 'border-border hover:border-primary/50'
-                }`}
-              >
-                <Sun size={20} className="text-yellow-500" />
-                <span className="font-medium">Light</span>
-                {theme === 'light' && <Check size={16} className="text-primary ml-2" />}
-              </button>
-              <button
-                onClick={setDarkTheme}
-                className={`flex items-center justify-center gap-2 p-4 rounded-lg border-2 transition-all ${
-                  theme === 'dark' 
-                    ? 'border-primary bg-primary/10' 
-                    : 'border-border hover:border-primary/50'
-                }`}
-              >
-                <Moon size={20} className="text-slate-400" />
-                <span className="font-medium">Dark</span>
-                {theme === 'dark' && <Check size={16} className="text-primary ml-2" />}
-              </button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Notification Settings */}
-        <Card className="mb-4 sm:mb-6 animate-fade-in" style={{ animationDelay: '0.3s' }}>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <Bell size={18} />
-              Notifications
-            </CardTitle>
-            <CardDescription className="text-xs sm:text-sm">
-              Manage how you receive notifications
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <PushNotificationToggle />
           </CardContent>
         </Card>
 

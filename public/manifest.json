@@ -9,27 +9,27 @@
       "type": "image/x-icon"
     },
     {
-      "src": "image.png",
+      "src": "logo192.png",
       "type": "image/png",
-      "sizes": "512x512",
+      "sizes": "192x192",
       "purpose": "any"
     },
     {
-      "src": "image.png",
+      "src": "logo192.png",
       "type": "image/png",
-      "sizes": "512x512",
+      "sizes": "192x192",
       "purpose": "maskable"
     },
     {
-      "src": "image.png",
+      "src": "logo512.png",
       "type": "image/png",
-      "sizes": "192x192",
+      "sizes": "512x512",
       "purpose": "any"
     },
     {
-      "src": "image.png",
+      "src": "logo512.png",
       "type": "image/png",
-      "sizes": "192x192",
+      "sizes": "512x512",
       "purpose": "maskable"
     }
   ],
@@ -46,21 +46,21 @@
       "short_name": "Add",
       "description": "Quickly add a new expense",
       "url": "/add-expense",
-      "icons": [{ "src": "image.png", "sizes": "192x192" }]
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
     },
     {
       "name": "View Groups",
       "short_name": "Groups",
       "description": "View your expense groups",
       "url": "/groups",
-      "icons": [{ "src": "image.png", "sizes": "192x192" }]
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
     },
     {
       "name": "Dashboard",
       "short_name": "Home",
       "description": "View your dashboard",
       "url": "/dashboard",
-      "icons": [{ "src": "image.png", "sizes": "192x192" }]
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
     }
   ],
   "screenshots": [],

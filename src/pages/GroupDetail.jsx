@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, Smartphone, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Link, Copy, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
-import { useSocket } from '../context/SocketContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useGroupRoles } from '../hooks/useGroupRoles';
 import { getCategoryById } from '../data/categories';
@@ -49,44 +48,25 @@ import {
 import { useToast } from '../hooks/use-toast';
 
 const GroupDetail = () => {
-
   const navigate = useNavigate();
   const { id } = useParams();
   const { user, isAuthenticated } = useAuth();
-  const {
-    getGroupById,
-    getGroupExpenses,
-    getGroupBalances,
+  const { 
+    getGroupById, 
+    getGroupExpenses, 
+    getGroupBalances, 
     getTotalExpenses,
     getGroupSettlements,
     addSettlement,
     addMemberToGroup,
     removeMemberFromGroup,
     generateInviteCode,
-    getUserProfile,
-    refreshData
+    getUserProfile
   } = useGroups();
-  const { joinGroup, leaveGroup, subscribe } = useSocket();
-  const group = getGroupById(id || '');
-  // Join group room and subscribe to group events for real-time updates
-  useEffect(() => {
-    if (!group?.id) return;
-    joinGroup(group.id);
-    // Subscribe to group-specific events and refresh group data on change
-    const unsubscribes = [
-      subscribe('expense_added', refreshData),
-      subscribe('expense_updated', refreshData),
-      subscribe('expense_deleted', refreshData),
-      subscribe('settlement_created', refreshData),
-      subscribe('member_joined', refreshData),
-    ];
-    return () => {
-      leaveGroup(group.id);
-      unsubscribes.forEach(unsub => unsub && unsub());
-    };
-  }, [group?.id, joinGroup, leaveGroup, subscribe, refreshData]);
   const { refreshNotifications } = useNotifications();
   const { toast } = useToast();
+  
+  const group = getGroupById(id || '');
   
   const { 
     isAdmin, 
@@ -299,7 +279,7 @@ const GroupDetail = () => {
     }
   };
 
-  const handleRemoveMember = async (memberId) => {
+  const handleRemoveMember = (memberId) => {
     if (memberId === group.createdBy) {
       toast({ title: "Cannot remove creator", description: "The group creator cannot be removed from the group.", variant: "destructive" });
       return;
@@ -309,13 +289,8 @@ const GroupDetail = () => {
       toast({ title: "Cannot remove member", description: `${getUserProfile(memberId)?.name || 'User'} has an outstanding balance of ₹${Math.abs(memberBalance).toFixed(0)}. Settle up first.`, variant: "destructive" });
       return;
     }
-    const memberName = getUserProfile(memberId)?.name || 'User';
-    const success = await removeMemberFromGroup(group.id, memberId);
-    if (success) {
-      toast({ title: "Member removed", description: `${memberName} has been removed from the group.` });
-    } else {
-      toast({ title: "Error", description: "Failed to remove member. Please try again.", variant: "destructive" });
-    }
+    removeMemberFromGroup(group.id, memberId);
+    toast({ title: "Member removed", description: `${getUserProfile(memberId)?.name || 'User'} has been removed from the group.` });
   };
 
   return (
@@ -641,7 +616,7 @@ const GroupDetail = () => {
                         {isCreator && <Badge variant="outline" className="text-[10px] flex-shrink-0">Creator</Badge>}
                         {memberId === user?.id && <Badge variant="secondary" className="text-[10px] flex-shrink-0">You</Badge>}
                       </div>
-                      {!isCreator && memberId !== user?.id && (user?.id === group.createdBy) && (
+                      {!isCreator && memberId !== user?.id && canManageMembers(user?.id || '') && (
                         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive min-h-[44px] min-w-[44px] flex-shrink-0" onClick={() => handleRemoveMember(memberId)} disabled={hasBalance}>
                           <UserMinus size={14} />
                         </Button>

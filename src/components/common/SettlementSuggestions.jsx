@@ -3,14 +3,14 @@ import { TrendingDown, TrendingUp, AlertCircle, CheckCircle2, ArrowRight, Sparkl
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { calculateMinimumTransactions, calculateSettlementStats } from '../../utils/settlementOptimizer';
+import { calculateOptimalSettlements, calculateSettlementStats } from '../../utils/settlementOptimizer';
 import { getUpiProviderIcon } from '../../utils/upiHelpers';
 import UpiPaymentButton from './UpiPaymentButton';
 
 const SettlementSuggestions = ({ balances, settlements, profiles, onSettleClick }) => {
-  // Calculate optimal settlements using minimum transactions algorithm
+  // Calculate optimal settlements
   const optimalSettlements = useMemo(() => {
-    return calculateMinimumTransactions(balances);
+    return calculateOptimalSettlements(balances);
   }, [balances]);
 
   // Calculate stats

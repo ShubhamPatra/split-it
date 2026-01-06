@@ -1,6 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
-import { useSocket } from './SocketContext';
 import apiClient from '../lib/apiClient';
 
 // Create the context
@@ -15,7 +14,6 @@ export const GroupProvider = ({ children }) => {
   const [profiles, setProfiles] = useState({}); // Cache user profiles
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
-  const { subscribe } = useSocket();
 
   // Load all user data from API
   const loadUserData = useCallback(async () => {
@@ -109,22 +107,6 @@ export const GroupProvider = ({ children }) => {
       setLoading(false);
     }
   }, [user, loadUserData]);
-
-  // WebSocket subscriptions for real-time group/expense/settlement/member events
-  useEffect(() => {
-    if (!user) return;
-    // Listeners: always refresh all data for simplicity/consistency
-    const unsubscribes = [
-      subscribe('expense_added', loadUserData),
-      subscribe('expense_updated', loadUserData),
-      subscribe('expense_deleted', loadUserData),
-      subscribe('settlement_created', loadUserData),
-      subscribe('member_joined', loadUserData),
-    ];
-    return () => {
-      unsubscribes.forEach(unsub => unsub && unsub());
-    };
-  }, [user, subscribe, loadUserData]);
 
   // Add a new group
   const addGroup = async (name, members) => {

@@ -1,7 +1,5 @@
 import Expense from '../models/Expense.js';
 import Group from '../models/Group.js';
-import { sendPushToUsers, pushPayloads } from '../utils/pushNotifications.js';
-import { emitExpenseAdded, emitExpenseUpdated, emitExpenseDeleted } from '../utils/socketManager.js';
 
 // @desc    Get all expenses for user's groups
 // @route   GET /api/expenses
@@ -110,28 +108,6 @@ export const createExpense = async (req, res) => {
       .populate('splitAmong', 'name email')
       .populate('groupId', 'name');
 
-    // Emit socket event for real-time update
-    emitExpenseAdded(groupId, populatedExpense);
-
-    // Emit socket event (if using socketManager, not shown here)
-    // After socket emit, send push notifications to group members (except the creator)
-    try {
-      const notifyMembers = group.members
-        .filter(memberId => memberId.toString() !== req.user._id.toString());
-      if (notifyMembers.length > 0) {
-        await sendPushToUsers(notifyMembers.map(id => id.toString()), pushPayloads.expenseAdded({
-          paidByName: populatedExpense.paidBy.name,
-          description: populatedExpense.description,
-          amount: populatedExpense.amount,
-          expenseId: populatedExpense._id.toString(),
-          groupId: group._id.toString(),
-        }));
-      }
-    } catch (pushError) {
-      console.error('Push notification error:', pushError);
-      // Don't fail the request if push fails
-    }
-
     res.status(201).json(populatedExpense);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -172,9 +148,6 @@ export const updateExpense = async (req, res) => {
       .populate('splitAmong', 'name email')
       .populate('groupId', 'name');
 
-    // Emit socket event for real-time update
-    emitExpenseUpdated(expense.groupId._id || expense.groupId, updatedExpense);
-
     res.json(updatedExpense);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -198,9 +171,6 @@ export const deleteExpense = async (req, res) => {
     }
 
     await Expense.findByIdAndDelete(req.params.id);
-
-    // Emit socket event for real-time update
-    emitExpenseDeleted(expense.groupId._id || expense.groupId, expense._id);
 
     res.json({ message: 'Expense deleted successfully', success: true });
   } catch (error) {

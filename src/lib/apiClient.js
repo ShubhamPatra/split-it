@@ -61,7 +61,10 @@ const handleResponse = async (response) => {
 
 // Helper to make requests with timeout and retry logic
 const makeRequest = async (url, options, retries = 1, cacheKey = null) => {
-  // Allow all requests to proceed so SW can handle offline/cache/background sync
+  // Check if we're offline
+  if (!navigator.onLine) {
+    throw new Error('No internet connection. Please check your network.');
+  }
 
   // Check cache for GET requests
   if (options.method === 'GET' && cacheKey) {
@@ -123,34 +126,14 @@ const makeRequest = async (url, options, retries = 1, cacheKey = null) => {
   return requestPromise;
 };
 
-
-// Selective cache invalidation utility
-const clearCache = (predicate) => {
-  if (!predicate) {
-    requestCache.clear();
-    pendingRequests.clear();
-    return;
-  }
-  for (const key of Array.from(requestCache.keys())) {
-    if (predicate(key)) requestCache.delete(key);
-  }
-  for (const key of Array.from(pendingRequests.keys())) {
-    if (predicate(key)) pendingRequests.delete(key);
-  }
-};
-
-// Helper to update cache optimistically
-const updateCache = (cacheKey, updater) => {
-  if (requestCache.has(cacheKey)) {
-    const entry = requestCache.get(cacheKey);
-    const updated = updater(entry.data);
-    requestCache.set(cacheKey, { data: updated, timestamp: Date.now() });
-  }
+// Clear cache utility
+const clearCache = () => {
+  requestCache.clear();
+  pendingRequests.clear();
 };
 
 // Create axios-like API client
 const apiClient = {
-
   get: async (endpoint) => {
     const token = getToken();
     const cacheKey = `GET:${endpoint}:${token || 'anon'}`;
@@ -168,93 +151,45 @@ const apiClient = {
     );
   },
 
-
-  post: async (endpoint, body, { optimisticKey, optimisticUpdater, rollbackUpdater } = {}) => {
+  post: async (endpoint, body) => {
     const token = getToken();
-    // Optimistic update
-    let previousData;
-    if (optimisticKey && optimisticUpdater) {
-      if (requestCache.has(optimisticKey)) {
-        previousData = requestCache.get(optimisticKey).data;
-        updateCache(optimisticKey, optimisticUpdater);
-      }
-    }
-    // Selective cache invalidation
-    clearCache(key => key.includes(endpoint.split('/')[1]));
-    try {
-      const result = await makeRequest(`${API_URL}${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` }),
-        },
-        body: JSON.stringify(body),
-      });
-      return result;
-    } catch (error) {
-      // Rollback on error
-      if (optimisticKey && rollbackUpdater && previousData) {
-        requestCache.set(optimisticKey, { data: rollbackUpdater(previousData), timestamp: Date.now() });
-      }
-      throw error;
-    }
+    // Clear cache on mutations
+    clearCache();
+    return makeRequest(`${API_URL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: JSON.stringify(body),
+    });
   },
 
-
-  put: async (endpoint, body, { optimisticKey, optimisticUpdater, rollbackUpdater } = {}) => {
+  put: async (endpoint, body) => {
     const token = getToken();
-    let previousData;
-    if (optimisticKey && optimisticUpdater) {
-      if (requestCache.has(optimisticKey)) {
-        previousData = requestCache.get(optimisticKey).data;
-        updateCache(optimisticKey, optimisticUpdater);
-      }
-    }
-    clearCache(key => key.includes(endpoint.split('/')[1]));
-    try {
-      const result = await makeRequest(`${API_URL}${endpoint}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` }),
-        },
-        body: JSON.stringify(body),
-      });
-      return result;
-    } catch (error) {
-      if (optimisticKey && rollbackUpdater && previousData) {
-        requestCache.set(optimisticKey, { data: rollbackUpdater(previousData), timestamp: Date.now() });
-      }
-      throw error;
-    }
+    // Clear cache on mutations
+    clearCache();
+    return makeRequest(`${API_URL}${endpoint}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: JSON.stringify(body),
+    });
   },
 
-
-  delete: async (endpoint, { optimisticKey, optimisticUpdater, rollbackUpdater } = {}) => {
+  delete: async (endpoint) => {
     const token = getToken();
-    let previousData;
-    if (optimisticKey && optimisticUpdater) {
-      if (requestCache.has(optimisticKey)) {
-        previousData = requestCache.get(optimisticKey).data;
-        updateCache(optimisticKey, optimisticUpdater);
-      }
-    }
-    clearCache(key => key.includes(endpoint.split('/')[1]));
-    try {
-      const result = await makeRequest(`${API_URL}${endpoint}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` }),
-        },
-      });
-      return result;
-    } catch (error) {
-      if (optimisticKey && rollbackUpdater && previousData) {
-        requestCache.set(optimisticKey, { data: rollbackUpdater(previousData), timestamp: Date.now() });
-      }
-      throw error;
-    }
+    // Clear cache on mutations
+    clearCache();
+    return makeRequest(`${API_URL}${endpoint}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+    });
   },
 
   // Utility to manually clear cache

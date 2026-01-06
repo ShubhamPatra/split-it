@@ -17,6 +17,7 @@ const SettlementCard = ({ settlement }) => {
   const handleDelete = () => { deleteSettlement(settlement.id); toast({ title: "Settlement deleted" }); };
 
   const receiver = getUserProfile(settlement.toUserId);
+  const payer = getUserProfile(settlement.fromUserId);
   const isPending = settlement.paymentStatus === 'pending';
   const isUpi = settlement.paymentMethod === 'upi';
   const isCurrentUserPayer = user?.id === settlement.fromUserId;

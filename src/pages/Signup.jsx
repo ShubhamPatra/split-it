@@ -7,7 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import Logo from '../components/common/Logo';
 import { useToast } from '../hooks/use-toast';
-import { isValidEmail } from '../lib/utils';
+import { isValidEmail, sanitizeInput } from '../lib/utils';
 
 const Signup = () => {
   const navigate = useNavigate();

@@ -240,9 +240,6 @@ const Login = () => {
               size="large"
               text="signin_with"
               shape="rectangular"
-              useOneTap={false}
-              auto_select={false}
-              prompt_parent_id="google-login-container"
             />
           </div>
 

@@ -1,13 +1,10 @@
 import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { Analytics as VercelAnalytics } from '@vercel/analytics/react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { GroupProvider } from './context/GroupContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { CurrencyProvider } from './context/CurrencyContext';
-import { ThemeProvider } from './context/ThemeContext';
-import { SocketProvider } from './context/SocketContext';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
 import Loading from './components/common/Loading';
@@ -44,49 +41,44 @@ const PrivateRoute = ({ children }) => {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider>
-        <GoogleOAuthProvider clientId={process.env.REACT_APP_GOOGLE_CLIENT_ID}>
-          <BrowserRouter>
-            <AuthProvider>
-              <SocketProvider>
-                <GroupProvider>
-                  <NotificationProvider>
-                    <CurrencyProvider>
-                      <TooltipProvider>
-                        <OfflineIndicator />
-                        <PwaInstallPrompt />
-                        <Toaster />
-                        <VercelAnalytics />
-                        <Suspense fallback={<Loading />}>
-                          <Routes>
-                            {/* Public Routes */}
-                            <Route path="/" element={<Index />} />
-                            <Route path="/login" element={<Login />} />
-                            <Route path="/signup" element={<Signup />} />
-                            <Route path="/join/:inviteCode" element={<JoinGroup />} />
-                            
-                            {/* Protected Routes */}
-                            <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-                            <Route path="/groups" element={<PrivateRoute><Groups /></PrivateRoute>} />
-                            <Route path="/group/:id" element={<PrivateRoute><GroupDetail /></PrivateRoute>} />
-                            <Route path="/add-expense" element={<PrivateRoute><AddExpense /></PrivateRoute>} />
-                            <Route path="/summary" element={<PrivateRoute><Summary /></PrivateRoute>} />
-                            <Route path="/analytics" element={<PrivateRoute><Analytics /></PrivateRoute>} />
-                            <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
-                            
-                            {/* Catch-all */}
-                            <Route path="*" element={<NotFound />} />
-                          </Routes>
-                        </Suspense>
-                      </TooltipProvider>
-                    </CurrencyProvider>
-                  </NotificationProvider>
-                </GroupProvider>
-              </SocketProvider>
-            </AuthProvider>
-          </BrowserRouter>
-        </GoogleOAuthProvider>
-      </ThemeProvider>
+      <GoogleOAuthProvider clientId={process.env.REACT_APP_GOOGLE_CLIENT_ID}>
+        <BrowserRouter>
+          <AuthProvider>
+            <GroupProvider>
+              <NotificationProvider>
+                <CurrencyProvider>
+                  <TooltipProvider>
+                    <OfflineIndicator />
+                    <PwaInstallPrompt />
+                  <Toaster />
+                  <Suspense fallback={<Loading />}>
+                    <Routes>
+                    {/* Public Routes */}
+                    <Route path="/" element={<Index />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/signup" element={<Signup />} />
+                    <Route path="/join/:inviteCode" element={<JoinGroup />} />
+                    
+                    {/* Protected Routes */}
+                    <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+                  <Route path="/groups" element={<PrivateRoute><Groups /></PrivateRoute>} />
+                  <Route path="/group/:id" element={<PrivateRoute><GroupDetail /></PrivateRoute>} />
+                  <Route path="/add-expense" element={<PrivateRoute><AddExpense /></PrivateRoute>} />
+                  <Route path="/summary" element={<PrivateRoute><Summary /></PrivateRoute>} />
+                  <Route path="/analytics" element={<PrivateRoute><Analytics /></PrivateRoute>} />
+                  <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
+                  
+                  {/* Catch-all */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+                </Suspense>
+              </TooltipProvider>
+            </CurrencyProvider>
+          </NotificationProvider>
+        </GroupProvider>
+      </AuthProvider>
+    </BrowserRouter>
+    </GoogleOAuthProvider>
     </ErrorBoundary>
   );
 }

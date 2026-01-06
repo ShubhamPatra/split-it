@@ -4,7 +4,6 @@ import { Home, Users, PlusCircle, PieChart, LogOut, Settings, BarChart3 } from '
 import { useAuth } from '../../context/AuthContext';
 import Logo from '../common/Logo';
 import NotificationDropdown from '../common/NotificationDropdown';
-import ThemeToggle from '../common/ThemeToggle';
 import { Button } from '../ui/button';
 import {
   DropdownMenu,
@@ -77,8 +76,7 @@ const Navbar = () => {
             </div>
 
             {/* User Menu & Notifications */}
-            <div className="flex items-center gap-1 sm:gap-2">
-              <ThemeToggle variant="simple" />
+            <div className="flex items-center gap-2">
               <NotificationDropdown />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

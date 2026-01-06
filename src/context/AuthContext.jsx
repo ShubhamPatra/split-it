@@ -120,12 +120,8 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Logout function - clears localStorage session and revokes Google token
+  // Logout function - clears localStorage session
   const logout = async () => {
-    // Revoke Google OAuth session if available
-    if (window.google?.accounts?.id) {
-      window.google.accounts.id.disableAutoSelect();
-    }
     localStorage.removeItem('splitit_session');
     setUser(null);
   };

@@ -174,17 +174,17 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
         </DialogHeader>
         <Tabs value={splitType} onValueChange={handleSplitTypeChange} className="flex-1 overflow-hidden flex flex-col">
           <TabsList className="grid grid-cols-3 w-full">
-            <TabsTrigger value="equal" className="gap-2 min-h-[44px] text-xs sm:text-sm">
+            <TabsTrigger value="equal" className="gap-1 min-h-[44px] text-xs sm:text-sm">
               <Users size={14} />
               Equal
             </TabsTrigger>
-            <TabsTrigger value="exact" className="gap-2 min-h-[44px] text-xs sm:text-sm">
+            <TabsTrigger value="exact" className="gap-1 min-h-[44px] text-xs sm:text-sm">
               <DollarSign size={14} />
               Exact
             </TabsTrigger>
-            <TabsTrigger value="percentage" className="gap-2 min-h-[44px] text-xs sm:text-sm">
+            <TabsTrigger value="percentage" className="gap-1 min-h-[44px] text-xs sm:text-sm">
               <Percent size={14} />
-              Percent
+              %
             </TabsTrigger>
           </TabsList>
           <TabsContent value="equal" className="mt-3 sm:mt-4 space-y-3 sm:space-y-4 flex-1 overflow-hidden flex flex-col">

@@ -81,7 +81,7 @@ export const validateUpiId = (upiId) => {
   result.username = username;
 
   // Detect provider
-  for (const provider of Object.values(UPI_PROVIDERS)) {
+  for (const [, provider] of Object.entries(UPI_PROVIDERS)) {
     if (provider.domains.some(domain => handle.includes(domain))) {
       result.provider = provider.name;
       break;
@@ -302,7 +302,7 @@ export const getPaymentMethodIcon = (method) => {
   return iconMap[method] || 'DollarSign';
 };
 
-export const upiHelpers = {
+const upiHelpers = {
   validateUpiId,
   generateUpiUrl,
   UPI_APP_INTENTS,

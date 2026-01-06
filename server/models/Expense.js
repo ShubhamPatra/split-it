@@ -48,25 +48,6 @@ const expenseSchema = new mongoose.Schema({
       of: Number,
     },
   },
-  // Multiple receipt images
-  receipts: [{
-    id: String,
-    name: String,
-    data: String, // Base64 encoded image
-    size: Number,
-    type: String,
-    uploadedAt: Date,
-  }],
-  // Recurring expense reference
-  recurringExpenseId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'RecurringExpense',
-  },
-  // Notes/comments
-  notes: {
-    type: String,
-    maxlength: 500,
-  },
 }, {
   timestamps: true,
 });

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Receipt, IndianRupee, Calendar, Users, Settings2, Scan, AlertCircle, TrendingUp, CheckCircle2, Utensils } from 'lucide-react';
+import { ArrowLeft, Receipt, IndianRupee, Calendar, Users, Settings2, Scan, AlertCircle, TrendingUp, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -8,7 +8,6 @@ import { categories } from '../data/categories';
 import { sanitizeInput } from '../lib/utils';
 import Navbar from '../components/layout/Navbar';
 import AdvancedSplitDialog from '../components/expense/AdvancedSplitDialog';
-import ItemizedBillSplit from '../components/expense/ItemizedBillSplit';
 import BillScanner from '../components/expense/BillScanner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -37,7 +36,6 @@ const AddExpense = () => {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [category, setCategory] = useState('other');
   const [showSplitDialog, setShowSplitDialog] = useState(false);
-  const [showItemizedSplit, setShowItemizedSplit] = useState(false);
   const [splitConfig, setSplitConfig] = useState({ type: 'equal', shares: {} });
   const [showBillScanner, setShowBillScanner] = useState(false);
   const [errors, setErrors] = useState({});
@@ -207,49 +205,9 @@ const AddExpense = () => {
       setDescription(scannedData.description);
     }
     
-    // If items were extracted, auto-open itemized split dialog
-    if (scannedData.items && scannedData.items.length > 0 && currentGroup) {
-      // Prepare items with member assignments (default to all members)
-      const preparedItems = scannedData.items.map((item, idx) => ({
-        id: idx + 1,
-        name: item.name,
-        price: item.price.toString(),
-        sharedBy: [...currentGroup.members]
-      }));
-      
-      // Set the split config with scanned items
-      setSplitConfig(prev => ({
-        ...prev,
-        type: 'itemized',
-        scannedItems: preparedItems,
-        scannedTax: scannedData.tax || 0,
-        scannedTip: scannedData.tip || 0,
-      }));
-      
-      toast({
-        title: "Items detected!",
-        description: `Found ${scannedData.items.length} items. Click "Split by Items" to assign them to people.`,
-      });
-      
-      // Auto-open the itemized split dialog
-      setTimeout(() => setShowItemizedSplit(true), 500);
-    } else {
-      toast({
-        title: "Data extracted!",
-        description: "Bill details have been filled. You can edit them if needed.",
-      });
-    }
-  };
-
-  /**
-   * Handle itemized bill split save
-   */
-  const handleItemizedSave = (newSplitConfig, totalAmount) => {
-    setSplitConfig(newSplitConfig);
-    setAmount(totalAmount.toString());
     toast({
-      title: "Items split applied!",
-      description: `Total: ₹${totalAmount.toFixed(2)} split among ${Object.keys(newSplitConfig.shares).filter(m => newSplitConfig.shares[m] > 0).length} people`,
+      title: "Data extracted!",
+      description: "Bill details have been filled. You can edit them if needed.",
     });
   };
 
@@ -369,7 +327,6 @@ const AddExpense = () => {
                     setAmount(e.target.value);
                     if (errors.amount) setErrors({ ...errors, amount: undefined });
                   }}
-                  onWheel={(e) => e.target.blur()}
                   className={`pl-10 min-h-[44px] text-sm sm:text-base ${errors.amount ? 'border-destructive' : ''}`}
                   min="0" 
                   step="0.01"
@@ -405,14 +362,8 @@ const AddExpense = () => {
             <div className="space-y-2">
               <Label htmlFor="date" className="text-sm sm:text-base">Date</Label>
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none z-10" size={18} />
-                <Input 
-                  id="date" 
-                  type="date" 
-                  value={date} 
-                  onChange={(e) => setDate(e.target.value)} 
-                  className="pl-10 min-h-[44px] text-sm sm:text-base cursor-pointer" 
-                />
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                <Input id="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="pl-10 min-h-[44px] text-sm sm:text-base" />
               </div>
             </div>
 
@@ -422,17 +373,14 @@ const AddExpense = () => {
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <Users size={16} className="text-accent-foreground flex-shrink-0" />
                     <span className="text-xs sm:text-sm font-medium text-accent-foreground truncate">
-                      {splitConfig.type === 'equal' ? 'Split equally' : 
-                       splitConfig.type === 'percentage' ? 'Percentage split' : 
-                       splitConfig.type === 'itemized' ? 'Split by items' :
-                       'Custom amounts'}
+                      {splitConfig.type === 'equal' ? 'Split equally' : splitConfig.type === 'percentage' ? 'Percentage split' : 'Custom amounts'}
                     </span>
                   </div>
                   <Button type="button" variant="ghost" size="sm" onClick={() => setShowSplitDialog(true)} className="min-h-[44px] h-auto flex-shrink-0">
                     <Settings2 size={14} className="mr-1" /><span className="hidden sm:inline">Customize</span>
                   </Button>
                 </div>
-                {splitAmountPerPerson > 0 && splitConfig.type !== 'itemized' && (
+                {splitAmountPerPerson > 0 && (
                   <div className="space-y-2">
                     <p className="text-xs sm:text-sm text-muted-foreground">
                       {splitConfig.type === 'equal' 
@@ -446,33 +394,6 @@ const AddExpense = () => {
                     </div>
                   </div>
                 )}
-                {splitConfig.type === 'itemized' && splitConfig.items && (
-                  <div className="space-y-2">
-                    <p className="text-xs sm:text-sm text-muted-foreground">
-                      {splitConfig.items.length} item{splitConfig.items.length !== 1 ? 's' : ''} • 
-                      {splitConfig.tax > 0 ? ` Tax: ₹${splitConfig.tax.toFixed(2)}` : ''} 
-                      {splitConfig.tip > 0 ? ` • Tip: ₹${splitConfig.tip.toFixed(2)}` : ''}
-                    </p>
-                    <div className="flex items-center gap-2 text-xs text-success">
-                      <CheckCircle2 size={12} />
-                      <span>Total: ₹{splitConfig.total?.toFixed(2) || amount}</span>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Split by Items Button */}
-                <div className="mt-3 pt-3 border-t border-border/50">
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={() => setShowItemizedSplit(true)} 
-                    className="w-full min-h-[44px] h-auto bg-primary/5 border-primary/20 hover:bg-primary/10"
-                  >
-                    <Utensils size={16} className="mr-2 text-primary" />
-                    <span className="text-sm">Split by Items (Restaurant Bills)</span>
-                  </Button>
-                </div>
               </div>
             )}
             
@@ -484,18 +405,6 @@ const AddExpense = () => {
                 totalAmount={parseFloat(amount) || 0}
                 currentSplit={splitConfig}
                 onSave={setSplitConfig}
-              />
-            )}
-
-            {currentGroup && (
-              <ItemizedBillSplit
-                open={showItemizedSplit}
-                onOpenChange={setShowItemizedSplit}
-                members={currentGroup.members}
-                onSave={handleItemizedSave}
-                initialItems={splitConfig.scannedItems || splitConfig.items || []}
-                initialTax={splitConfig.scannedTax || splitConfig.tax || 0}
-                initialTip={splitConfig.scannedTip || splitConfig.tip || 0}
               />
             )}
 
