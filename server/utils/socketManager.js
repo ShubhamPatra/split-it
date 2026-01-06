@@ -5,7 +5,7 @@ let io = null;
 export const initializeSocket = (server) => {
   io = new Server(server, {
     cors: {
-      origin: [process.env.CLIENT_URL || 'http://localhost:3000', 'https://split-it.live', 'https://www.split-it.live'],
+      origin: process.env.CLIENT_URL || 'http://localhost:3000',
       methods: ['GET', 'POST'],
       credentials: true,
     },
