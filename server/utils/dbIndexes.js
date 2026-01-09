@@ -48,17 +48,18 @@ export const createIndexes = async () => {
     // Index for budget calculations (amount aggregation by date)
     await safeCreateIndex(Expense.collection, { groupId: 1, date: 1, amount: 1 });
     
-    // SetsafeCreateIndex(Settlement.collection, { groupId: 1, settledAt: -1 });
+    // Settlement indexes - comprehensive coverage for all query patterns
+    await safeCreateIndex(Settlement.collection, { groupId: 1, settledAt: -1 });
     await safeCreateIndex(Settlement.collection, { groupId: 1, fromUserId: 1, settledAt: -1 });
     await safeCreateIndex(Settlement.collection, { groupId: 1, toUserId: 1, settledAt: -1 });
     await safeCreateIndex(Settlement.collection, { fromUserId: 1, settledAt: -1 });
     await safeCreateIndex(Settlement.collection, { toUserId: 1, settledAt: -1 });
     await safeCreateIndex(Settlement.collection, { groupId: 1, paymentStatus: 1, settledAt: -1 });
     await safeCreateIndex(Settlement.collection, { toUserId: 1, paymentStatus: 1, settledAt: -1 });
-    await safeCreateIndex(Settlement.collection, { toUserId: 1, paymentStatus: 1, settledAt: -1 });
-    await Settlement.collection.createIndex({ transactionRef: 1 }, { sparse: true });
+    await safeCreateIndex(Settlement.collection, { transactionRef: 1 }, { sparse: true });
     
-    // NotsafeCreateIndex(Notification.collection, { userId: 1, timestamp: -1 });
+    // Notification indexes - optimized for unread queries and cleanup
+    await safeCreateIndex(Notification.collection, { userId: 1, timestamp: -1 });
     await safeCreateIndex(Notification.collection, { userId: 1, read: 1, timestamp: -1 });
     await safeCreateIndex(
       Notification.collection,
@@ -68,12 +69,13 @@ export const createIndexes = async () => {
     await safeCreateIndex(Notification.collection, { actionType: 1, relatedId: 1 });
     // TTL index for auto-cleanup after 30 days
     await safeCreateIndex(
-      Notification.collection,s
-    await Notification.collection.createIndex(
+      Notification.collection,
       { timestamp: 1 },
       { expireAfterSeconds: 2592000 }
     );
-    safeCreateIndex(Message.collection, { groupId: 1, _id: -1 });
+    
+    // Message indexes - pagination with _id cursor
+    await safeCreateIndex(Message.collection, { groupId: 1, _id: -1 });
     // Message indexes - unread count scans (partial on non-deleted messages)
     await safeCreateIndex(
       Message.collection,
@@ -84,9 +86,7 @@ export const createIndexes = async () => {
     await safeCreateIndex(Message.collection, { groupId: 1, createdAt: -1 });
     // Message indexes - unread count optimization
     await safeCreateIndex(
-      Message.collection,{ groupId: 1, createdAt: -1 });
-    // Message indexes - unread count optimization
-    await Message.collection.createIndex(
+      Message.collection,
       { groupId: 1, senderId: 1, readBy: 1 },
       { partialFilterExpression: { deletedAt: null } }
     );
