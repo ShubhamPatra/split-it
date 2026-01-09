@@ -6,7 +6,15 @@ import crypto from 'crypto';
 
 // Ensure uploads directory exists
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'receipts');
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+try {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+} catch (error) {
+  // Directory might already exist or user doesn't have permissions
+  // This is fine - we'll handle it when actually writing files
+  if (error.code !== 'EEXIST') {
+    console.warn('Warning: Could not create uploads directory:', error.message);
+  }
+}
 
 const storage = multer.memoryStorage();
 
@@ -49,6 +57,16 @@ export const processImage = async (buffer) => {
  */
 export const saveReceiptFiles = async (files, expenseId) => {
   const savedReceipts = [];
+  
+  // Ensure directory exists before trying to write
+  try {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  } catch (error) {
+    if (error.code !== 'EEXIST') {
+      console.error('Failed to create uploads directory:', error);
+      throw new Error('Unable to save receipts - directory creation failed');
+    }
+  }
   
   for (const file of files) {
     try {
