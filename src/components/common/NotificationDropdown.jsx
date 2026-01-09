@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Check, Trash2, Receipt, Wallet, Users, Info, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Bell, Check, Trash2, Receipt, Wallet, Users, Info, CheckCircle, AlertTriangle, MessageCircle } from 'lucide-react';
 import { useNotifications } from '../../context/NotificationContext';
 import apiClient from '../../lib/apiClient';
 import { Button } from '../ui/button';
@@ -32,6 +32,7 @@ const getNotificationIcon = (type) => {
     case 'settlement': return <Check size={16} className="text-success" />;
     case 'role_change': return <Users size={16} className="text-accent-foreground" />;
     case 'warning': return <AlertTriangle size={16} className="text-yellow-500" />;
+    case 'chat_message': return <MessageCircle size={16} className="text-blue-500" />;
     default: return <Info size={16} className="text-muted-foreground" />;
   }
 };
@@ -114,8 +115,14 @@ const NotificationDropdown = () => {
                 className={`flex items-start gap-3 p-3 cursor-pointer min-h-[72px] ${!notification.read ? 'bg-accent/50' : ''}`} 
                 onClick={() => {
                   markAsRead(notification.id);
-                  // Handle navigation action type
-                  if (notification.actionType === 'navigate' && notification.relatedId) {
+                  // Handle navigation based on action type
+                  if (notification.actionType === 'chat_message') {
+                    // Navigate to group chat tab
+                    const groupId = notification.data?.groupId || notification.relatedId;
+                    if (groupId) {
+                      navigate(`/group/${groupId}?tab=chat`);
+                    }
+                  } else if (notification.actionType === 'navigate' && notification.relatedId) {
                     navigate(notification.relatedId);
                   }
                 }}

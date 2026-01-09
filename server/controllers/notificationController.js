@@ -1,4 +1,11 @@
 import Notification from '../models/Notification.js';
+import { emitNotification, emitNotificationUpdate, emitNotificationDeleted } from '../utils/socketEmitter.js';
+
+// Get io instance from server
+let io;
+export const setIo = (ioInstance) => {
+  io = ioInstance;
+};
 
 // @desc    Get all notifications for user
 // @route   GET /api/notifications
@@ -29,6 +36,11 @@ export const createNotification = async (req, res) => {
       message,
     });
 
+    // Emit socket event to user
+    if (io) {
+      emitNotification(io, req.user._id.toString(), notification);
+    }
+
     res.status(201).json(notification);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -53,6 +65,11 @@ export const markAsRead = async (req, res) => {
 
     notification.read = true;
     await notification.save();
+
+    // Emit socket event to user
+    if (io) {
+      emitNotificationUpdate(io, req.user._id.toString(), notification._id.toString());
+    }
 
     res.json(notification);
   } catch (error) {
@@ -93,6 +110,11 @@ export const deleteNotification = async (req, res) => {
     }
 
     await Notification.findByIdAndDelete(req.params.id);
+
+    // Emit socket event to user
+    if (io) {
+      emitNotificationDeleted(io, req.user._id.toString(), req.params.id);
+    }
 
     res.json({ message: 'Notification deleted successfully' });
   } catch (error) {

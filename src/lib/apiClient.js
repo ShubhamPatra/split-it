@@ -4,24 +4,77 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const requestCache = new Map();
 const pendingRequests = new Map();
 const CACHE_TTL = 5000; // 5 seconds
+const MAX_CACHE_SIZE = 100;  // Add size limit
 
-// Get token from localStorage
-const getToken = () => {
-  try {
-    const session = localStorage.getItem('splitit_session');
-    if (session) {
-      const { token } = JSON.parse(session);
-      return token;
+// Track if we're currently refreshing to avoid multiple refresh calls
+let isRefreshing = false;
+let refreshPromise = null;
+
+// Add cache cleanup function
+const cleanupCache = () => {
+  const now = Date.now();
+  for (const [key, value] of requestCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      requestCache.delete(key);
     }
-  } catch (error) {
-    console.error('Error reading session:', error);
-    localStorage.removeItem('splitit_session');
   }
-  return null;
+  
+  // If still too large, remove oldest entries
+  if (requestCache.size > MAX_CACHE_SIZE) {
+    const entries = Array.from(requestCache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const toRemove = entries.slice(0, requestCache.size - MAX_CACHE_SIZE);
+    toRemove.forEach(([key]) => requestCache.delete(key));
+  }
+};
+
+// Run cleanup every 10 seconds
+setInterval(cleanupCache, 10000);
+
+// Try to refresh the access token (Comment 11)
+const tryRefreshToken = async () => {
+  if (isRefreshing) {
+    return refreshPromise;
+  }
+  
+  isRefreshing = true;
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Refresh failed');
+      }
+      
+      const data = await response.json();
+      if (data.success && data.user) {
+        // Update session storage with refreshed user data
+        const session = {
+          user: data.user,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        };
+        sessionStorage.setItem('splitit_user', JSON.stringify(session));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      return false;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
+    }
+  })();
+  
+  return refreshPromise;
 };
 
 // Helper to handle API responses with better error handling
-const handleResponse = async (response) => {
+const handleResponse = async (response, originalRequest = null) => {
   let data;
   try {
     data = await response.json();
@@ -37,8 +90,21 @@ const handleResponse = async (response) => {
     // Handle specific error codes
     switch (response.status) {
       case 401:
-        // Token expired or invalid - clear session
-        localStorage.removeItem('splitit_session');
+        // Try to refresh token before giving up (Comment 11)
+        if (originalRequest && !originalRequest._retried) {
+          const refreshed = await tryRefreshToken();
+          if (refreshed) {
+            // Retry the original request
+            originalRequest._retried = true;
+            const retryResponse = await fetch(originalRequest.url, {
+              ...originalRequest.options,
+              credentials: 'include',
+            });
+            return handleResponse(retryResponse);
+          }
+        }
+        // Session expired or invalid - clear session storage
+        sessionStorage.removeItem('splitit_user');
         setTimeout(() => window.location.href = '/login', 100);
         throw new Error('Session expired. Please login again.');
       case 403:
@@ -81,13 +147,13 @@ const makeRequest = async (url, options, retries = 1, cacheKey = null) => {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+  const timeout = setTimeout(() => controller.abort(), 15000); // 15 seconds instead of 30
 
   const requestPromise = (async () => {
     try {
       const response = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeout);
-      const data = await handleResponse(response);
+      const data = await handleResponse(response, { url, options });
 
       // Cache successful GET requests
       if (options.method === 'GET' && cacheKey) {
@@ -118,7 +184,8 @@ const makeRequest = async (url, options, retries = 1, cacheKey = null) => {
     }
   })();
 
-  // Store pending request for deduplication
+  // Store pending request IMMEDIATELY for deduplication (BEFORE any await)
+  // This fixes the race condition where multiple calls can pass the check above
   if (options.method === 'GET' && cacheKey) {
     pendingRequests.set(cacheKey, requestPromise);
   }
@@ -132,19 +199,18 @@ const clearCache = () => {
   pendingRequests.clear();
 };
 
-// Create axios-like API client
+// Create axios-like API client using HttpOnly cookie auth
 const apiClient = {
   get: async (endpoint) => {
-    const token = getToken();
-    const cacheKey = `GET:${endpoint}:${token || 'anon'}`;
+    const cacheKey = `GET:${endpoint}`;
     return makeRequest(
       `${API_URL}${endpoint}`,
       {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` }),
         },
+        credentials: 'include', // Send HttpOnly cookies
       },
       1,
       cacheKey
@@ -152,48 +218,54 @@ const apiClient = {
   },
 
   post: async (endpoint, body) => {
-    const token = getToken();
     // Clear cache on mutations
     clearCache();
     return makeRequest(`${API_URL}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` }),
       },
+      credentials: 'include', // Send HttpOnly cookies
       body: JSON.stringify(body),
     });
   },
 
   put: async (endpoint, body) => {
-    const token = getToken();
     // Clear cache on mutations
     clearCache();
     return makeRequest(`${API_URL}${endpoint}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` }),
       },
+      credentials: 'include', // Send HttpOnly cookies
       body: JSON.stringify(body),
     });
   },
 
   delete: async (endpoint) => {
-    const token = getToken();
     // Clear cache on mutations
     clearCache();
     return makeRequest(`${API_URL}${endpoint}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` }),
       },
+      credentials: 'include', // Send HttpOnly cookies
     });
   },
 
   // Utility to manually clear cache
   clearCache,
+};
+
+// Export abort controller for component cleanup
+export const createCancellableRequest = () => {
+  const controller = new AbortController();
+  return {
+    signal: controller.signal,
+    cancel: () => controller.abort(),
+  };
 };
 
 export default apiClient;

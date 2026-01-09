@@ -1,5 +1,9 @@
 import User from '../models/User.js';
-import { generateToken } from '../middleware/authMiddleware.js';
+import { generateToken, generateRefreshToken } from '../middleware/authMiddleware.js';
+import { OAuth2Client } from 'google-auth-library';
+import { emailQueue } from '../config/queue.js';
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // @desc    Register new user
 // @route   POST /api/auth/register
@@ -22,6 +26,31 @@ export const register = async (req, res) => {
     });
 
     if (user) {
+      const token = generateToken(user._id);
+      const refreshToken = await generateRefreshToken(user._id);
+      
+      // Set HttpOnly cookies
+      res.cookie('auth_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+      
+      res.cookie('refresh_token', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      });
+
+      // Send welcome email (Comment 2)
+      emailQueue.add({
+        to: user.email,
+        subject: 'Welcome to Split-It!',
+        html: `<h1>Welcome ${user.name}!</h1><p>Thank you for joining Split-It. Start splitting expenses with your friends and family today.</p>`,
+      }).catch(err => console.error('Email queue error:', err));
+
       res.status(201).json({
         success: true,
         needsConfirmation: false,
@@ -31,7 +60,9 @@ export const register = async (req, res) => {
           email: user.email,
           upiId: user.upiId || '',
         },
-        token: generateToken(user._id),
+        // Tokens returned for mobile client (uses Bearer auth since cookies don't work in RN)
+        token,
+        refreshToken,
       });
     }
   } catch (error) {
@@ -61,6 +92,24 @@ export const login = async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    const token = generateToken(user._id);
+    const refreshToken = await generateRefreshToken(user._id);
+    
+    // Set HttpOnly cookies
+    res.cookie('auth_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+    
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    });
+
     res.json({
       user: {
         id: user._id,
@@ -68,7 +117,9 @@ export const login = async (req, res) => {
         email: user.email,
         upiId: user.upiId || '',
       },
-      token: generateToken(user._id),
+      // Tokens returned for mobile client (uses Bearer auth since cookies don't work in RN)
+      token,
+      refreshToken,
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -93,6 +144,24 @@ export const getMe = async (req, res) => {
   }
 };
 
+// @desc    Logout user
+// @route   POST /api/auth/logout
+// @access  Private
+export const logout = async (req, res) => {
+  try {
+    // Clear the HttpOnly cookie
+    res.cookie('auth_token', '', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      expires: new Date(0),
+    });
+    res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Error logging out' });
+  }
+};
+
 // @desc    Google OAuth Login
 // @route   POST /api/auth/google
 // @access  Public
@@ -104,18 +173,40 @@ export const googleAuth = async (req, res) => {
       return res.status(400).json({ message: 'No credential provided' });
     }
 
-    // Decode the JWT credential from Google
-    const base64Url = credential.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      Buffer.from(base64, 'base64')
-        .toString()
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
+    // Verify the ID token with Google's library
+    let ticket;
+    try {
+      ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+    } catch (verifyError) {
+      console.error('Google token verification failed:', verifyError);
+      return res.status(401).json({ message: 'Invalid Google credential' });
+    }
 
-    const payload = JSON.parse(jsonPayload);
+    const payload = ticket.getPayload();
+
+    // Verify issuer
+    if (!['accounts.google.com', 'https://accounts.google.com'].includes(payload.iss)) {
+      return res.status(401).json({ message: 'Invalid token issuer' });
+    }
+
+    // Verify audience
+    if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
+      return res.status(401).json({ message: 'Invalid token audience' });
+    }
+
+    // Verify token expiry
+    if (payload.exp * 1000 < Date.now()) {
+      return res.status(401).json({ message: 'Token expired' });
+    }
+
+    // Verify email is verified
+    if (!payload.email_verified) {
+      return res.status(401).json({ message: 'Email not verified with Google' });
+    }
+
     const { email, name, sub: googleId } = payload;
 
     // Check if user exists
@@ -136,7 +227,24 @@ export const googleAuth = async (req, res) => {
       });
     }
 
-    // Generate token and send response
+    // Generate token and set as HttpOnly cookie
+    const token = generateToken(user._id);
+    const refreshToken = await generateRefreshToken(user._id);
+    
+    res.cookie('auth_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+    
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    });
+
     res.json({
       user: {
         id: user._id,
@@ -144,7 +252,9 @@ export const googleAuth = async (req, res) => {
         email: user.email,
         upiId: user.upiId || '',
       },
-      token: generateToken(user._id),
+      // Tokens returned for mobile client (uses Bearer auth since cookies don't work in RN)
+      token,
+      refreshToken,
     });
   } catch (error) {
     console.error('Google auth error:', error);

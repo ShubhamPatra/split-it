@@ -6,9 +6,12 @@ import {
   createExpense,
   updateExpense,
   deleteExpense,
+  uploadExpenseReceipts,
+  deleteExpenseReceipt,
 } from '../controllers/expenseController.js';
 import { protect } from '../middleware/authMiddleware.js';
-import { createExpenseValidation, idValidation, validate } from '../middleware/validation.js';
+import { createExpenseValidation, idValidation, groupIdValidation, validate } from '../middleware/validation.js';
+import { uploadReceipts } from '../middleware/upload.js';
 
 const router = express.Router();
 
@@ -18,11 +21,15 @@ router.route('/')
   .get(getExpenses)
   .post(createExpenseValidation, validate, createExpense);
 
-router.get('/group/:groupId', idValidation, validate, getExpensesByGroup);
+router.get('/group/:groupId', groupIdValidation, validate, getExpensesByGroup);
 
 router.route('/:id')
   .get(idValidation, validate, getExpenseById)
   .put(idValidation, validate, updateExpense)
   .delete(idValidation, validate, deleteExpense);
+
+// Receipt upload endpoints
+router.post('/:id/receipts', idValidation, validate, uploadReceipts, uploadExpenseReceipts);
+router.delete('/:id/receipts/:receiptId', idValidation, validate, deleteExpenseReceipt);
 
 export default router;

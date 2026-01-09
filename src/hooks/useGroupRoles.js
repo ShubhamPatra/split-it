@@ -1,31 +1,76 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import apiClient from '../lib/apiClient';
 
-// Store roles per group - in a real app this would come from backend
-const groupRolesStore = {};
+// Local cache for roles to reduce API calls
+const roleCache = new Map();
 
 export const useGroupRoles = (groupId, createdBy) => {
   const [roles, setRoles] = useState(() => {
-    // Initialize with creator as admin
-    if (!groupRolesStore[groupId]) {
-      groupRolesStore[groupId] = { [createdBy]: 'admin' };
-    }
-    return groupRolesStore[groupId];
+    // Initialize with cached data or creator as admin
+    const cached = roleCache.get(groupId);
+    if (cached) return cached;
+    return { [createdBy]: 'admin' };
   });
+  const [loading, setLoading] = useState(false);
+
+  // Fetch roles from backend on mount
+  useEffect(() => {
+    if (!groupId) return;
+
+    const fetchRoles = async () => {
+      setLoading(true);
+      try {
+        const response = await apiClient.get(`/groups/${groupId}/roles`);
+        const newRoles = response.roles || {};
+        // Ensure creator always has admin role
+        if (createdBy && !newRoles[createdBy]) {
+          newRoles[createdBy] = 'admin';
+        }
+        setRoles(newRoles);
+        roleCache.set(groupId, newRoles);
+      } catch (error) {
+        console.error('Error fetching roles:', error);
+        // Fall back to local state
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRoles();
+  }, [groupId, createdBy]);
 
   const getMemberRole = useCallback((memberId) => {
+    // Creator is always admin
+    if (memberId === createdBy) return 'admin';
     return roles[memberId] || 'member';
-  }, [roles]);
+  }, [roles, createdBy]);
 
   const isAdmin = useCallback((memberId) => {
     return getMemberRole(memberId) === 'admin';
   }, [getMemberRole]);
 
-  const setMemberRole = useCallback((memberId, role) => {
+  const setMemberRole = useCallback(async (memberId, role) => {
+    // Optimistically update local state
     setRoles(prev => {
       const updated = { ...prev, [memberId]: role };
-      groupRolesStore[groupId] = updated;
+      roleCache.set(groupId, updated);
       return updated;
     });
+
+    // Persist to backend
+    try {
+      await apiClient.put(`/groups/${groupId}/roles/${memberId}`, { role });
+    } catch (error) {
+      console.error('Error updating role:', error);
+      // Revert on failure
+      setRoles(prev => {
+        const reverted = { ...prev };
+        delete reverted[memberId];
+        roleCache.set(groupId, reverted);
+        return reverted;
+      });
+      throw error;
+    }
   }, [groupId]);
 
   const canEditExpense = useCallback((userId, expensePaidBy) => {
@@ -52,6 +97,7 @@ export const useGroupRoles = (groupId, createdBy) => {
 
   return {
     roles,
+    loading,
     getMemberRole,
     isAdmin,
     setMemberRole,

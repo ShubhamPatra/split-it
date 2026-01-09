@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Trash2, Pencil, IndianRupee, Calendar, Shield } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Trash2, Pencil, IndianRupee, Calendar, Shield, Repeat, List, Image, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 import { categories, getCategoryById } from '../../data/categories';
 import { useGroups } from '../../context/GroupContext';
 import { useNotifications } from '../../context/NotificationContext';
@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { Badge } from '../ui/badge';
 
 const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isAdmin = false }) => {
   const { deleteExpense, updateExpense, getGroupById, getUserProfile } = useGroups();
@@ -29,6 +30,14 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
   const [editCategory, setEditCategory] = useState(expense.category);
   const [editPaidBy, setEditPaidBy] = useState(expense.paidBy);
   const [editDate, setEditDate] = useState(expense.date);
+  
+  // State for expanded details (Comment 5 & 6)
+  const [showDetails, setShowDetails] = useState(false);
+  
+  // Check for line items and receipts
+  const hasLineItems = expense.lineItems && expense.lineItems.length > 0;
+  const hasReceipts = (expense.receipts && expense.receipts.length > 0) || expense.receiptUrl;
+  const isRecurring = expense.recurrence?.enabled;
 
   const handleDelete = () => {
     deleteExpense(expense.id);
@@ -53,15 +62,57 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
 
   return (
     <>
-      <div className="glass-card rounded-lg sm:rounded-xl p-3 sm:p-4 animate-slide-in group w-full">
+      <div className="relative bg-card rounded-xl p-4 border border-border/50 shadow-sm animate-slide-in group w-full hover:shadow-md hover:border-primary/20 transition-all duration-200">
         <div className="flex items-start gap-3 sm:gap-4">
-          <div className="p-2 sm:p-3 rounded-lg bg-accent flex-shrink-0">
+          <div className="p-3 rounded-xl bg-gradient-to-br from-accent to-accent/50 shadow-inner flex-shrink-0">
             <CategoryIcon className={category.color} size={20} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
-                <h4 className="font-medium text-sm sm:text-base text-foreground truncate">{expense.description}</h4>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-medium text-sm sm:text-base text-foreground truncate">{expense.description}</h4>
+                  {/* Badges for recurring, itemized, receipts (Comment 3, 5, 6) */}
+                  {isRecurring && (
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Badge variant="default" className="text-[10px] px-1.5 py-0 gap-1">
+                          <Repeat size={10} />
+                          {expense.recurrence.frequency}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Recurring {expense.recurrence.frequency}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  {hasLineItems && (
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-1">
+                          <List size={10} />
+                          {expense.lineItems.length}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{expense.lineItems.length} line items</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  {hasReceipts && (
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-1">
+                          <Image size={10} />
+                          {expense.receipts?.length || 1}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{expense.receipts?.length || 1} receipt(s)</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
                 <p className="text-xs sm:text-sm text-muted-foreground truncate">Paid by {getUserProfile(expense.paidBy)?.name || 'User'}</p>
                 <span className={`inline-flex items-center gap-1 text-[10px] sm:text-xs mt-1 ${category.color}`}>
                   <CategoryIcon size={12} className="flex-shrink-0" />
@@ -70,14 +121,14 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
               </div>
               <div className="flex items-start gap-1 sm:gap-2 flex-shrink-0">
                 <div className="text-right">
-                  <p className="font-display font-bold text-base sm:text-lg md:text-xl text-foreground whitespace-nowrap">₹{expense.amount.toLocaleString()}</p>
-                  <p className="text-[10px] sm:text-xs text-muted-foreground whitespace-nowrap">₹{splitAmount.toFixed(0)}/person</p>
+                  <p className="font-display font-bold text-xl sm:text-2xl tracking-tight text-foreground whitespace-nowrap">₹{expense.amount.toLocaleString()}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full whitespace-nowrap">₹{splitAmount.toFixed(0)}/person</p>
                 </div>
                 {canEdit && (
                   <Button 
                     variant="ghost" 
                     size="icon" 
-                    className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-primary" 
+                    className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-primary hover:bg-primary/10" 
                     onClick={openEditDialog}
                   >
                     <Pencil size={18} />
@@ -89,7 +140,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                       <Button 
                         variant="ghost" 
                         size="icon" 
-                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-destructive"
+                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       >
                         <Trash2 size={18} />
                       </Button>
@@ -118,7 +169,98 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                 )}
               </div>
             </div>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-2">{new Date(expense.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+            <div className="flex items-center justify-between mt-2">
+              <p className="text-xs sm:text-sm text-muted-foreground">{new Date(expense.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+              
+              {/* Expand/collapse button for details */}
+              {(hasLineItems || hasReceipts) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowDetails(!showDetails)}
+                  className="h-7 text-xs text-primary hover:text-primary-dark hover:bg-primary/10"
+                >
+                  {showDetails ? (
+                    <>Hide details <ChevronUp size={14} className="ml-1" /></>
+                  ) : (
+                    <>View details <ChevronDown size={14} className="ml-1" /></>
+                  )}
+                </Button>
+              )}
+            </div>
+            
+            {/* Expandable details section (Comment 5 & 6) */}
+            {showDetails && (hasLineItems || hasReceipts) && (
+              <div className="mt-3 pt-3 border-t border-border/50 space-y-3">
+                {/* Line items display */}
+                {hasLineItems && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <List size={12} /> Line Items
+                    </p>
+                    <div className="space-y-1.5">
+                      {expense.lineItems.map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-xs p-2.5 bg-card-elevated rounded-lg border border-border/30">
+                          <div className="flex-1 min-w-0">
+                            <span className="truncate block font-medium">{item.description || `Item ${idx + 1}`}</span>
+                            {item.assignedTo && item.assignedTo.length > 0 && (
+                              <span className="text-[10px] text-muted-foreground">
+                                → {item.assignedTo.map(id => getUserProfile(id)?.name?.split(' ')[0] || 'User').join(', ')}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-right flex-shrink-0 ml-2">
+                            <span className="font-semibold">₹{(item.totalPrice || item.quantity * item.unitPrice).toFixed(0)}</span>
+                            {item.quantity > 1 && (
+                              <span className="text-[10px] text-muted-foreground block">
+                                {item.quantity} × ₹{item.unitPrice}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Receipts display */}
+                {hasReceipts && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <Image size={12} /> Receipts
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {expense.receipts?.map((receipt, idx) => (
+                        <a
+                          key={idx}
+                          href={receipt.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-3 py-2 bg-card-elevated rounded-lg text-xs border border-border/30 hover:border-primary/50 hover:shadow-sm transition-all"
+                        >
+                          <Image size={12} />
+                          <span className="truncate max-w-[100px]">{receipt.filename || `Receipt ${idx + 1}`}</span>
+                          <ExternalLink size={10} className="flex-shrink-0 text-primary" />
+                        </a>
+                      ))}
+                      {/* Legacy single receipt */}
+                      {expense.receiptUrl && !expense.receipts?.length && (
+                        <a
+                          href={expense.receiptUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-3 py-2 bg-card-elevated rounded-lg text-xs border border-border/30 hover:border-primary/50 hover:shadow-sm transition-all"
+                        >
+                          <Image size={12} />
+                          <span>View Receipt</span>
+                          <ExternalLink size={10} className="text-primary" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

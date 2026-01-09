@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Smartphone, Check, Copy, Download, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { useToast } from '../../hooks/use-toast';
 import { useIsMobile } from '../../hooks/use-mobile';
 import { Badge } from '../ui/badge';
+import QRCode from 'qrcode';
 import { 
   validateUpiId, 
   generateUpiUrl, 
@@ -49,36 +50,32 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
     return generateUpiUrl(params);
   };
 
-  const generateQRCode = () => {
+  const generateQRCode = useCallback(async () => {
     if (!canvasRef.current || !upiValidation.isValid) return;
     
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
     const upiUrl = getUpiUrl();
     
-    const size = 280;
-    canvas.width = size;
-    canvas.height = size;
-    
-    // White background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, size, size);
-    
-    // Generate QR code using QR server API
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      // Add padding
-      const padding = 20;
-      ctx.drawImage(img, padding, padding, size - padding * 2, size - padding * 2);
-      
-      // Add border
-      ctx.strokeStyle = '#e0e0e0';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(padding, padding, size - padding * 2, size - padding * 2);
-    };
-    img.onerror = () => {
+    try {
+      // Generate QR code locally using qrcode library - NO external API calls
+      await QRCode.toCanvas(canvasRef.current, upiUrl, {
+        width: 280,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#ffffff',
+        },
+        errorCorrectionLevel: 'M',
+      });
+    } catch (error) {
+      console.error('QR generation failed:', error);
       // Fallback: show text if QR generation fails
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      const size = 280;
+      canvas.width = size;
+      canvas.height = size;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
       ctx.fillStyle = '#000000';
       ctx.font = '14px system-ui';
       ctx.textAlign = 'center';
@@ -86,15 +83,15 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
       ctx.font = '12px system-ui';
       ctx.fillText('Please use UPI app option', size/2, size/2);
       ctx.fillText('or copy UPI ID manually', size/2, size/2 + 20);
-    };
-    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=0&data=${encodeURIComponent(upiUrl)}`;
-  };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receiverUpiId, receiverName, amount, note, transactionRef, upiValidation.isValid]);
 
   useEffect(() => {
     if (showPaymentDialog && !isMobile) {
       setTimeout(generateQRCode, 100);
     }
-  }, [showPaymentDialog, isMobile]);
+  }, [showPaymentDialog, isMobile, generateQRCode]);
 
   const handlePayNow = () => {
     if (!upiValidation.isValid) {

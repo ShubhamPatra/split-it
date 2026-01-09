@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, User, Smartphone, Save, Check, AlertCircle } from 'lucide-react';
+import { ArrowLeft, User, Smartphone, Save, Check, AlertCircle, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/layout/Navbar';
 import { Button } from '../components/ui/button';
@@ -105,36 +105,40 @@ const Profile = () => {
         {/* Back Button */}
         <button
           onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors min-h-[44px] min-w-[44px]"
+          className="flex items-center gap-2 text-muted-foreground hover:text-primary mb-6 transition-colors min-h-[44px] min-w-[44px]"
         >
           <ArrowLeft size={18} />
-          <span className="text-sm sm:text-base">Back to Dashboard</span>
+          <span className="text-sm">Back to Dashboard</span>
         </button>
 
         {/* Page Header */}
-        <div className="mb-6 sm:mb-8">
+        <div className="mb-8 animate-fade-in">
           <h1 className="font-display text-2xl sm:text-3xl font-bold text-foreground mb-2">
             Profile Settings
           </h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
+          <p className="text-muted-foreground">
             Manage your account details and payment preferences
           </p>
         </div>
 
         {/* Profile Card */}
-        <Card className="mb-4 sm:mb-6 animate-fade-in">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <User size={18} />
-              Personal Information
-            </CardTitle>
-            <CardDescription className="text-xs sm:text-sm">
-              Update your name and email address
-            </CardDescription>
+        <Card className="mb-6 animate-fade-in border-border/50 shadow-sm hover:shadow-md transition-shadow">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">
+                <User className="text-primary" size={20} />
+              </div>
+              <div>
+                <CardTitle className="text-lg">Personal Information</CardTitle>
+                <CardDescription>
+                  Update your name and email address
+                </CardDescription>
+              </div>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="name" className="text-sm sm:text-base">Full Name</Label>
+              <Label htmlFor="name" className="font-medium">Full Name</Label>
               <Input
                 id="name"
                 value={name}
@@ -143,45 +147,50 @@ const Profile = () => {
                   if (errors.name) setErrors({ ...errors, name: undefined });
                 }}
                 placeholder="Enter your full name"
-                className={`min-h-[44px] text-sm sm:text-base ${errors.name ? 'border-destructive' : ''}`}
+                className={`min-h-[48px] ${errors.name ? 'border-destructive focus-visible:ring-destructive/20' : ''}`}
               />
               {errors.name && (
-                <div className="flex items-center gap-1 text-sm text-destructive">
+                <div className="flex items-center gap-1.5 text-sm text-destructive">
                   <AlertCircle size={14} />
                   <span>{errors.name}</span>
                 </div>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm sm:text-base">Email Address</Label>
+              <Label htmlFor="email" className="font-medium">Email Address</Label>
               <Input
                 id="email"
                 type="email"
                 value={email}
                 disabled
-                className="bg-muted min-h-[44px] text-sm sm:text-base"
+                className="bg-muted/50 min-h-[48px] text-muted-foreground"
               />
-              <p className="text-xs text-muted-foreground">
-                Email cannot be changed
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Shield size={12} />
+                Email cannot be changed for security reasons
               </p>
             </div>
           </CardContent>
         </Card>
 
         {/* UPI Settings Card */}
-        <Card className="mb-4 sm:mb-6 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <Smartphone size={18} />
-              UPI Payment Settings
-            </CardTitle>
-            <CardDescription className="text-xs sm:text-sm">
-              Add your UPI ID to receive payments directly from group members
-            </CardDescription>
+        <Card className="mb-6 animate-fade-in border-border/50 shadow-sm hover:shadow-md transition-shadow" style={{ animationDelay: '0.1s' }}>
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-success/20 to-success/5 border border-success/20">
+                <Smartphone className="text-success" size={20} />
+              </div>
+              <div>
+                <CardTitle className="text-lg">UPI Payment Settings</CardTitle>
+                <CardDescription>
+                  Add your UPI ID to receive payments directly
+                </CardDescription>
+              </div>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="upiId" className="text-sm sm:text-base">UPI ID</Label>
+              <Label htmlFor="upiId" className="font-medium">UPI ID</Label>
               <Input
                 id="upiId"
                 value={upiId}
@@ -190,10 +199,10 @@ const Profile = () => {
                   if (errors.upiId) setErrors({ ...errors, upiId: undefined });
                 }}
                 placeholder="yourname@okicici"
-                className={`min-h-[44px] text-sm sm:text-base ${errors.upiId ? 'border-destructive' : ''}`}
+                className={`min-h-[48px] ${errors.upiId ? 'border-destructive focus-visible:ring-destructive/20' : ''}`}
               />
               {errors.upiId ? (
-                <div className="flex items-center gap-1 text-sm text-destructive">
+                <div className="flex items-center gap-1.5 text-sm text-destructive">
                   <AlertCircle size={14} />
                   <span>{errors.upiId}</span>
                 </div>
@@ -206,20 +215,20 @@ const Profile = () => {
 
             {/* UPI ID Preview */}
             {upiId && upiId.includes('@') && (
-              <div className="p-4 bg-success/10 rounded-lg border border-success/20">
+              <div className="p-4 bg-gradient-to-br from-success/10 to-success/5 rounded-xl border border-success/20">
                 <div className="flex items-center gap-2 text-success mb-1">
                   <Check size={16} />
                   <span className="text-sm font-medium">Valid UPI ID format</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Others can pay you at: <span className="font-mono font-medium text-foreground">{upiId}</span>
+                  Others can pay you at: <span className="font-mono font-semibold text-foreground">{upiId}</span>
                 </p>
               </div>
             )}
 
             {/* Common UPI Handles */}
-            <div className="pt-4 border-t border-border">
-              <p className="text-xs sm:text-sm text-muted-foreground mb-2">Common UPI handles:</p>
+            <div className="pt-4 border-t border-border/50">
+              <p className="text-sm text-muted-foreground mb-3">Common UPI handles:</p>
               <div className="flex flex-wrap gap-2">
                 {['@okicici', '@ybl', '@paytm', '@oksbi', '@okhdfcbank', '@axl'].map((handle) => (
                   <button
@@ -229,7 +238,7 @@ const Profile = () => {
                       const username = upiId.split('@')[0] || user.name.toLowerCase().replace(/\s/g, '');
                       setUpiId(username + handle);
                     }}
-                    className="px-2 py-1 text-xs bg-secondary hover:bg-secondary/80 rounded-md transition-colors min-h-[32px]"
+                    className="px-3 py-1.5 text-xs font-medium bg-card border border-border/50 hover:bg-primary/10 hover:border-primary/30 hover:text-primary rounded-lg transition-all min-h-[32px]"
                   >
                     {handle}
                   </button>
@@ -242,12 +251,15 @@ const Profile = () => {
         {/* Save Button */}
         <Button 
           onClick={handleSave} 
-          className="w-full min-h-[44px] h-auto text-sm sm:text-base" 
+          className="w-full min-h-[52px] h-auto text-base shadow-lg shadow-primary/25 hover:shadow-xl transition-all" 
           size="lg"
           disabled={isSaving}
         >
           {isSaving ? (
-            <>Saving...</>
+            <span className="flex items-center gap-2">
+              <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+              Saving...
+            </span>
           ) : (
             <>
               <Save size={18} />

@@ -25,12 +25,17 @@ const notificationSchema = new mongoose.Schema({
   },
   actionType: {
     type: String,
-    enum: ['none', 'confirm_payment', 'join_group'],
+    enum: ['none', 'confirm_payment', 'join_group', 'chat_message', 'navigate'],
     default: 'none',
   },
   relatedId: {
     type: mongoose.Schema.Types.ObjectId,
     refPath: 'actionType',
+  },
+  // Additional data for navigation and context (e.g., groupId for chat messages)
+  data: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
   },
   actionCompleted: {
     type: Boolean,

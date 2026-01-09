@@ -15,6 +15,11 @@ router.route('/profile')
   .get(getUserProfile)
   .put(updateUserProfile);
 
+// Alias for /profile - mobile client compatibility
+router.route('/me')
+  .get(getUserProfile)
+  .put(updateUserProfile);
+
 router.get('/search', searchUsers);
 router.get('/:id', getUserById);
 

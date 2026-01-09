@@ -1,50 +1,41 @@
 // Security middleware for rate limiting and request sanitization
+import rateLimit from 'express-rate-limit';
+import RedisStore from 'rate-limit-redis';
+import redis from '../config/redis.js';
 
-// Simple in-memory rate limiter (for production, use Redis)
-const rateLimitMap = new Map();
-
-// Rate limiting middleware
-export const rateLimit = (options = {}) => {
-  const {
-    windowMs = 15 * 60 * 1000, // 15 minutes
-    max = 100, // 100 requests per window
-    message = 'Too many requests, please try again later.',
-  } = options;
-
-  return (req, res, next) => {
-    const identifier = req.ip || req.connection.remoteAddress;
-    const now = Date.now();
-    
-    if (!rateLimitMap.has(identifier)) {
-      rateLimitMap.set(identifier, { count: 1, resetTime: now + windowMs });
-      return next();
-    }
-
-    const rateData = rateLimitMap.get(identifier);
-
-    // Reset if window has passed
-    if (now > rateData.resetTime) {
-      rateLimitMap.set(identifier, { count: 1, resetTime: now + windowMs });
-      return next();
-    }
-
-    // Increment count
-    rateData.count++;
-
-    // Check if limit exceeded
-    if (rateData.count > max) {
-      return res.status(429).json({ message });
-    }
-
-    next();
-  };
+// Rate limiting middleware with Redis
+export const rateLimiter = (options = {}) => {
+  return rateLimit({
+    windowMs: options.windowMs || 15 * 60 * 1000,
+    max: options.max || 100,
+    message: options.message || 'Too many requests',
+    standardHeaders: true,
+    legacyHeaders: false,
+    store: new RedisStore({
+      // Use sendCommand for ioredis compatibility (rate-limit-redis v4+)
+      sendCommand: (...args) => redis.call(...args),
+      prefix: 'rl:',
+    }),
+    skip: (req) => process.env.NODE_ENV === 'development' && req.ip === '::1',
+  });
 };
 
-// Strict rate limiting for auth endpoints
-export const authRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'development' ? 100 : 20, // More lenient in dev
-  message: 'Too many login attempts, please try again after 15 minutes.',
+export const authRateLimit = rateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: 'Too many login attempts',
+});
+
+export const inviteJoinRateLimit = rateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: 'Too many join attempts. Please try again later.',
+});
+
+export const inviteValidateRateLimit = rateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: 'Too many validation attempts. Please try again later.',
 });
 
 // Input sanitization middleware
@@ -97,19 +88,11 @@ export const securityHeaders = (req, res, next) => {
   next();
 };
 
-// Clean up old rate limit entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, value] of rateLimitMap.entries()) {
-    if (now > value.resetTime) {
-      rateLimitMap.delete(key);
-    }
-  }
-}, 60 * 1000); // Clean up every minute
-
 const securityMiddleware = {
-  rateLimit,
+  rateLimiter,
   authRateLimit,
+  inviteJoinRateLimit,
+  inviteValidateRateLimit,
   sanitizeInput,
   securityHeaders,
 };

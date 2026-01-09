@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Mail, Lock, User, UserPlus, AlertCircle } from 'lucide-react';
+import { Mail, Lock, User, UserPlus, AlertCircle, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import Logo from '../components/common/Logo';
 import { useToast } from '../hooks/use-toast';
-import { isValidEmail, sanitizeInput } from '../lib/utils';
+import { isValidEmail } from '../lib/utils';
 
 const Signup = () => {
   const navigate = useNavigate();
@@ -126,28 +126,38 @@ const Signup = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
+      {/* Background gradient effects */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
+        <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tr from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
+      </div>
+
+      <div className="w-full max-w-md relative">
         {/* Logo */}
-        <div className="flex justify-center mb-8">
+        <div className="flex justify-center mb-6 sm:mb-8">
           <Logo size="lg" />
         </div>
 
         {/* Signup Card */}
-        <div className="glass-card rounded-2xl p-8 animate-fade-in">
-          <div className="text-center mb-8">
-            <h1 className="font-display text-2xl font-bold text-foreground mb-2">
+        <div className="bg-card rounded-2xl p-6 sm:p-8 animate-fade-in border border-border/50 shadow-xl">
+          <div className="text-center mb-6 sm:mb-8">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-full mb-4">
+              <Sparkles size={14} className="text-primary" />
+              <span className="text-xs font-medium text-primary">Get started free</span>
+            </div>
+            <h1 className="font-display text-2xl sm:text-3xl font-bold text-foreground mb-2">
               Create Account
             </h1>
-            <p className="text-muted-foreground">
+            <p className="text-sm sm:text-base text-muted-foreground">
               Start splitting expenses with friends
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
             {/* Name Field */}
             <div className="space-y-2">
-              <Label htmlFor="name">Full Name</Label>
+              <Label htmlFor="name" className="text-sm sm:text-base font-medium">Full Name</Label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
                 <Input
@@ -159,13 +169,13 @@ const Signup = () => {
                     setName(e.target.value);
                     if (errors.name) setErrors({ ...errors, name: undefined });
                   }}
-                  className={`pl-10 ${errors.name ? 'border-destructive' : ''}`}
+                  className={`pl-10 min-h-[48px] text-sm sm:text-base ${errors.name ? 'border-destructive focus-visible:ring-destructive/20' : ''}`}
                   autoComplete="name"
                   required
                 />
               </div>
               {errors.name && (
-                <div className="flex items-center gap-1 text-sm text-destructive">
+                <div className="flex items-center gap-1.5 text-sm text-destructive">
                   <AlertCircle size={14} />
                   <span>{errors.name}</span>
                 </div>
@@ -174,7 +184,7 @@ const Signup = () => {
 
             {/* Email Field */}
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-sm sm:text-base font-medium">Email</Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
                 <Input
@@ -186,13 +196,13 @@ const Signup = () => {
                     setEmail(e.target.value);
                     if (errors.email) setErrors({ ...errors, email: undefined });
                   }}
-                  className={`pl-10 ${errors.email ? 'border-destructive' : ''}`}
+                  className={`pl-10 min-h-[48px] text-sm sm:text-base ${errors.email ? 'border-destructive focus-visible:ring-destructive/20' : ''}`}
                   autoComplete="email"
                   required
                 />
               </div>
               {errors.email && (
-                <div className="flex items-center gap-1 text-sm text-destructive">
+                <div className="flex items-center gap-1.5 text-sm text-destructive">
                   <AlertCircle size={14} />
                   <span>{errors.email}</span>
                 </div>
@@ -201,7 +211,7 @@ const Signup = () => {
 
             {/* Password Field */}
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password" className="text-sm sm:text-base font-medium">Password</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
                 <Input
@@ -213,13 +223,13 @@ const Signup = () => {
                     setPassword(e.target.value);
                     if (errors.password) setErrors({ ...errors, password: undefined });
                   }}
-                  className={`pl-10 ${errors.password ? 'border-destructive' : ''}`}
+                  className={`pl-10 min-h-[48px] text-sm sm:text-base ${errors.password ? 'border-destructive focus-visible:ring-destructive/20' : ''}`}
                   autoComplete="new-password"
                   required
                 />
               </div>
               {errors.password && (
-                <div className="flex items-center gap-1 text-sm text-destructive">
+                <div className="flex items-center gap-1.5 text-sm text-destructive">
                   <AlertCircle size={14} />
                   <span>{errors.password}</span>
                 </div>
@@ -228,7 +238,7 @@ const Signup = () => {
 
             {/* Confirm Password Field */}
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Label htmlFor="confirmPassword" className="text-sm sm:text-base font-medium">Confirm Password</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
                 <Input
@@ -240,13 +250,13 @@ const Signup = () => {
                     setConfirmPassword(e.target.value);
                     if (errors.confirmPassword) setErrors({ ...errors, confirmPassword: undefined });
                   }}
-                  className={`pl-10 ${errors.confirmPassword ? 'border-destructive' : ''}`}
+                  className={`pl-10 min-h-[48px] text-sm sm:text-base ${errors.confirmPassword ? 'border-destructive focus-visible:ring-destructive/20' : ''}`}
                   autoComplete="new-password"
                   required
                 />
               </div>
               {errors.confirmPassword && (
-                <div className="flex items-center gap-1 text-sm text-destructive">
+                <div className="flex items-center gap-1.5 text-sm text-destructive">
                   <AlertCircle size={14} />
                   <span>{errors.confirmPassword}</span>
                 </div>
@@ -254,9 +264,12 @@ const Signup = () => {
             </div>
 
             {/* Submit Button */}
-            <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
+            <Button type="submit" className="w-full min-h-[48px] text-sm sm:text-base shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all" size="lg" disabled={isLoading}>
               {isLoading ? (
-                <span>Creating account...</span>
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  Creating account...
+                </span>
               ) : (
                 <>
                   <UserPlus size={18} />
@@ -269,7 +282,7 @@ const Signup = () => {
           {/* Sign in link */}
           <p className="mt-6 text-center text-sm text-muted-foreground">
             Already have an account?{' '}
-            <Link to="/login" className="text-primary font-medium hover:underline">
+            <Link to="/login" className="text-primary font-semibold hover:text-primary-dark transition-colors">
               Sign in
             </Link>
           </p>

@@ -1,9 +1,42 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useState, useCallback } from 'react';
 import { TrendingUp, Calendar, Users, PieChart, Receipt, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { getCategoryById } from '../../data/categories';
+import { subscribeToAnalytics, subscribeToExpenseEvents } from '../../lib/socketClient';
 
-const ExpenseAnalytics = ({ expenses, group }) => {
+const ExpenseAnalytics = ({ expenses, group, onExpenseChange }) => {
+  // Track real-time updates indicator
+  const [lastUpdate, setLastUpdate] = useState(null);
+
+  // Subscribe to real-time analytics and expense events
+  useEffect(() => {
+    if (!group?.id) return;
+
+    // Subscribe to analytics events
+    const unsubscribeAnalytics = subscribeToAnalytics(group.id, (data) => {
+      setLastUpdate({ type: data.type, timestamp: Date.now() });
+      // Trigger parent refresh if callback provided
+      if (onExpenseChange) {
+        onExpenseChange(data);
+      }
+    });
+
+    // Subscribe to expense events for real-time chart updates
+    const unsubscribeExpenses = subscribeToExpenseEvents(group.id, (event) => {
+      setLastUpdate({ type: event.type, timestamp: Date.now() });
+      // Trigger parent refresh if callback provided
+      if (onExpenseChange) {
+        onExpenseChange(event);
+      }
+    });
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      unsubscribeAnalytics();
+      unsubscribeExpenses();
+    };
+  }, [group?.id, onExpenseChange]);
+
   const analytics = useMemo(() => {
     if (expenses.length === 0) return null;
 

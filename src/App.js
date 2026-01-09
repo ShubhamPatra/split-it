@@ -5,6 +5,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { GroupProvider } from './context/GroupContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { CurrencyProvider } from './context/CurrencyContext';
+import { ThemeProvider } from './context/ThemeContext';
+import { ChatProvider } from './context/ChatContext';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
 import Loading from './components/common/Loading';
@@ -38,19 +40,33 @@ const PrivateRoute = ({ children }) => {
   return isAuthenticated ? children : <Navigate to="/login" />;
 };
 
+// Create a combined AppProvider
+const AppProvider = ({ children }) => (
+  <ThemeProvider>
+    <AuthProvider>
+      <GroupProvider>
+        <NotificationProvider>
+          <CurrencyProvider>
+            <ChatProvider>
+              {children}
+            </ChatProvider>
+          </CurrencyProvider>
+        </NotificationProvider>
+      </GroupProvider>
+    </AuthProvider>
+  </ThemeProvider>
+);
+
 function App() {
   return (
     <ErrorBoundary>
       <GoogleOAuthProvider clientId={process.env.REACT_APP_GOOGLE_CLIENT_ID}>
         <BrowserRouter>
-          <AuthProvider>
-            <GroupProvider>
-              <NotificationProvider>
-                <CurrencyProvider>
-                  <TooltipProvider>
-                    <OfflineIndicator />
-                    <PwaInstallPrompt />
-                  <Toaster />
+          <AppProvider>
+            <TooltipProvider>
+              <OfflineIndicator />
+              <PwaInstallPrompt />
+            <Toaster />
                   <Suspense fallback={<Loading />}>
                     <Routes>
                     {/* Public Routes */}
@@ -72,13 +88,10 @@ function App() {
                   <Route path="*" element={<NotFound />} />
                 </Routes>
                 </Suspense>
-              </TooltipProvider>
-            </CurrencyProvider>
-          </NotificationProvider>
-        </GroupProvider>
-      </AuthProvider>
-    </BrowserRouter>
-    </GoogleOAuthProvider>
+            </TooltipProvider>
+          </AppProvider>
+        </BrowserRouter>
+      </GoogleOAuthProvider>
     </ErrorBoundary>
   );
 }

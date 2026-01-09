@@ -4,8 +4,9 @@ import { body, param, validationResult } from 'express-validator';
 export const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    const errorMessages = errors.array().map(e => e.msg).join(', ');
     return res.status(400).json({ 
-      message: 'Validation error', 
+      message: errorMessages || 'Validation error', 
       errors: errors.array() 
     });
   }
@@ -57,4 +58,9 @@ export const createSettlementValidation = [
 // ID param validation
 export const idValidation = [
   param('id').isMongoId().withMessage('Invalid ID format'),
+];
+
+// Group ID param validation
+export const groupIdValidation = [
+  param('groupId').isMongoId().withMessage('Invalid group ID format'),
 ];

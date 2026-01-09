@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import apiClient from '../lib/apiClient';
+import { initializePushNotifications, unsubscribeFromPush } from '../utils/registerServiceWorker';
 
 // Create the context with default values
 const AuthContext = createContext(undefined);
@@ -13,8 +14,8 @@ export const AuthProvider = ({ children }) => {
   // Check if user is authenticated
   const isAuthenticated = user !== null;
 
-  // Create session helper
-  const createSession = (userData, token) => {
+  // Create session helper - stores only user info, NOT token (token is in HttpOnly cookie)
+  const createSession = (userData) => {
     const session = {
       user: { 
         id: userData.id, 
@@ -22,11 +23,19 @@ export const AuthProvider = ({ children }) => {
         email: userData.email,
         upiId: userData.upiId || ''
       },
-      token,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     };
-    localStorage.setItem('splitit_session', JSON.stringify(session));
+    // Only store non-sensitive user info for UI purposes
+    sessionStorage.setItem('splitit_user', JSON.stringify(session));
     setUser(session.user);
+    
+    // Initialize push notifications after login (async, don't block)
+    initializePushNotifications().then(result => {
+      if (!result.success && !result.alreadySubscribed) {
+        console.log('Push notifications not enabled:', result.error);
+      }
+    }).catch(err => console.warn('Push init failed:', err));
+    
     return session;
   };
 
@@ -34,11 +43,13 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const loadSession = async () => {
       try {
-        const sessionData = localStorage.getItem('splitit_session');
+        // Check if we have a session marker (cookie auth will be sent automatically)
+        const sessionData = sessionStorage.getItem('splitit_user');
         if (sessionData) {
-          const { token, expiresAt } = JSON.parse(sessionData);
-          if (new Date(expiresAt) > new Date() && token) {
-            // Verify token is still valid by fetching user data
+          const { expiresAt } = JSON.parse(sessionData);
+          if (new Date(expiresAt) > new Date()) {
+            // Verify session is still valid by fetching user data
+            // Cookie will be sent automatically with credentials: 'include'
             try {
               const userData = await apiClient.get('/auth/me');
               setUser({ 
@@ -49,10 +60,10 @@ export const AuthProvider = ({ children }) => {
               });
             } catch (error) {
               console.error('Session invalid:', error);
-              localStorage.removeItem('splitit_session');
+              sessionStorage.removeItem('splitit_user');
             }
           } else {
-            localStorage.removeItem('splitit_session');
+            sessionStorage.removeItem('splitit_user');
           }
         }
       } catch (error) {
@@ -70,7 +81,7 @@ export const AuthProvider = ({ children }) => {
   const register = async (name, email, password) => {
     try {
       const response = await apiClient.post('/auth/register', { name, email, password });
-      createSession(response.user, response.token);
+      createSession(response.user);
       console.log('Registration successful:', email);
       return { success: response.success, needsConfirmation: response.needsConfirmation };
     } catch (error) {
@@ -82,7 +93,7 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       const response = await apiClient.post('/auth/login', { email, password });
-      createSession(response.user, response.token);
+      createSession(response.user);
       console.log('Login successful:', email);
       return true;
     } catch (error) {
@@ -94,7 +105,7 @@ export const AuthProvider = ({ children }) => {
   const googleLogin = async (credential) => {
     try {
       const response = await apiClient.post('/auth/google', { credential });
-      createSession(response.user, response.token);
+      createSession(response.user);
       console.log('Google login successful:', response.user.email);
       return true;
     } catch (error) {
@@ -112,7 +123,7 @@ export const AuthProvider = ({ children }) => {
     if (!user) return false;
     try {
       const response = await apiClient.put('/users/profile', updates);
-      createSession(response, localStorage.getItem('splitit_session') ? JSON.parse(localStorage.getItem('splitit_session')).token : null);
+      createSession(response);
       return true;
     } catch (error) {
       console.error('Error updating profile:', error);
@@ -120,9 +131,21 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Logout function - clears localStorage session
+  // Logout function - clears session and calls logout endpoint to clear cookie
   const logout = async () => {
-    localStorage.removeItem('splitit_session');
+    // Unsubscribe from push notifications
+    try {
+      await unsubscribeFromPush();
+    } catch (error) {
+      console.warn('Push unsubscribe failed:', error);
+    }
+    
+    try {
+      await apiClient.post('/auth/logout', {});
+    } catch (error) {
+      console.error('Logout API error:', error);
+    }
+    sessionStorage.removeItem('splitit_user');
     setUser(null);
   };
 

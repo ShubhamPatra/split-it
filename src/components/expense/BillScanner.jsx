@@ -1,5 +1,4 @@
 import React, { useState, useRef } from 'react';
-import Tesseract from 'tesseract.js';
 import { Camera, Upload, X, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
@@ -9,7 +8,7 @@ import { useToast } from '../../hooks/use-toast';
 /**
  * BillScanner Component
  * 
- * Allows users to scan/upload bill images and extract expense details using OCR
+ * Allows users to scan/upload bill images and extract expense details using server-side OCR
  * Supports both file upload and camera capture
  * 
  * @param {function} onScanComplete - Callback when scan is complete with extracted data
@@ -43,11 +42,11 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
       return;
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
+    // Validate file size (max 10MB for server upload)
+    if (file.size > 10 * 1024 * 1024) {
       toast({
         title: "File too large",
-        description: "Please upload an image smaller than 5MB",
+        description: "Please upload an image smaller than 10MB",
         variant: "destructive",
       });
       return;
@@ -67,120 +66,7 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
   };
 
   /**
-   * Extract expense details from OCR text
-   */
-  const extractExpenseData = (text) => {
-    console.log('OCR Text:', text);
-    
-    const data = {
-      amount: null,
-      date: null,
-      merchantName: null,
-      rawText: text
-    };
-
-    // Extract amount - look for common patterns
-    // Patterns: Total: 1234.56, Rs. 1234, ₹1234, $1234.56, Total 1234
-    const amountPatterns = [
-      /(?:total|amount|sum|grand\s*total|bill\s*amount)[:\s]*[₹$€£rs.]*\s*(\d{1,6}(?:[.,]\d{2})?)/i,
-      /[₹$€£]\s*(\d{1,6}(?:[.,]\d{2})?)/,
-      /(?:rs|inr)[.\s]*(\d{1,6}(?:[.,]\d{2})?)/i,
-      /\b(\d{1,6}[.,]\d{2})\b/
-    ];
-
-    for (const pattern of amountPatterns) {
-      const match = text.match(pattern);
-      if (match) {
-        let amount = match[1].replace(',', '');
-        data.amount = parseFloat(amount);
-        if (data.amount && !isNaN(data.amount) && data.amount > 0) {
-          break;
-        }
-      }
-    }
-
-    // Extract date - various formats
-    const datePatterns = [
-      /(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})/,  // DD-MM-YYYY or DD/MM/YYYY
-      /(\d{4}[-/]\d{1,2}[-/]\d{1,2})/,     // YYYY-MM-DD
-      /(\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4})/i
-    ];
-
-    for (const pattern of datePatterns) {
-      const match = text.match(pattern);
-      if (match) {
-        const dateStr = match[1];
-        const parsedDate = parseDate(dateStr);
-        if (parsedDate) {
-          data.date = parsedDate;
-          break;
-        }
-      }
-    }
-
-    // Extract merchant name - usually at the top
-    const lines = text.split('\n').filter(line => line.trim().length > 0);
-    if (lines.length > 0) {
-      // Take first non-empty line that's not just numbers
-      for (const line of lines.slice(0, 5)) {
-        if (line.length > 3 && line.length < 50 && !/^\d+$/.test(line.trim())) {
-          data.merchantName = line.trim();
-          break;
-        }
-      }
-    }
-
-    return data;
-  };
-
-  /**
-   * Parse date string to YYYY-MM-DD format
-   */
-  const parseDate = (dateStr) => {
-    try {
-      // Try different date formats
-      const date = new Date(dateStr);
-      if (!isNaN(date.getTime())) {
-        return date.toISOString().split('T')[0];
-      }
-
-      // Try DD-MM-YYYY format
-      const parts = dateStr.split(/[-/]/);
-      if (parts.length === 3) {
-        let day, month, year;
-        
-        // Check if it's DD-MM-YYYY or YYYY-MM-DD
-        if (parts[0].length === 4) {
-          // YYYY-MM-DD
-          year = parts[0];
-          month = parts[1];
-          day = parts[2];
-        } else {
-          // DD-MM-YYYY
-          day = parts[0];
-          month = parts[1];
-          year = parts[2];
-        }
-
-        // Handle 2-digit year
-        if (year.length === 2) {
-          year = '20' + year;
-        }
-
-        const testDate = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
-        if (!isNaN(testDate.getTime())) {
-          return testDate.toISOString().split('T')[0];
-        }
-      }
-
-      return null;
-    } catch (error) {
-      return null;
-    }
-  };
-
-  /**
-   * Perform OCR on the uploaded image
+   * Perform OCR on the uploaded image using server-side endpoint
    */
   const scanImage = async () => {
     if (!image) {
@@ -197,25 +83,42 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
     setScanProgress(0);
 
     try {
-      const result = await Tesseract.recognize(
-        image,
-        'eng',
-        {
-          logger: (m) => {
-            if (m.status === 'recognizing text') {
-              setScanProgress(Math.round(m.progress * 100));
-            }
-          },
-        }
-      );
+      const formData = new FormData();
+      formData.append('receipt', image);
 
-      const text = result.data.text;
-      const extracted = extractExpenseData(text);
+      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
+      // Simulate progress
+      const progressInterval = setInterval(() => {
+        setScanProgress(prev => Math.min(prev + 10, 90));
+      }, 300);
+
+      const response = await fetch(`${API_URL}/ocr/scan`, {
+        method: 'POST',
+        credentials: 'include', // Send HttpOnly auth cookie
+        body: formData,
+      });
+
+      clearInterval(progressInterval);
+      setScanProgress(100);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to scan receipt');
+      }
+
+      const extracted = {
+        amount: data.extracted?.amount || null,
+        date: data.extracted?.date || null,
+        merchantName: null, // Can be added if OCR extracts it
+        rawText: data.text || '',
+      };
       
       setExtractedData(extracted);
       setScanStatus('success');
       
-      if (!extracted.amount && !extracted.date && !extracted.merchantName) {
+      if (!extracted.amount && !extracted.date) {
         toast({
           title: "No data extracted",
           description: "Could not extract expense details. Please enter manually.",
@@ -228,7 +131,6 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
           description: `Extracted ${[
             extracted.amount ? 'amount' : null,
             extracted.date ? 'date' : null,
-            extracted.merchantName ? 'merchant' : null
           ].filter(Boolean).join(', ')}`,
         });
       }
@@ -238,7 +140,7 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
       setScanStatus('error');
       toast({
         title: "Scan failed",
-        description: "Failed to scan the image. Please try again or enter manually.",
+        description: error.message || "Failed to scan the image. Please try again or enter manually.",
         variant: "destructive",
       });
     } finally {

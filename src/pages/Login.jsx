@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Mail, Lock, LogIn, AlertCircle } from 'lucide-react';
+import { Mail, Lock, LogIn, AlertCircle, Sparkles } from 'lucide-react';
 import { GoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
@@ -135,18 +135,28 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
+      {/* Background gradient effects */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
+        <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tr from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
+      </div>
+
+      <div className="w-full max-w-md relative">
         {/* Logo */}
         <div className="flex justify-center mb-6 sm:mb-8">
           <Logo size="lg" />
         </div>
 
         {/* Login Card */}
-        <div className="glass-card rounded-2xl p-6 sm:p-8 animate-fade-in">
+        <div className="bg-card rounded-2xl p-6 sm:p-8 animate-fade-in border border-border/50 shadow-xl">
           <div className="text-center mb-6 sm:mb-8">
-            <h1 className="font-display text-xl sm:text-2xl font-bold text-foreground mb-2">
-              Welcome Back
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-full mb-4">
+              <Sparkles size={14} className="text-primary" />
+              <span className="text-xs font-medium text-primary">Welcome back</span>
+            </div>
+            <h1 className="font-display text-2xl sm:text-3xl font-bold text-foreground mb-2">
+              Sign In
             </h1>
             <p className="text-sm sm:text-base text-muted-foreground">
               Sign in to manage your shared expenses
@@ -156,7 +166,7 @@ const Login = () => {
           <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
             {/* Email Field */}
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm sm:text-base">Email</Label>
+              <Label htmlFor="email" className="text-sm sm:text-base font-medium">Email</Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
                 <Input
@@ -168,13 +178,13 @@ const Login = () => {
                     setEmail(e.target.value);
                     if (errors.email) setErrors({ ...errors, email: undefined });
                   }}
-                  className={`pl-10 min-h-[44px] text-sm sm:text-base ${errors.email ? 'border-destructive' : ''}`}
+                  className={`pl-10 min-h-[48px] text-sm sm:text-base ${errors.email ? 'border-destructive focus-visible:ring-destructive/20' : ''}`}
                   autoComplete="email"
                   required
                 />
               </div>
               {errors.email && (
-                <div className="flex items-center gap-1 text-sm text-destructive">
+                <div className="flex items-center gap-1.5 text-sm text-destructive">
                   <AlertCircle size={14} />
                   <span>{errors.email}</span>
                 </div>
@@ -183,7 +193,7 @@ const Login = () => {
 
             {/* Password Field */}
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm sm:text-base">Password</Label>
+              <Label htmlFor="password" className="text-sm sm:text-base font-medium">Password</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
                 <Input
@@ -195,13 +205,13 @@ const Login = () => {
                     setPassword(e.target.value);
                     if (errors.password) setErrors({ ...errors, password: undefined });
                   }}
-                  className={`pl-10 min-h-[44px] text-sm sm:text-base ${errors.password ? 'border-destructive' : ''}`}
+                  className={`pl-10 min-h-[48px] text-sm sm:text-base ${errors.password ? 'border-destructive focus-visible:ring-destructive/20' : ''}`}
                   autoComplete="current-password"
                   required
                 />
               </div>
               {errors.password && (
-                <div className="flex items-center gap-1 text-sm text-destructive">
+                <div className="flex items-center gap-1.5 text-sm text-destructive">
                   <AlertCircle size={14} />
                   <span>{errors.password}</span>
                 </div>
@@ -209,9 +219,12 @@ const Login = () => {
             </div>
 
             {/* Submit Button */}
-            <Button type="submit" className="w-full min-h-[44px] h-auto text-sm sm:text-base" size="lg" disabled={isLoading}>
+            <Button type="submit" className="w-full min-h-[48px] h-auto text-sm sm:text-base shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all" size="lg" disabled={isLoading}>
               {isLoading ? (
-                <span>Signing in...</span>
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  Signing in...
+                </span>
               ) : (
                 <>
                   <LogIn size={18} />
@@ -224,10 +237,10 @@ const Login = () => {
           {/* Divider */}
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border"></div>
+              <div className="w-full border-t border-border/50"></div>
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+              <span className="bg-card px-3 text-muted-foreground">Or continue with</span>
             </div>
           </div>
 
@@ -244,9 +257,9 @@ const Login = () => {
           </div>
 
           {/* Sign up link */}
-          <p className="mt-6 text-center text-xs sm:text-sm text-muted-foreground">
+          <p className="mt-6 text-center text-sm text-muted-foreground">
             Don't have an account?{' '}
-            <Link to="/signup" className="text-primary font-medium hover:underline">
+            <Link to="/signup" className="text-primary font-semibold hover:text-primary-dark transition-colors">
               Sign up
             </Link>
           </p>

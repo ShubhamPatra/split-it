@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { ArrowRight, Trash2, Clock, Smartphone, CreditCard, CheckCircle, Building2, Wallet } from 'lucide-react';
 import { useGroups } from '../../context/GroupContext';
 import { useAuth } from '../../context/AuthContext';
@@ -9,7 +9,7 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { getUpiProviderIcon, formatUpiIdForDisplay } from '../../utils/upiHelpers';
 
-const SettlementCard = ({ settlement }) => {
+const SettlementCard = memo(({ settlement }) => {
   const { deleteSettlement, getUserProfile } = useGroups();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -17,7 +17,6 @@ const SettlementCard = ({ settlement }) => {
   const handleDelete = () => { deleteSettlement(settlement.id); toast({ title: "Settlement deleted" }); };
 
   const receiver = getUserProfile(settlement.toUserId);
-  const payer = getUserProfile(settlement.fromUserId);
   const isPending = settlement.paymentStatus === 'pending';
   const isUpi = settlement.paymentMethod === 'upi';
   const isCurrentUserPayer = user?.id === settlement.fromUserId;
@@ -124,6 +123,9 @@ const SettlementCard = ({ settlement }) => {
       </div>
     </div>
   );
-};
+});
 
 export default SettlementCard;
+
+// Custom comparison to avoid unnecessary re-renders
+SettlementCard.displayName = 'SettlementCard';

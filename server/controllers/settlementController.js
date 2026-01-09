@@ -2,6 +2,7 @@ import Settlement from '../models/Settlement.js';
 import Group from '../models/Group.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
+import Message from '../models/Message.js';
 import { validateUpiId, validatePaymentAmount, generateTransactionRef } from '../utils/upiValidation.js';
 
 // @desc    Get all settlements for user's groups
@@ -41,9 +42,11 @@ export const getSettlementsByGroup = async (req, res) => {
     }
 
     const settlements = await Settlement.find({ groupId: req.params.groupId })
-      .populate('fromUserId', 'name email upiId')
-      .populate('toUserId', 'name email upiId')
-      .sort({ settledAt: -1 });
+      .populate('fromUserId', 'name email')  // Remove upiId from populate
+      .populate('toUserId', 'name email')
+      .sort({ settledAt: -1 })
+      .lean()
+      .limit(50);
 
     res.json(settlements);
   } catch (error) {
@@ -72,6 +75,23 @@ export const createSettlement = async (req, res) => {
 
     if (!group.members.includes(req.user._id)) {
       return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    // Validate both parties are group members
+    const memberStrings = group.members.map(m => m.toString());
+    if (!memberStrings.includes(fromUserId.toString())) {
+      return res.status(400).json({ message: 'Payer (fromUser) must be a group member' });
+    }
+    if (!memberStrings.includes(toUserId.toString())) {
+      return res.status(400).json({ message: 'Receiver (toUser) must be a group member' });
+    }
+
+    // Caller must be a participant (fromUser or toUser) or group admin
+    const isFromUser = fromUserId.toString() === req.user._id.toString();
+    const isToUser = toUserId.toString() === req.user._id.toString();
+    const isAdmin = group.createdBy.toString() === req.user._id.toString();
+    if (!isFromUser && !isToUser && !isAdmin) {
+      return res.status(403).json({ message: 'Only settlement participants or group admin can create this settlement' });
     }
 
     // If payment method is UPI, validate receiver's UPI ID
@@ -127,6 +147,38 @@ export const createSettlement = async (req, res) => {
       actionCompleted: false,
     });
 
+    // Emit socket event to group members
+    const io = req.app.get('io');
+    if (io) {
+      const { emitToGroup } = await import('../utils/socketEmitter.js');
+      emitToGroup(io, groupId, 'settlement:created', populatedSettlement);
+      
+      // Create system message for chat
+      try {
+        const receiver = await User.findById(toUserId);
+        const systemMessage = await Message.create({
+          groupId,
+          senderId: fromUserId,
+          content: `${payer.name} paid ${receiver.name} ${currency || 'INR'}${amount}${paymentMethod === 'upi' ? ' via UPI' : ''}`,
+          type: 'system',
+          metadata: {
+            settlementId: settlement._id,
+            action: 'created',
+          },
+          readBy: [fromUserId, toUserId],
+        });
+        
+        const populatedSystemMessage = await Message.findById(systemMessage._id)
+          .populate('senderId', 'name email')
+          .lean();
+        
+        emitToGroup(io, groupId, 'chat:new', populatedSystemMessage);
+      } catch (msgError) {
+        console.error('Error creating system message for settlement:', msgError);
+        // Don't fail the request if message creation fails
+      }
+    }
+
     res.status(201).json(populatedSettlement);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -149,6 +201,14 @@ export const updateSettlement = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
+    // Only participants (fromUser or toUser) or group admin can modify
+    const isFromUser = settlement.fromUserId.toString() === req.user._id.toString();
+    const isToUser = settlement.toUserId.toString() === req.user._id.toString();
+    const isAdmin = settlement.groupId.createdBy.toString() === req.user._id.toString();
+    if (!isFromUser && !isToUser && !isAdmin) {
+      return res.status(403).json({ message: 'Only settlement participants or group admin can modify this settlement' });
+    }
+
     const { amount, currency, settledAt, paymentMethod, paymentStatus } = req.body;
 
     if (amount !== undefined) settlement.amount = amount;
@@ -163,6 +223,13 @@ export const updateSettlement = async (req, res) => {
       .populate('fromUserId', 'name email')
       .populate('toUserId', 'name email')
       .populate('groupId', 'name');
+
+    // Emit socket event to group members
+    const io = req.app.get('io');
+    if (io) {
+      const { emitToGroup } = await import('../utils/socketEmitter.js');
+      emitToGroup(io, settlement.groupId._id.toString(), 'settlement:updated', updatedSettlement);
+    }
 
     res.json(updatedSettlement);
   } catch (error) {
@@ -186,7 +253,23 @@ export const deleteSettlement = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
+    // Only participants (fromUser or toUser) or group admin can delete
+    const isFromUser = settlement.fromUserId.toString() === req.user._id.toString();
+    const isToUser = settlement.toUserId.toString() === req.user._id.toString();
+    const isAdmin = settlement.groupId.createdBy.toString() === req.user._id.toString();
+    if (!isFromUser && !isToUser && !isAdmin) {
+      return res.status(403).json({ message: 'Only settlement participants or group admin can delete this settlement' });
+    }
+
+    const groupId = settlement.groupId._id.toString();
     await Settlement.findByIdAndDelete(req.params.id);
+
+    // Emit socket event to group members
+    const io = req.app.get('io');
+    if (io) {
+      const { emitToGroup } = await import('../utils/socketEmitter.js');
+      emitToGroup(io, groupId, 'settlement:deleted', { settlementId: req.params.id });
+    }
 
     res.json({ message: 'Settlement deleted successfully', success: true });
   } catch (error) {
@@ -242,6 +325,27 @@ export const confirmPaymentReceipt = async (req, res) => {
       .populate('fromUserId', 'name email')
       .populate('toUserId', 'name email')
       .populate('groupId', 'name');
+
+    // Emit socket event to group members for real-time update
+    const io = req.app.get('io');
+    if (io) {
+      const { emitToGroup } = await import('../utils/socketEmitter.js');
+      emitToGroup(io, settlement.groupId._id.toString(), 'settlement:updated', updatedSettlement);
+    }
+
+    // Send push notification to the payer about confirmation
+    try {
+      const { sendPushToUser } = await import('../utils/pushNotifier.js');
+      await sendPushToUser(settlement.fromUserId._id.toString(), {
+        title: 'Payment Confirmed',
+        body: `${settlement.toUserId.name} confirmed receiving ₹${settlement.amount} payment.`,
+        icon: '/logo192.png',
+        data: { url: `/groups/${settlement.groupId._id}` },
+      });
+    } catch (pushError) {
+      console.error('Push notification failed:', pushError);
+      // Don't fail the request if push fails
+    }
 
     res.json(updatedSettlement);
   } catch (error) {

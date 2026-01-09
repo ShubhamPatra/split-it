@@ -15,23 +15,70 @@ const groupSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
   }],
+  // Member roles - stores role per user ID (Comment 10)
+  memberRoles: {
+    type: Map,
+    of: {
+      type: String,
+      enum: ['admin', 'member'],
+      default: 'member',
+    },
+    default: new Map(),
+  },
+  // Legacy invite code field - deprecated, use Invite model instead
   inviteCode: {
     type: String,
     unique: true,
     sparse: true,
   },
+  // Budget limit fields (Comment 4)
+  budget: {
+    monthlyLimit: {
+      type: Number,
+      default: 0, // 0 means no limit
+      min: 0,
+    },
+    alertThreshold: {
+      type: Number,
+      default: 80, // Alert at 80% of budget
+      min: 0,
+      max: 100,
+    },
+    currency: {
+      type: String,
+      default: 'INR',
+    },
+    enabled: {
+      type: Boolean,
+      default: false,
+    },
+  },
   createdAt: {
-    type: String,
-    default: () => new Date().toISOString().split('T')[0],
+    type: Date,
+    default: Date.now,
   },
 }, {
   timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true },
 });
 
-// Ensure creator is always in members
+// Virtual to populate active invites (for backward compatibility reference)
+groupSchema.virtual('activeInvites', {
+  ref: 'Invite',
+  localField: '_id',
+  foreignField: 'groupId',
+  match: { status: 'pending', expiresAt: { $gt: new Date() } },
+});
+
+// Ensure creator is always in members and has admin role
 groupSchema.pre('save', function(next) {
   if (!this.members.includes(this.createdBy)) {
     this.members.unshift(this.createdBy);
+  }
+  // Ensure creator always has admin role
+  if (!this.memberRoles.get(this.createdBy.toString())) {
+    this.memberRoles.set(this.createdBy.toString(), 'admin');
   }
   next();
 });
@@ -45,6 +92,25 @@ groupSchema.methods.generateInviteCode = function() {
   }
   this.inviteCode = code;
   return code;
+};
+
+// Method to check if user is admin
+groupSchema.methods.isAdmin = function(userId) {
+  const role = this.memberRoles.get(userId.toString());
+  return role === 'admin' || this.createdBy.toString() === userId.toString();
+};
+
+// Method to get member role
+groupSchema.methods.getMemberRole = function(userId) {
+  if (this.createdBy.toString() === userId.toString()) {
+    return 'admin';
+  }
+  return this.memberRoles.get(userId.toString()) || 'member';
+};
+
+// Method to set member role
+groupSchema.methods.setMemberRole = function(userId, role) {
+  this.memberRoles.set(userId.toString(), role);
 };
 
 const Group = mongoose.model('Group', groupSchema);

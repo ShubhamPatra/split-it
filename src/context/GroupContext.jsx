@@ -1,29 +1,123 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import apiClient from '../lib/apiClient';
+import { initializeSocket, disconnectSocket, joinGroup } from '../lib/socketClient';
 
 // Create the context
 const GroupContext = createContext(undefined);
+
+// Constants for lazy loading
+const EXPENSES_PER_PAGE = 50;
 
 // GroupProvider component
 export const GroupProvider = ({ children }) => {
   // State for groups, expenses, and settlements
   const [groups, setGroups] = useState([]);
-  const [expenses, setExpenses] = useState([]);
+  const [expenses, setExpenses] = useState([]); // Now stores expenses lazily loaded per group
   const [settlements, setSettlements] = useState([]);
   const [profiles, setProfiles] = useState({}); // Cache user profiles
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
 
-  // Load all user data from API
+  // Track which groups have been loaded (lazy loading)
+  const loadedGroupsRef = useRef(new Set());
+  // Use ref for synchronous in-flight tracking to prevent race conditions
+  const loadingGroupsRef = useRef(new Set());
+  const [loadingGroups, setLoadingGroups] = useState(new Set());
+
+  // Memoize expensive calculations
+  const groupsById = useMemo(() => {
+    return groups.reduce((acc, g) => ({ ...acc, [g.id]: g }), {});
+  }, [groups]);
+
+  const expensesByGroup = useMemo(() => {
+    return expenses.reduce((acc, e) => {
+      if (!acc[e.groupId]) acc[e.groupId] = [];
+      acc[e.groupId].push(e);
+      return acc;
+    }, {});
+  }, [expenses]);
+
+  // Selective update functions instead of full reload
+  const updateGroupLocally = useCallback((groupId, updates) => {
+    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, ...updates } : g));
+  }, []);
+
+  const addExpenseLocally = useCallback((expense) => {
+    const transformed = {
+      id: expense._id,
+      groupId: expense.groupId._id || expense.groupId,
+      description: expense.description,
+      amount: expense.amount,
+      currency: expense.currency,
+      category: expense.category,
+      paidBy: expense.paidBy._id || expense.paidBy,
+      date: expense.date,
+      splitAmong: expense.splitAmong.map(s => s._id || s),
+      splitConfig: expense.splitConfig,
+      receipts: expense.receipts || [],
+    };
+    setExpenses(prev => [transformed, ...prev]);
+  }, []);
+
+  const updateExpenseLocally = useCallback((expenseId, updates) => {
+    setExpenses(prev => prev.map(e => e.id === expenseId ? { ...e, ...updates } : e));
+  }, []);
+
+  const deleteExpenseLocally = useCallback((expenseId) => {
+    setExpenses(prev => prev.filter(e => e.id !== expenseId));
+  }, []);
+
+  const addSettlementLocally = useCallback((settlement) => {
+    const transformed = {
+      id: settlement._id,
+      groupId: settlement.groupId._id || settlement.groupId,
+      fromUserId: settlement.fromUserId._id || settlement.fromUserId,
+      toUserId: settlement.toUserId._id || settlement.toUserId,
+      amount: settlement.amount,
+      currency: settlement.currency,
+      settledAt: settlement.settledAt,
+      paymentMethod: settlement.paymentMethod || 'cash',
+      paymentStatus: settlement.paymentStatus || 'pending',
+    };
+    setSettlements(prev => [transformed, ...prev]);
+  }, []);
+
+  const addGroupLocally = useCallback((group) => {
+    const transformed = {
+      id: group._id,
+      name: group.name,
+      createdBy: group.createdBy._id || group.createdBy,
+      createdAt: group.createdAt,
+      members: group.members.map(m => m._id || m),
+      inviteCode: group.inviteCode,
+    };
+    setGroups(prev => [transformed, ...prev]);
+  }, []);
+
+  const deleteGroupLocally = useCallback((groupId) => {
+    setGroups(prev => prev.filter(g => g.id !== groupId));
+    setExpenses(prev => prev.filter(e => e.groupId !== groupId));
+    setSettlements(prev => prev.filter(s => s.groupId !== groupId));
+  }, []);
+
+  const updateSettlementLocally = useCallback((settlementId, updates) => {
+    setSettlements(prev => prev.map(s => s.id === settlementId ? { ...s, ...updates } : s));
+  }, []);
+
+  const deleteSettlementLocally = useCallback((settlementId) => {
+    setSettlements(prev => prev.filter(s => s.id !== settlementId));
+  }, []);
+
+  // Load all user data from API (groups + settlements only, expenses loaded lazily)
   const loadUserData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
 
     try {
-      const [groupsData, expensesData, settlementsData] = await Promise.all([
+      // Only load groups and settlements initially - expenses are loaded per-group lazily
+      const [groupsData, settlementsData] = await Promise.all([
         apiClient.get('/groups'),
-        apiClient.get('/expenses'),
         apiClient.get('/settlements'),
       ]);
 
@@ -35,19 +129,6 @@ export const GroupProvider = ({ children }) => {
         createdAt: g.createdAt,
         members: g.members.map(m => m._id || m),
         inviteCode: g.inviteCode,
-      }));
-
-      const transformedExpenses = expensesData.map(e => ({
-        id: e._id,
-        groupId: e.groupId._id || e.groupId,
-        description: e.description,
-        amount: e.amount,
-        currency: e.currency,
-        category: e.category,
-        paidBy: e.paidBy._id || e.paidBy,
-        date: e.date,
-        splitAmong: e.splitAmong.map(s => s._id || s),
-        splitConfig: e.splitConfig,
       }));
 
       const transformedSettlements = settlementsData.map(s => ({
@@ -63,8 +144,11 @@ export const GroupProvider = ({ children }) => {
       }));
 
       setGroups(transformedGroups);
-      setExpenses(transformedExpenses);
       setSettlements(transformedSettlements);
+      
+      // Reset lazy loading state
+      loadedGroupsRef.current = new Set();
+      setExpenses([]);
 
       // Build profiles cache from populated data
       const profilesMap = {};
@@ -96,6 +180,70 @@ export const GroupProvider = ({ children }) => {
     }
   }, [user]);
 
+  // Lazy load expenses for a specific group
+  const loadGroupExpenses = useCallback(async (groupId, forceReload = false) => {
+    if (!groupId) return [];
+    
+    // Skip if already loaded and not forcing reload
+    if (loadedGroupsRef.current.has(groupId) && !forceReload) {
+      // Access expenses directly instead of using expensesByGroup
+      return expenses.filter(e => e.groupId === groupId);
+    }
+    
+    // Use ref for synchronous check to prevent race conditions between renders
+    if (loadingGroupsRef.current.has(groupId)) {
+      return expenses.filter(e => e.groupId === groupId);
+    }
+    
+    // Mark as loading synchronously BEFORE any async operations
+    loadingGroupsRef.current.add(groupId);
+    setLoadingGroups(prev => new Set(prev).add(groupId));
+    
+    try {
+      const response = await apiClient.get(`/expenses/group/${groupId}?limit=${EXPENSES_PER_PAGE}`);
+      const expensesData = Array.isArray(response) ? response : (response.data || []);
+      
+      const transformedExpenses = expensesData.map(e => ({
+        id: e._id,
+        groupId: e.groupId?._id || e.groupId,
+        description: e.description,
+        amount: e.amount,
+        currency: e.currency,
+        category: e.category,
+        paidBy: e.paidBy?._id || e.paidBy,
+        date: e.date,
+        splitAmong: (e.splitAmong || []).map(s => s._id || s),
+        splitConfig: e.splitConfig,
+        receipts: e.receipts || [],
+      }));
+      
+      // Update expenses state - replace expenses for this group
+      setExpenses(prev => {
+        const otherExpenses = prev.filter(e => e.groupId !== groupId);
+        return [...otherExpenses, ...transformedExpenses];
+      });
+      
+      loadedGroupsRef.current.add(groupId);
+      
+      // Join socket room for real-time updates after initial load
+      const { joinGroupRoom } = await import('../lib/socketClient');
+      joinGroupRoom(groupId);
+      
+      return transformedExpenses;
+    } catch (error) {
+      console.error('Error loading group expenses:', error);
+      return [];
+    } finally {
+      // Clean up both ref and state
+      loadingGroupsRef.current.delete(groupId);
+      setLoadingGroups(prev => {
+        const next = new Set(prev);
+        next.delete(groupId);
+        return next;
+      });
+    }
+  }, [expenses]); // Only depend on expenses state, not expensesByGroup
+
   // Load data when user changes
   useEffect(() => {
     if (user) {
@@ -113,7 +261,7 @@ export const GroupProvider = ({ children }) => {
     if (!user) return null;
     try {
       const response = await apiClient.post('/groups', { name, members });
-      await loadUserData();
+      addGroupLocally(response);
       return response._id;
     } catch (error) {
       console.error('Error adding group:', error);
@@ -125,7 +273,7 @@ export const GroupProvider = ({ children }) => {
   const addExpense = async (expenseData) => {
     try {
       const response = await apiClient.post('/expenses', expenseData);
-      await loadUserData();
+      addExpenseLocally(response);
       return response._id;
     } catch (error) {
       console.error('Error adding expense:', error);
@@ -137,7 +285,7 @@ export const GroupProvider = ({ children }) => {
   const addSettlement = async (settlementData) => {
     try {
       const response = await apiClient.post('/settlements', settlementData);
-      await loadUserData();
+      addSettlementLocally(response);
       return response._id;
     } catch (error) {
       console.error('Error adding settlement:', error);
@@ -149,7 +297,7 @@ export const GroupProvider = ({ children }) => {
   const updateExpense = async (expenseId, updates) => {
     try {
       await apiClient.put(`/expenses/${expenseId}`, updates);
-      await loadUserData();
+      updateExpenseLocally(expenseId, updates);
       return true;
     } catch (error) {
       console.error('Error updating expense:', error);
@@ -161,7 +309,7 @@ export const GroupProvider = ({ children }) => {
   const updateSettlement = async (settlementId, updates) => {
     try {
       await apiClient.put(`/settlements/${settlementId}`, updates);
-      await loadUserData();
+      updateSettlementLocally(settlementId, updates);
       return true;
     } catch (error) {
       console.error('Error updating settlement:', error);
@@ -173,7 +321,7 @@ export const GroupProvider = ({ children }) => {
   const deleteGroup = async (groupId) => {
     try {
       await apiClient.delete(`/groups/${groupId}`);
-      await loadUserData();
+      deleteGroupLocally(groupId);
       return true;
     } catch (error) {
       console.error('Error deleting group:', error);
@@ -185,7 +333,7 @@ export const GroupProvider = ({ children }) => {
   const deleteExpense = async (expenseId) => {
     try {
       await apiClient.delete(`/expenses/${expenseId}`);
-      await loadUserData();
+      deleteExpenseLocally(expenseId);
       return true;
     } catch (error) {
       console.error('Error deleting expense:', error);
@@ -197,7 +345,7 @@ export const GroupProvider = ({ children }) => {
   const deleteSettlement = async (settlementId) => {
     try {
       await apiClient.delete(`/settlements/${settlementId}`);
-      await loadUserData();
+      deleteSettlementLocally(settlementId);
       return true;
     } catch (error) {
       console.error('Error deleting settlement:', error);
@@ -209,7 +357,12 @@ export const GroupProvider = ({ children }) => {
   const addMemberToGroup = async (groupId, memberId) => {
     try {
       await apiClient.post(`/groups/${groupId}/members`, { memberId });
-      await loadUserData();
+      // Update group locally with new member
+      setGroups(prev => prev.map(g => 
+        g.id === groupId 
+          ? { ...g, members: [...g.members, memberId] }
+          : g
+      ));
       return true;
     } catch (error) {
       console.error('Error adding member:', error);
@@ -221,7 +374,12 @@ export const GroupProvider = ({ children }) => {
   const removeMemberFromGroup = async (groupId, memberId) => {
     try {
       await apiClient.delete(`/groups/${groupId}/members/${memberId}`);
-      await loadUserData();
+      // Update group locally removing member
+      setGroups(prev => prev.map(g => 
+        g.id === groupId 
+          ? { ...g, members: g.members.filter(m => m !== memberId) }
+          : g
+      ));
       return true;
     } catch (error) {
       console.error('Error removing member:', error);
@@ -233,7 +391,12 @@ export const GroupProvider = ({ children }) => {
   const generateInviteCode = async (groupId) => {
     try {
       const response = await apiClient.post(`/groups/${groupId}/invite-code`);
-      await loadUserData();
+      // Update group locally with new invite code
+      setGroups(prev => prev.map(g => 
+        g.id === groupId 
+          ? { ...g, inviteCode: response.inviteCode }
+          : g
+      ));
       return response.inviteCode;
     } catch (error) {
       console.error('Error generating invite code:', error);
@@ -241,27 +404,78 @@ export const GroupProvider = ({ children }) => {
     }
   };
 
-  // Join a group via invite code
-  const joinGroupByInvite = async (inviteCode) => {
+  // Join a group via invite code or token
+  const joinGroupByInvite = useCallback(async (code, token) => {
     try {
-      await apiClient.post(`/groups/join/${inviteCode}`);
-      await loadUserData();
+      // Use new invite system
+      const response = await apiClient.post('/invites/join', {
+        code: code || undefined,
+        token: token || undefined,
+      });
+      
+      if (response.group) {
+        addGroupLocally(response.group);
+        
+        // Add profiles for new group members
+        if (response.group.members) {
+          response.group.members.forEach(m => {
+            if (m && typeof m === 'object') {
+              setProfiles(prev => ({
+                ...prev,
+                [m._id]: { 
+                  id: m._id, 
+                  name: m.name, 
+                  email: m.email,
+                  upiId: m.upiId || ''
+                }
+              }));
+            }
+          });
+        }
+      }
       return true;
     } catch (error) {
       console.error('Error joining group:', error);
       throw error;
     }
-  };
+  }, [addGroupLocally]);
+
+  // Add member to group locally (for socket updates)
+  const addMemberToGroupLocally = useCallback((groupId, member) => {
+    setGroups(prev => prev.map(g => {
+      if (g.id === groupId) {
+        const memberId = member.id || member._id || member;
+        if (!g.members.includes(memberId)) {
+          return { ...g, members: [...g.members, memberId] };
+        }
+      }
+      return g;
+    }));
+    
+    // Add profile for the new member
+    if (member && typeof member === 'object') {
+      const memberId = member.id || member._id;
+      setProfiles(prev => ({
+        ...prev,
+        [memberId]: { 
+          id: memberId, 
+          name: member.name, 
+          email: member.email,
+          upiId: member.upiId || ''
+        }
+      }));
+    }
+  }, []);
 
   // Get a specific group by ID
   const getGroupById = (id) => {
     return groups.find(g => g.id === id);
   };
 
-  // Get all expenses for a group
-  const getGroupExpenses = (groupId) => {
+  // Get all expenses for a group (NO auto-loading - use loadGroupExpenses explicitly)
+  const getGroupExpenses = useCallback((groupId) => {
     return expenses.filter(exp => exp.groupId === groupId);
-  };
+  }, [expenses]);
 
   // Get all settlements for a group
   const getGroupSettlements = (groupId) => {
@@ -316,35 +530,99 @@ export const GroupProvider = ({ children }) => {
     return profiles[userId] || { id: userId, name: 'Unknown User' };
   };
 
+  // WebSocket integration for real-time updates
+  useEffect(() => {
+    if (!user) return;
+
+    // Use cookie-based auth - no token needed
+    const socket = initializeSocket();
+
+    // Listen for real-time updates
+    socket.on('expense:created', (expense) => {
+      addExpenseLocally(expense);
+    });
+
+    socket.on('expense:updated', (expense) => {
+      updateExpenseLocally(expense._id || expense.id, expense);
+    });
+
+    socket.on('expense:deleted', (data) => {
+      deleteExpenseLocally(data.expenseId || data);
+    });
+
+    socket.on('settlement:created', (settlement) => {
+      addSettlementLocally(settlement);
+    });
+
+    socket.on('settlement:updated', (settlement) => {
+      updateSettlementLocally(settlement._id || settlement.id, settlement);
+    });
+
+    socket.on('settlement:deleted', (data) => {
+      deleteSettlementLocally(data.settlementId || data);
+    });
+
+    socket.on('group:updated', (group) => {
+      updateGroupLocally(group._id || group.id, group);
+    });
+
+    // New invite-related socket events
+    socket.on('group:memberJoined', ({ groupId, member }) => {
+      addMemberToGroupLocally(groupId, member);
+    });
+
+    socket.on('invite:created', (data) => {
+      // Invites are managed in the InviteModal component
+      // This event can be used for notifications or refreshing invite lists
+      console.log('New invite created:', data);
+    });
+
+    socket.on('invite:revoked', ({ inviteId }) => {
+      // Invites are managed in the InviteModal component
+      console.log('Invite revoked:', inviteId);
+    });
+
+    return () => {
+      disconnectSocket();
+    };
+  }, [user, addExpenseLocally, updateExpenseLocally, deleteExpenseLocally, addSettlementLocally, updateSettlementLocally, deleteSettlementLocally, updateGroupLocally, addMemberToGroupLocally]);
+
+  // Memoize context value to prevent unnecessary re-renders
+  // Functions are stable and adding all to deps would be excessive
+  const contextValue = useMemo(() => ({
+    groups,
+    expenses,
+    settlements,
+    profiles,
+    loading,
+    loadingGroups: loadingGroups.size > 0,
+    groupsById,
+    expensesByGroup,
+    addGroup,
+    addExpense,
+    addSettlement,
+    updateExpense,
+    updateSettlement,
+    deleteGroup,
+    deleteExpense,
+    deleteSettlement,
+    addMemberToGroup,
+    removeMemberFromGroup,
+    generateInviteCode,
+    joinGroupByInvite,
+    getGroupById,
+    getGroupExpenses,
+    getGroupSettlements,
+    getGroupBalances,
+    getTotalExpenses,
+    getUserProfile,
+    loadGroupExpenses, // Expose for explicit lazy loading
+    refreshData: loadUserData,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [groups, expenses, settlements, profiles, loading, loadingGroups.size, groupsById, expensesByGroup, loadUserData, joinGroupByInvite, getGroupExpenses, loadGroupExpenses]);
+
   return (
-    <GroupContext.Provider
-      value={{
-        groups,
-        expenses,
-        settlements,
-        profiles,
-        loading,
-        addGroup,
-        addExpense,
-        addSettlement,
-        updateExpense,
-        updateSettlement,
-        deleteGroup,
-        deleteExpense,
-        deleteSettlement,
-        addMemberToGroup,
-        removeMemberFromGroup,
-        generateInviteCode,
-        joinGroupByInvite,
-        getGroupById,
-        getGroupExpenses,
-        getGroupSettlements,
-        getGroupBalances,
-        getTotalExpenses,
-        getUserProfile,
-        refreshData: loadUserData
-      }}
-    >
+    <GroupContext.Provider value={contextValue}>
       {children}
     </GroupContext.Provider>
   );

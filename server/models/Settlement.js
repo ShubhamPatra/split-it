@@ -36,8 +36,8 @@ const settlementSchema = new mongoose.Schema({
     default: 'pending',
   },
   settledAt: {
-    type: String,
-    default: () => new Date().toISOString().split('T')[0],
+    type: Date,
+    default: Date.now,
   },
   transactionRef: {
     type: String,

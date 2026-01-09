@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, Smartphone, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Link, Copy, Check } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, Smartphone, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Link, Copy, Check, Wallet, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
+import { useChat } from '../context/ChatContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useGroupRoles } from '../hooks/useGroupRoles';
 import { getCategoryById } from '../data/categories';
@@ -18,10 +19,14 @@ import SettlementCard from '../components/common/SettlementCard';
 import SettlementSuggestions from '../components/common/SettlementSuggestions';
 import ExpenseAnalytics from '../components/common/ExpenseAnalytics';
 import UpiPaymentButton from '../components/common/UpiPaymentButton';
+import InviteModal from '../components/group/InviteModal';
+import ChatButton from '../components/group/ChatButton';
+import ChatPanel from '../components/group/ChatPanel';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
+import { Card, CardContent } from '../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import {
   Dialog,
@@ -37,6 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import { Switch } from '../components/ui/switch';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +56,7 @@ import { useToast } from '../hooks/use-toast';
 const GroupDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const { user, isAuthenticated } = useAuth();
   const { 
     getGroupById, 
@@ -61,8 +68,10 @@ const GroupDetail = () => {
     addMemberToGroup,
     removeMemberFromGroup,
     generateInviteCode,
-    getUserProfile
+    getUserProfile,
+    loadGroupExpenses
   } = useGroups();
+  const { getUnreadCount, subscribeToGroup, unsubscribeFromGroup } = useChat();
   const { refreshNotifications } = useNotifications();
   const { toast } = useToast();
   
@@ -78,6 +87,9 @@ const GroupDetail = () => {
     canManageMembers
   } = useGroupRoles(id || '', group?.createdBy || '');
 
+  // Get initial tab from URL search params
+  const initialTab = searchParams.get('tab') || 'expenses';
+
   const [isSettleDialogOpen, setIsSettleDialogOpen] = useState(false);
   const [settlePaidBy, setSettlePaidBy] = useState('');
   const [settlePaidTo, setSettlePaidTo] = useState('');
@@ -92,12 +104,52 @@ const GroupDetail = () => {
   const [linkCopied, setLinkCopied] = useState(false);
   const [showPaymentPrompt, setShowPaymentPrompt] = useState(false);
   const [pendingPayment, setPendingPayment] = useState(null);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState(initialTab);
+  
+  // Chat unread count
+  const chatUnreadCount = getUnreadCount(id || '');
+  
+  // Budget settings state (Comment 4)
+  const [isBudgetDialogOpen, setIsBudgetDialogOpen] = useState(false);
+  const [budgetEnabled, setBudgetEnabled] = useState(false);
+  const [monthlyLimit, setMonthlyLimit] = useState('');
+  const [alertThreshold, setAlertThreshold] = useState(80);
+  const [budgetLoading, setBudgetLoading] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
       navigate('/login');
     }
   }, [isAuthenticated, navigate]);
+
+  // Load expenses for this group on mount (only once per group)
+  // Use a ref to prevent reloading when loadGroupExpenses function changes
+  const hasLoadedRef = useRef(null);
+  useEffect(() => {
+    if (id && isAuthenticated && hasLoadedRef.current !== id) {
+      hasLoadedRef.current = id;
+      loadGroupExpenses(id);
+    }
+    
+    // Cleanup: leave socket room when unmounting or group changes
+    return () => {
+      if (id) {
+        import('../lib/socketClient').then(({ leaveGroupRoom }) => {
+          leaveGroupRoom(id);
+        });
+      }
+    };
+  }, [id, isAuthenticated, loadGroupExpenses]);
+
+  // Subscribe to chat events when on chat tab
+  useEffect(() => {
+    if (id) {
+      subscribeToGroup(id);
+      return () => unsubscribeFromGroup(id);
+    }
+  }, [id, subscribeToGroup, unsubscribeFromGroup]);
 
   useEffect(() => {
     // Set invite link if group has an existing invite code
@@ -122,12 +174,43 @@ const GroupDetail = () => {
     }
   }, [settlePaidTo, paymentMethod, getUserProfile]);
 
+  // Load budget settings (Comment 4)
+  useEffect(() => {
+    const loadBudget = async () => {
+      if (!id || !isAdmin(user?.id || '')) return;
+      try {
+        const budget = await apiClient.get(`/groups/${id}/budget`);
+        setBudgetEnabled(budget.enabled || false);
+        setMonthlyLimit(budget.monthlyLimit?.toString() || '');
+        setAlertThreshold(budget.alertThreshold || 80);
+      } catch (error) {
+        console.error('Error loading budget:', error);
+      }
+    };
+    loadBudget();
+    // isAdmin is stable from useGroupRoles hook
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user?.id]);
+
   if (!isAuthenticated) return null;
 
   const expenses = getGroupExpenses(id || '');
   const balances = getGroupBalances(id || '');
   const totalExpenses = getTotalExpenses(id || '');
   const settlements = getGroupSettlements(id || '');
+
+  // Calculate current month's spending for budget
+  const currentMonthSpending = expenses
+    .filter(exp => {
+      const expDate = new Date(exp.date);
+      const now = new Date();
+      return expDate.getMonth() === now.getMonth() && expDate.getFullYear() === now.getFullYear();
+    })
+    .reduce((sum, exp) => sum + exp.amount, 0);
+
+  const budgetPercentage = monthlyLimit ? (currentMonthSpending / parseFloat(monthlyLimit)) * 100 : 0;
+  const isOverBudget = budgetPercentage > 100;
+  const isNearBudget = budgetPercentage >= alertThreshold && budgetPercentage <= 100;
 
   const filteredExpenses = categoryFilter === 'all' 
     ? expenses 
@@ -140,8 +223,16 @@ const GroupDetail = () => {
       <div className="min-h-screen bg-background">
         <Navbar />
         <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8 text-center">
-          <h1 className="text-2xl font-bold text-foreground mb-4">Group not found</h1>
-          <Button onClick={() => navigate('/groups')}>Back to Groups</Button>
+          <Card className="border-border/50 shadow-sm max-w-md mx-auto">
+            <CardContent className="p-8">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-muted/80 to-muted/40 flex items-center justify-center mx-auto mb-4">
+                <Users className="text-muted-foreground" size={32} />
+              </div>
+              <h1 className="text-xl font-bold text-foreground mb-2">Group not found</h1>
+              <p className="text-muted-foreground mb-6">The group you're looking for doesn't exist or has been deleted.</p>
+              <Button onClick={() => navigate('/groups')} className="min-h-[48px] shadow-lg shadow-primary/25">Back to Groups</Button>
+            </CardContent>
+          </Card>
         </main>
       </div>
     );
@@ -271,8 +362,9 @@ const GroupDetail = () => {
   };
 
   const handleCopyInviteLink = () => {
-    if (inviteLink) {
-      navigator.clipboard.writeText(inviteLink);
+    const linkToCopy = inviteLink || (group?.inviteCode ? `${window.location.origin}/join/${group.inviteCode}` : null);
+    if (linkToCopy) {
+      navigator.clipboard.writeText(linkToCopy);
       setLinkCopied(true);
       toast({ title: "Link copied", description: "Invite link copied to clipboard!" });
       setTimeout(() => setLinkCopied(false), 2000);
@@ -293,94 +385,192 @@ const GroupDetail = () => {
     toast({ title: "Member removed", description: `${getUserProfile(memberId)?.name || 'User'} has been removed from the group.` });
   };
 
+  // Save budget settings (Comment 4)
+  const handleSaveBudget = async () => {
+    if (!group?.id) return;
+    
+    setBudgetLoading(true);
+    try {
+      await apiClient.put(`/groups/${group.id}/budget`, {
+        enabled: budgetEnabled,
+        monthlyLimit: budgetEnabled ? parseFloat(monthlyLimit) || 0 : 0,
+        alertThreshold: alertThreshold,
+        currency: 'INR',
+      });
+      
+      toast({ 
+        title: "Budget updated", 
+        description: budgetEnabled 
+          ? `Monthly budget set to ₹${parseFloat(monthlyLimit).toLocaleString()}`
+          : "Budget tracking disabled"
+      });
+      setIsBudgetDialogOpen(false);
+    } catch (error) {
+      console.error('Error saving budget:', error);
+      toast({ 
+        title: "Error", 
+        description: "Failed to update budget settings.", 
+        variant: "destructive" 
+      });
+    } finally {
+      setBudgetLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
       
       <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
-        <button onClick={() => navigate('/groups')} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 sm:mb-6 transition-colors min-h-[44px] min-w-[44px]">
-          <ArrowLeft size={18} />
+        <button onClick={() => navigate('/groups')} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 sm:mb-6 transition-colors min-h-[44px] min-w-[44px] group">
+          <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
           <span className="text-sm sm:text-base">Back to Groups</span>
         </button>
 
-        <div className="glass-card rounded-2xl p-4 sm:p-6 mb-6 sm:mb-8 animate-fade-in">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="min-w-0">
-              <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-2 truncate">{group.name}</h1>
-              <div className="flex items-center gap-2 text-muted-foreground text-xs sm:text-sm">
-                <Users size={16} />
-                <span>{group.members.length} members</span>
+        <Card className="border-border/50 shadow-sm mb-6 sm:mb-8 animate-fade-in overflow-hidden">
+          <CardContent className="p-4 sm:p-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="min-w-0">
+                <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-2 truncate">{group.name}</h1>
+                <div className="flex items-center gap-2 text-muted-foreground text-xs sm:text-sm">
+                  <Users size={16} />
+                  <span>{group.members.length} members</span>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <div className="text-left sm:text-right px-3 py-2 rounded-xl bg-primary/5 border border-primary/10">
+                  <p className="text-xs text-muted-foreground">Total Expenses</p>
+                  <p className="font-display text-lg sm:text-xl md:text-2xl font-bold text-primary truncate">₹{totalExpenses.toLocaleString()}</p>
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="min-h-[44px] h-auto border-border/50 hover:border-primary/30 hover:bg-primary/5"><Download size={16} className="sm:mr-1" /><span className="hidden sm:inline">Export</span></Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 bg-popover border-border/50">
+                    <DropdownMenuLabel>Full Report</DropdownMenuLabel>
+                    <DropdownMenuItem onClick={() => { exportFullReportToPdf(expenses, settlements, balances, group.name, getUserProfile); toast({ title: "PDF exported" }); }} className="cursor-pointer">
+                      <FileText size={16} className="mr-2 text-red-500" />Download PDF
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { exportFullReportToCsv(expenses, settlements, balances, group.name, getUserProfile); toast({ title: "CSV exported" }); }} className="cursor-pointer">
+                      <FileSpreadsheet size={16} className="mr-2 text-green-500" />Download CSV
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button variant="outline" size="sm" onClick={() => setIsSettleDialogOpen(true)} className="min-h-[44px] h-auto border-border/50 hover:border-success/30 hover:bg-success/5 hover:text-success"><CheckCircle size={16} className="sm:mr-1" /><span className="hidden sm:inline">Settle</span></Button>
+                <Button size="sm" onClick={() => navigate(`/add-expense?groupId=${group.id}`)} className="min-h-[44px] h-auto shadow-lg shadow-primary/25 hover:shadow-xl"><Plus size={16} className="sm:mr-1" /><span className="hidden sm:inline">Expense</span></Button>
               </div>
             </div>
-            
-            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-              <div className="text-left sm:text-right">
-                <p className="text-xs sm:text-sm text-muted-foreground">Total Expenses</p>
-                <p className="font-display text-lg sm:text-xl md:text-2xl font-bold text-primary truncate">₹{totalExpenses.toLocaleString()}</p>
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="min-h-[44px] h-auto"><Download size={16} className="sm:mr-1" /><span className="hidden sm:inline">Export</span></Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 bg-popover">
-                  <DropdownMenuLabel>Full Report</DropdownMenuLabel>
-                  <DropdownMenuItem onClick={() => { exportFullReportToPdf(expenses, settlements, balances, group.name, getUserProfile); toast({ title: "PDF exported" }); }} className="cursor-pointer">
-                    <FileText size={16} className="mr-2 text-red-500" />Download PDF
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => { exportFullReportToCsv(expenses, settlements, balances, group.name, getUserProfile); toast({ title: "CSV exported" }); }} className="cursor-pointer">
-                    <FileSpreadsheet size={16} className="mr-2 text-green-500" />Download CSV
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Button variant="outline" size="sm" onClick={() => setIsSettleDialogOpen(true)} className="min-h-[44px] h-auto"><CheckCircle size={16} className="sm:mr-1" /><span className="hidden sm:inline">Settle</span></Button>
-              <Button size="sm" onClick={() => navigate(`/add-expense?groupId=${group.id}`)} className="min-h-[44px] h-auto"><Plus size={16} className="sm:mr-1" /><span className="hidden sm:inline">Expense</span></Button>
-            </div>
-          </div>
 
-          <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-border">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs sm:text-sm text-muted-foreground">Members</p>
-              <div className="flex items-center gap-2">
-                {isAdmin(user?.id || '') && <Badge variant="outline" className="gap-1 text-xs"><Shield size={12} />You're Admin</Badge>}
-                {canManageMembers(user?.id || '') && (
-                  <Button variant="outline" size="sm" onClick={() => setIsMemberDialogOpen(true)} className="min-h-[44px] h-auto py-2 text-xs sm:text-sm"><Settings size={14} />Manage</Button>
+            <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-border/50">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs sm:text-sm text-muted-foreground">Members</p>
+                <div className="flex items-center gap-2">
+                  {isAdmin(user?.id || '') && <Badge variant="outline" className="gap-1 text-xs border-primary/30 bg-primary/5 text-primary"><Shield size={12} />You're Admin</Badge>}
+                  <Button variant="outline" size="sm" onClick={() => setIsInviteModalOpen(true)} className="min-h-[44px] h-auto py-2 text-xs sm:text-sm border-border/50 hover:border-primary/30"><UserPlus size={14} className="sm:mr-1" /><span className="hidden sm:inline">Invite</span></Button>
+                  {canManageRoles(user?.id || '') && (
+                    <Button variant="outline" size="sm" onClick={() => setIsMemberDialogOpen(true)} className="min-h-[44px] h-auto py-2 text-xs sm:text-sm border-border/50 hover:border-primary/30"><Settings size={14} /></Button>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {group.members.map(memberId => {
+                  const memberRole = getMemberRole(memberId);
+                  const isCurrentUser = memberId === user?.id;
+                  const isMemberAdmin = memberRole === 'admin';
+                  return (
+                    <DropdownMenu key={memberId}>
+                      <DropdownMenuTrigger asChild>
+                        <button className={`px-3 py-2.5 text-xs sm:text-sm rounded-xl flex items-center gap-1.5 transition-all min-h-[44px] ${isMemberAdmin ? 'bg-gradient-to-br from-primary/15 to-primary/5 text-primary border border-primary/20 hover:border-primary/40' : 'bg-secondary/50 text-secondary-foreground hover:bg-secondary/80 border border-transparent hover:border-border/50'}`}>
+                          {isMemberAdmin && <Crown size={12} />}
+                          {getUserProfile(memberId)?.name || 'User'}{isCurrentUser && ' (You)'}
+                        </button>
+                      </DropdownMenuTrigger>
+                      {canManageRoles(user?.id || '') && !isCurrentUser && (
+                        <DropdownMenuContent align="start" className="bg-popover border-border/50">
+                          <DropdownMenuLabel>Role Management</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => { setMemberRole(memberId, isMemberAdmin ? 'member' : 'admin'); toast({ title: isMemberAdmin ? 'Admin removed' : 'Admin added', description: `${getUserProfile(memberId)?.name || 'User'} is now ${isMemberAdmin ? 'a member' : 'an admin'}` }); }} className="cursor-pointer">
+                            {isMemberAdmin ? <>Remove Admin</> : <><Crown size={14} className="mr-2" />Make Admin</>}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      )}
+                    </DropdownMenu>
+                  );
+                })}
+              </div>
+            </div>
+          
+          {/* Budget Section (Comment 4) */}
+          {budgetEnabled && monthlyLimit && (
+            <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-border/50">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Wallet size={16} className="text-muted-foreground" />
+                  <span className="text-xs sm:text-sm text-muted-foreground">Monthly Budget</span>
+                </div>
+                {isAdmin(user?.id || '') && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => setIsBudgetDialogOpen(true)}
+                    className="text-xs h-8 hover:bg-primary/10"
+                  >
+                    <Settings size={12} className="mr-1" />Edit
+                  </Button>
+                )}
+              </div>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-sm">
+                  <span className={isOverBudget ? 'text-destructive font-medium' : isNearBudget ? 'text-warning font-medium' : ''}>
+                    ₹{currentMonthSpending.toLocaleString()} / ₹{parseFloat(monthlyLimit).toLocaleString()}
+                  </span>
+                  <span className={`text-xs ${isOverBudget ? 'text-destructive' : isNearBudget ? 'text-warning' : 'text-muted-foreground'}`}>
+                    {budgetPercentage.toFixed(0)}%
+                  </span>
+                </div>
+                <div className="h-2.5 bg-muted/50 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all rounded-full ${isOverBudget ? 'bg-gradient-to-r from-destructive to-destructive/80' : isNearBudget ? 'bg-gradient-to-r from-warning to-warning/80' : 'bg-gradient-to-r from-primary to-primary/80'}`}
+                    style={{ width: `${Math.min(budgetPercentage, 100)}%` }}
+                  />
+                </div>
+                {isOverBudget && (
+                  <div className="flex items-center gap-1 text-xs text-destructive bg-destructive/10 px-2 py-1 rounded-lg w-fit">
+                    <AlertTriangle size={12} />
+                    <span>Over budget by ₹{(currentMonthSpending - parseFloat(monthlyLimit)).toLocaleString()}</span>
+                  </div>
+                )}
+                {isNearBudget && !isOverBudget && (
+                  <div className="flex items-center gap-1 text-xs text-warning bg-warning/10 px-2 py-1 rounded-lg w-fit">
+                    <AlertTriangle size={12} />
+                    <span>Approaching budget limit</span>
+                  </div>
                 )}
               </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {group.members.map(memberId => {
-                const memberRole = getMemberRole(memberId);
-                const isCurrentUser = memberId === user?.id;
-                const isMemberAdmin = memberRole === 'admin';
-                return (
-                  <DropdownMenu key={memberId}>
-                    <DropdownMenuTrigger asChild>
-                      <button className={`px-3 py-3 text-xs sm:text-sm rounded-full flex items-center gap-1.5 transition-colors min-h-[44px] ${isMemberAdmin ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}>
-                        {isMemberAdmin && <Crown size={12} />}
-                        {getUserProfile(memberId)?.name || 'User'}{isCurrentUser && ' (You)'}
-                      </button>
-                    </DropdownMenuTrigger>
-                    {canManageRoles(user?.id || '') && !isCurrentUser && (
-                      <DropdownMenuContent align="start" className="bg-popover">
-                        <DropdownMenuLabel>Role Management</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => { setMemberRole(memberId, isMemberAdmin ? 'member' : 'admin'); toast({ title: isMemberAdmin ? 'Admin removed' : 'Admin added', description: `${getUserProfile(memberId)?.name || 'User'} is now ${isMemberAdmin ? 'a member' : 'an admin'}` }); }} className="cursor-pointer">
-                          {isMemberAdmin ? <>Remove Admin</> : <><Crown size={14} className="mr-2" />Make Admin</>}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    )}
-                  </DropdownMenu>
-                );
-              })}
+          )}
+          
+          {/* Budget Setup Prompt for Admins */}
+          {!budgetEnabled && isAdmin(user?.id || '') && (
+            <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-border/50">
+              <button 
+                onClick={() => setIsBudgetDialogOpen(true)}
+                className="w-full p-3 border border-dashed border-border/50 rounded-xl hover:border-primary/50 hover:bg-primary/5 transition-all flex items-center justify-center gap-2 text-sm text-muted-foreground group"
+              >
+                <Wallet size={16} className="group-hover:text-primary transition-colors" />
+                <span className="group-hover:text-foreground transition-colors">Set up monthly budget</span>
+              </button>
             </div>
-          </div>
-        </div>
+          )}
+          </CardContent>
+        </Card>
 
-        <Tabs defaultValue="expenses" className="animate-fade-in">
-          <TabsList className="mb-4 sm:mb-6 w-full sm:w-auto grid grid-cols-3 sm:inline-grid">
-            <TabsTrigger value="expenses" className="gap-1 sm:gap-2 text-xs sm:text-sm min-h-[44px]"><Receipt size={14} />Expenses</TabsTrigger>
-            <TabsTrigger value="balances" className="gap-1 sm:gap-2 text-xs sm:text-sm min-h-[44px]"><Users size={14} />Balances</TabsTrigger>
-            <TabsTrigger value="settlements" className="gap-1 sm:gap-2 text-xs sm:text-sm min-h-[44px]"><History size={14} />Settlements</TabsTrigger>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="animate-fade-in">
+          <TabsList className="mb-4 sm:mb-6 w-full sm:w-auto grid grid-cols-3 sm:inline-grid bg-muted/50 p-1 rounded-xl">
+            <TabsTrigger value="expenses" className="gap-1 sm:gap-2 text-xs sm:text-sm min-h-[44px] rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"><Receipt size={14} />Expenses</TabsTrigger>
+            <TabsTrigger value="balances" className="gap-1 sm:gap-2 text-xs sm:text-sm min-h-[44px] rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"><Users size={14} />Balances</TabsTrigger>
+            <TabsTrigger value="settlements" className="gap-1 sm:gap-2 text-xs sm:text-sm min-h-[44px] rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"><History size={14} />Settlements</TabsTrigger>
           </TabsList>
 
           <TabsContent value="expenses">
@@ -395,18 +585,18 @@ const GroupDetail = () => {
               <div className="mb-4 sm:mb-6">
                 <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                   <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground"><Filter size={14} /><span>Filter by:</span></div>
-                  <button onClick={() => setCategoryFilter('all')} className={`px-2 sm:px-3 py-3 text-xs sm:text-sm rounded-full transition-colors min-h-[44px] ${categoryFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}>All ({expenses.length})</button>
+                  <button onClick={() => setCategoryFilter('all')} className={`px-3 py-2.5 text-xs sm:text-sm rounded-xl transition-all min-h-[44px] ${categoryFilter === 'all' ? 'bg-primary text-primary-foreground shadow-md' : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-border/50'}`}>All ({expenses.length})</button>
                   {usedCategories.map(catId => {
                     const cat = getCategoryById(catId);
                     const count = expenses.filter(e => e.category === catId).length;
                     const IconComponent = cat.icon;
                     return (
-                      <button key={catId} onClick={() => setCategoryFilter(catId)} className={`px-2 sm:px-3 py-3 text-xs sm:text-sm rounded-full transition-colors flex items-center gap-1.5 min-h-[44px] ${categoryFilter === catId ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}>
+                      <button key={catId} onClick={() => setCategoryFilter(catId)} className={`px-3 py-2.5 text-xs sm:text-sm rounded-xl transition-all flex items-center gap-1.5 min-h-[44px] ${categoryFilter === catId ? 'bg-primary text-primary-foreground shadow-md' : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-border/50'}`}>
                         <IconComponent size={12} className={categoryFilter === catId ? '' : cat.color} />{cat.name} ({count})
                       </button>
                     );
                   })}
-                  {categoryFilter !== 'all' && <button onClick={() => setCategoryFilter('all')} className="p-3 text-muted-foreground hover:text-foreground transition-colors min-h-[44px] min-w-[44px]" title="Clear filter"><X size={16} /></button>}
+                  {categoryFilter !== 'all' && <button onClick={() => setCategoryFilter('all')} className="p-3 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-lg transition-all min-h-[44px] min-w-[44px]" title="Clear filter"><X size={16} /></button>}
                 </div>
               </div>
             )}
@@ -420,19 +610,27 @@ const GroupDetail = () => {
                 ))}
               </div>
             ) : expenses.length > 0 ? (
-              <div className="glass-card rounded-xl p-6 sm:p-8 md:p-12 text-center">
-                <Filter className="mx-auto text-muted-foreground mb-4" size={40} />
-                <h3 className="font-display font-semibold text-base sm:text-lg text-foreground mb-2">No expenses in this category</h3>
-                <p className="text-sm sm:text-base text-muted-foreground mb-6">Try selecting a different category filter</p>
-                <Button variant="outline" onClick={() => setCategoryFilter('all')} className="min-h-[44px]">Show All Expenses</Button>
-              </div>
+              <Card className="border-border/50 shadow-sm">
+                <CardContent className="p-8 sm:p-12 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-muted/80 to-muted/40 flex items-center justify-center mx-auto mb-4">
+                    <Filter className="text-muted-foreground" size={32} />
+                  </div>
+                  <h3 className="font-display font-semibold text-lg text-foreground mb-2">No expenses in this category</h3>
+                  <p className="text-muted-foreground mb-6">Try selecting a different category filter</p>
+                  <Button variant="outline" onClick={() => setCategoryFilter('all')} className="min-h-[48px] border-border/50 hover:border-primary/30">Show All Expenses</Button>
+                </CardContent>
+              </Card>
             ) : (
-              <div className="glass-card rounded-xl p-6 sm:p-8 md:p-12 text-center">
-                <Receipt className="mx-auto text-muted-foreground mb-4" size={40} />
-                <h3 className="font-display font-semibold text-base sm:text-lg text-foreground mb-2">No expenses yet</h3>
-                <p className="text-sm sm:text-base text-muted-foreground mb-6">Add your first expense to start tracking</p>
-                <Button onClick={() => navigate(`/add-expense?groupId=${group.id}`)} className="min-h-[44px]"><Plus size={18} />Add Expense</Button>
-              </div>
+              <Card className="border-border/50 shadow-sm">
+                <CardContent className="p-8 sm:p-12 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center mx-auto mb-4">
+                    <Receipt className="text-primary" size={32} />
+                  </div>
+                  <h3 className="font-display font-semibold text-lg text-foreground mb-2">No expenses yet</h3>
+                  <p className="text-muted-foreground mb-6">Add your first expense to start tracking</p>
+                  <Button onClick={() => navigate(`/add-expense?groupId=${group.id}`)} className="min-h-[48px] shadow-lg shadow-primary/25"><Plus size={18} />Add Expense</Button>
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 
@@ -479,15 +677,33 @@ const GroupDetail = () => {
                 ))}
               </div>
             ) : (
-              <div className="glass-card rounded-xl p-12 text-center">
-                <CheckCircle className="mx-auto text-muted-foreground mb-4" size={48} />
-                <h3 className="font-display font-semibold text-lg text-foreground mb-2">No settlements yet</h3>
-                <p className="text-muted-foreground mb-6">Record a settlement when members pay each other back</p>
-                <Button onClick={() => setIsSettleDialogOpen(true)}><CheckCircle size={18} />Record Settlement</Button>
-              </div>
+              <Card className="border-border/50 shadow-sm">
+                <CardContent className="p-8 sm:p-12 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-success/20 to-success/5 border border-success/20 flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle className="text-success" size={32} />
+                  </div>
+                  <h3 className="font-display font-semibold text-lg text-foreground mb-2">No settlements yet</h3>
+                  <p className="text-muted-foreground mb-6">Record a settlement when members pay each other back</p>
+                  <Button onClick={() => setIsSettleDialogOpen(true)} className="min-h-[48px] shadow-lg shadow-primary/25"><CheckCircle size={18} />Record Settlement</Button>
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
         </Tabs>
+
+        {/* Floating Chat Button */}
+        <ChatButton 
+          onClick={() => setIsChatOpen(true)} 
+          unreadCount={chatUnreadCount} 
+        />
+
+        {/* Sliding Chat Panel */}
+        <ChatPanel
+          groupId={id}
+          groupName={group?.name}
+          isOpen={isChatOpen}
+          onClose={() => setIsChatOpen(false)}
+        />
       </main>
 
       <Dialog open={isSettleDialogOpen} onOpenChange={setIsSettleDialogOpen}>
@@ -676,6 +892,105 @@ const GroupDetail = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Budget Settings Dialog (Comment 4) */}
+      <Dialog open={isBudgetDialogOpen} onOpenChange={setIsBudgetDialogOpen}>
+        <DialogContent className="w-[calc(100%-2rem)] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wallet size={18} />
+              Budget Settings
+            </DialogTitle>
+            <DialogDescription>
+              Set a monthly spending limit for this group
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Enable Budget Tracking</p>
+                <p className="text-sm text-muted-foreground">Get alerts when approaching the limit</p>
+              </div>
+              <Switch
+                checked={budgetEnabled}
+                onCheckedChange={setBudgetEnabled}
+              />
+            </div>
+            
+            {budgetEnabled && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="monthlyLimit">Monthly Budget Limit (₹)</Label>
+                  <Input
+                    id="monthlyLimit"
+                    type="number"
+                    placeholder="e.g., 10000"
+                    value={monthlyLimit}
+                    onChange={(e) => setMonthlyLimit(e.target.value)}
+                    min="0"
+                    step="100"
+                    className="min-h-[44px]"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>Alert Threshold: {alertThreshold}%</Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Get notified when spending reaches this percentage
+                  </p>
+                  <input
+                    type="range"
+                    min="50"
+                    max="95"
+                    step="5"
+                    value={alertThreshold}
+                    onChange={(e) => setAlertThreshold(parseInt(e.target.value))}
+                    className="w-full accent-primary"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>50%</span>
+                    <span>95%</span>
+                  </div>
+                </div>
+                
+                {monthlyLimit && (
+                  <div className="p-3 bg-secondary/50 rounded-lg">
+                    <p className="text-sm text-muted-foreground">Preview</p>
+                    <p className="text-sm">
+                      Alert when spending exceeds <span className="font-medium">₹{((parseFloat(monthlyLimit) || 0) * alertThreshold / 100).toLocaleString()}</span>
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+            
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsBudgetDialogOpen(false)}
+                className="flex-1 min-h-[44px]"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveBudget}
+                disabled={budgetLoading || (budgetEnabled && !monthlyLimit)}
+                className="flex-1 min-h-[44px]"
+              >
+                {budgetLoading ? 'Saving...' : 'Save Budget'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invite Modal */}
+      <InviteModal
+        groupId={group?.id}
+        groupName={group?.name}
+        isOpen={isInviteModalOpen}
+        onClose={() => setIsInviteModalOpen(false)}
+      />
     </div>
   );
 };
