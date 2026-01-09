@@ -47,7 +47,6 @@ yarn-error.log*
 *.tmp
 *.temp
 docs
-scripts
 DEPLOYMENT_CHECKLIST.md 
 DEPLOYMENT_INDEX.md 
 DEPLOYMENT_PACKAGE.md 
