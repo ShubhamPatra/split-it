@@ -10,7 +10,15 @@ export const createIndexes = async () => {
   try {
     // User indexes
     await User.collection.createIndex({ email: 1 }, { unique: true });
-    await User.collection.createIndex({ googleId: 1 }, { sparse: true });
+    // googleId index - match existing MongoDB Atlas index (unique + sparse)
+    await User.collection.createIndex({ googleId: 1 }, { unique: true, sparse: true, background: true }).catch(err => {
+      // Ignore if index already exists
+      if (err.code === 86) {
+        console.log('ℹ️  googleId index already exists, skipping creation');
+      } else {
+        throw err;
+      }
+    });
     
     // Group indexes
     await Group.collection.createIndex({ members: 1 });
