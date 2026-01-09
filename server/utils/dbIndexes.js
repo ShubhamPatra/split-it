@@ -5,75 +5,86 @@ import Settlement from '../models/Settlement.js';
 import Notification from '../models/Notification.js';
 import Message from '../models/Message.js';
 
+// Helper function to safely create indexes, ignoring conflicts
+const safeCreateIndex = async (collection, spec, options = {}) => {
+  try {
+    await collection.createIndex(spec, options);
+  } catch (error) {
+    // Ignore index conflict errors (code 86)
+    if (error.code === 86 || error.codeName === 'IndexKeySpecsConflict') {
+      console.log(`ℹ️  Index already exists with different specs, skipping: ${JSON.stringify(spec)}`);
+    } else {
+      throw error;
+    }
+  }
+};
+
 // Create database indexes for better query performance
 export const createIndexes = async () => {
   try {
     // User indexes
-    await User.collection.createIndex({ email: 1 }, { unique: true });
-    // googleId index - match existing MongoDB Atlas index (unique + sparse)
-    await User.collection.createIndex({ googleId: 1 }, { unique: true, sparse: true, background: true }).catch(err => {
-      // Ignore if index already exists
-      if (err.code === 86) {
-        console.log('ℹ️  googleId index already exists, skipping creation');
-      } else {
-        throw err;
-      }
-    });
+    await safeCreateIndex(User.collection, { email: 1 }, { unique: true });
+    await safeCreateIndex(User.collection, { googleId: 1 }, { unique: true, sparse: true, background: true });
     
     // Group indexes
-    await Group.collection.createIndex({ members: 1 });
-    await Group.collection.createIndex({ createdBy: 1 });
-    await Group.collection.createIndex({ createdAt: -1 });
-    await Group.collection.createIndex({ members: 1, createdAt: -1 });
-    await Group.collection.createIndex({ inviteCode: 1 }, { sparse: true });
+    await safeCreateIndex(Group.collection, { members: 1 });
+    await safeCreateIndex(Group.collection, { createdBy: 1 });
+    await safeCreateIndex(Group.collection, { createdAt: -1 });
+    await safeCreateIndex(Group.collection, { members: 1, createdAt: -1 });
+    await safeCreateIndex(Group.collection, { inviteCode: 1 }, { unique: true, sparse: true, background: true });
     
     // Expense indexes - optimized for common queries
-    await Expense.collection.createIndex({ groupId: 1, date: -1 });
-    await Expense.collection.createIndex({ paidBy: 1, date: -1 });
-    await Expense.collection.createIndex({ splitAmong: 1 });
-    await Expense.collection.createIndex({ groupId: 1, date: -1, paidBy: 1 });
-    await Expense.collection.createIndex({ groupId: 1, splitAmong: 1, date: -1 });
+    await safeCreateIndex(Expense.collection, { groupId: 1, date: -1 });
+    await safeCreateIndex(Expense.collection, { paidBy: 1, date: -1 });
+    await safeCreateIndex(Expense.collection, { splitAmong: 1 });
+    await safeCreateIndex(Expense.collection, { groupId: 1, date: -1, paidBy: 1 });
+    await safeCreateIndex(Expense.collection, { groupId: 1, splitAmong: 1, date: -1 });
     // Index for recurring expense queries
-    await Expense.collection.createIndex(
+    await safeCreateIndex(
+      Expense.collection,
       { 'recurrence.enabled': 1, 'recurrence.nextRunAt': 1 },
       { partialFilterExpression: { 'recurrence.enabled': true } }
     );
     // Index for budget calculations (amount aggregation by date)
-    await Expense.collection.createIndex({ groupId: 1, date: 1, amount: 1 });
+    await safeCreateIndex(Expense.collection, { groupId: 1, date: 1, amount: 1 });
     
-    // Settlement indexes - comprehensive coverage for all query patterns
-    await Settlement.collection.createIndex({ groupId: 1, settledAt: -1 });
-    await Settlement.collection.createIndex({ groupId: 1, fromUserId: 1, settledAt: -1 });
-    await Settlement.collection.createIndex({ groupId: 1, toUserId: 1, settledAt: -1 });
-    await Settlement.collection.createIndex({ fromUserId: 1, settledAt: -1 });
-    await Settlement.collection.createIndex({ toUserId: 1, settledAt: -1 });
-    await Settlement.collection.createIndex({ groupId: 1, paymentStatus: 1, settledAt: -1 });
-    await Settlement.collection.createIndex({ toUserId: 1, paymentStatus: 1, settledAt: -1 });
+    // SetsafeCreateIndex(Settlement.collection, { groupId: 1, settledAt: -1 });
+    await safeCreateIndex(Settlement.collection, { groupId: 1, fromUserId: 1, settledAt: -1 });
+    await safeCreateIndex(Settlement.collection, { groupId: 1, toUserId: 1, settledAt: -1 });
+    await safeCreateIndex(Settlement.collection, { fromUserId: 1, settledAt: -1 });
+    await safeCreateIndex(Settlement.collection, { toUserId: 1, settledAt: -1 });
+    await safeCreateIndex(Settlement.collection, { groupId: 1, paymentStatus: 1, settledAt: -1 });
+    await safeCreateIndex(Settlement.collection, { toUserId: 1, paymentStatus: 1, settledAt: -1 });
+    await safeCreateIndex(Settlement.collection, { toUserId: 1, paymentStatus: 1, settledAt: -1 });
     await Settlement.collection.createIndex({ transactionRef: 1 }, { sparse: true });
     
-    // Notification indexes - optimized for unread queries and cleanup
-    await Notification.collection.createIndex({ userId: 1, timestamp: -1 });
-    await Notification.collection.createIndex({ userId: 1, read: 1, timestamp: -1 });
-    await Notification.collection.createIndex(
+    // NotsafeCreateIndex(Notification.collection, { userId: 1, timestamp: -1 });
+    await safeCreateIndex(Notification.collection, { userId: 1, read: 1, timestamp: -1 });
+    await safeCreateIndex(
+      Notification.collection,
       { userId: 1, read: 1 },
       { partialFilterExpression: { read: false } }
     );
-    await Notification.collection.createIndex({ actionType: 1, relatedId: 1 });
+    await safeCreateIndex(Notification.collection, { actionType: 1, relatedId: 1 });
     // TTL index for auto-cleanup after 30 days
+    await safeCreateIndex(
+      Notification.collection,s
     await Notification.collection.createIndex(
       { timestamp: 1 },
       { expireAfterSeconds: 2592000 }
     );
-    
-    // Message indexes - pagination with _id cursor
-    await Message.collection.createIndex({ groupId: 1, _id: -1 });
+    safeCreateIndex(Message.collection, { groupId: 1, _id: -1 });
     // Message indexes - unread count scans (partial on non-deleted messages)
-    await Message.collection.createIndex(
+    await safeCreateIndex(
+      Message.collection,
       { groupId: 1, deletedAt: 1, senderId: 1, readBy: 1, createdAt: -1 },
       { partialFilterExpression: { deletedAt: null } }
     );
     // Message indexes - createdAt-based queries
-    await Message.collection.createIndex({ groupId: 1, createdAt: -1 });
+    await safeCreateIndex(Message.collection, { groupId: 1, createdAt: -1 });
+    // Message indexes - unread count optimization
+    await safeCreateIndex(
+      Message.collection,{ groupId: 1, createdAt: -1 });
     // Message indexes - unread count optimization
     await Message.collection.createIndex(
       { groupId: 1, senderId: 1, readBy: 1 },
