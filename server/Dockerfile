@@ -27,8 +27,9 @@ COPY --from=builder /app/node_modules ./node_modules
 # Copy application code
 COPY --chown=nodejs:nodejs . .
 
-# Create logs and uploads directories
+# Create logs and uploads directories with proper permissions
 RUN mkdir -p logs uploads/receipts && \
+    chmod -R 777 logs uploads && \
     chown -R nodejs:nodejs logs uploads
 
 # Switch to non-root user
