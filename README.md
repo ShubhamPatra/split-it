@@ -46,7 +46,7 @@ A modern, full-stack expense sharing application built with React, Express.js, M
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/split-it.git
+git clone https://github.com/ShubhamPatra/split-it.git
 cd split-it
 ```
 
