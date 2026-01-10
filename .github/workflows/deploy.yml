@@ -1,0 +1,61 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT || 22 }}
+        run: |
+          # Create SSH key file
+          mkdir -p ~/.ssh
+          echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Add EC2 to known_hosts
+          ssh-keyscan -p $EC2_SSH_PORT $EC2_HOST >> ~/.ssh/known_hosts 2>/dev/null
+          
+          # Deploy via SSH
+          ssh -i ~/.ssh/deploy_key -p $EC2_SSH_PORT $EC2_USER@$EC2_HOST << 'EOF'
+            cd ~/split-it
+            
+            echo "=== Pulling latest code ==="
+            git pull origin master || git pull origin main
+            
+            echo "=== Building frontend ==="
+            npm run build
+            
+            echo "=== Stopping containers ==="
+            docker-compose -f docker-compose.production.yml down
+            
+            echo "=== Starting containers ==="
+            docker-compose -f docker-compose.production.yml up -d
+            
+            echo "=== Waiting for services to start ==="
+            sleep 5
+            
+            echo "=== Checking container status ==="
+            docker-compose ps
+            
+            echo "=== Checking API health ==="
+            curl -s https://split-it.live/api/health | jq . || echo "Health check failed"
+            
+            echo "=== Deployment complete ==="
+          EOF
+          
+          # Cleanup
+          rm ~/.ssh/deploy_key

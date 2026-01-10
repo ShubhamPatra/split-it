@@ -1,248 +1,316 @@
-# Split-It - Expense Sharing App 💰
+# Split-It: Expense Sharing Made Simple
 
-<p align="center">
-  <img src="public/banner.png" alt="Split-It Banner" width="100%" />
-</p>
+Split-It is a modern web application for splitting expenses among friends and family groups. Built with React, Express.js, MongoDB, and Redis, it provides real-time updates, multiple split methods, and seamless payment tracking.
 
-A modern, full-stack expense sharing application built with React, Express.js, MongoDB, Redis, and Socket.IO. Split bills effortlessly with friends and track who owes what.
+## Features
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Node](https://img.shields.io/badge/node-%3E%3D16.x-green.svg)
-![React](https://img.shields.io/badge/react-19.x-61DAFB.svg)
+- **Group Management**: Create groups and invite friends via shareable invite codes
+- **Flexible Expense Splitting**: 
+  - Equal split (divide equally among members)
+  - Exact amount (specify exact amounts for each person)
+  - Percentage-based (distribute by percentage)
+  - Itemized (assign items to specific members)
+- **Real-Time Updates**: WebSocket integration for instant expense and settlement notifications
+- **Smart Settlements**: Auto-calculate optimal payment settlements to minimize transactions
+- **Multiple Currencies**: Support for INR, USD, EUR, GBP (easily extensible)
+- **Receipt Management**: Upload and store receipts for expense documentation
+- **Google OAuth**: One-click authentication with Google
+- **Recurring Expenses**: Set up recurring expenses (daily, weekly, monthly, yearly)
+- **Push Notifications**: Real-time notifications for group activities
+- **Responsive Design**: Works seamlessly on desktop, tablet, and mobile browsers
 
-## ✨ Features
+## Tech Stack
 
-- 👥 **Group Management** - Create groups and invite friends via shareable links
-- 💰 **Smart Expense Splitting** - Equal, exact amounts, or percentage-based splits
-- ⚡ **Real-time Updates** - Socket.IO powered live synchronization
-- 📊 **Visual Analytics** - Charts and graphs for spending insights
-- 💳 **Settlement Optimization** - Minimize transactions with smart algorithms
-- 🔐 **Secure Auth** - JWT + HttpOnly cookies with Google OAuth support
-- 💬 **Group Chat** - Real-time messaging within expense groups
-- 🔔 **Push Notifications** - Stay updated on group activities
-- 📱 **PWA Ready** - Install as a mobile app
-- 🌙 **Dark Mode** - Eye-friendly dark theme support
+**Frontend:**
+- React 19 with React Router v7
+- Tailwind CSS for styling
+- shadcn/ui component library
+- Socket.IO for real-time updates
 
-## 🛠️ Tech Stack
+**Backend:**
+- Node.js 20 with Express.js
+- MongoDB for data storage (Atlas recommended for production)
+- Redis for caching and session management
+- Socket.IO for WebSocket communication
+- Passport.js for OAuth authentication
 
-| Layer | Technologies |
-|-------|-------------|
-| **Frontend** | React 19, React Router v7, Tailwind CSS, shadcn/ui, Recharts |
-| **Backend** | Node.js, Express.js, Socket.IO, Passport.js |
-| **Database** | MongoDB (Mongoose ODM) |
-| **Caching** | Redis |
-| **Auth** | JWT, Google OAuth 2.0, bcrypt |
-| **DevOps** | Docker, Docker Compose, Nginx |
+**Infrastructure:**
+- Docker & Docker Compose for containerization
+- Nginx for reverse proxy and static file serving
 
-## 📋 Prerequisites
+## Getting Started Locally
 
-- **Node.js** v16.x or higher
-- **MongoDB** (Atlas or local)
-- **Redis** (local or cloud)
-- **npm** or **yarn**
+### Prerequisites
 
-## 🚀 Quick Start
+- Node.js 20+ and npm
+- MongoDB (local or Atlas connection string)
+- Redis (local or cloud instance)
+- Google OAuth credentials (optional, for authentication)
 
-### 1. Clone the Repository
+### Installation
 
+1. **Clone the repository:**
 ```bash
 git clone https://github.com/ShubhamPatra/split-it.git
 cd split-it
 ```
 
-### 2. Install Dependencies
-
+2. **Install dependencies:**
 ```bash
 npm run install-all
 ```
 
-### 3. Configure Environment Variables
+3. **Create environment files:**
 
-**Frontend (`.env`):**
+Create `.env` in the root directory:
 ```env
 REACT_APP_API_URL=http://localhost:5000/api
 REACT_APP_GOOGLE_CLIENT_ID=your_google_client_id
 ```
 
-**Backend (`server/.env`):**
+Create `server/.env`:
 ```env
-PORT=5000
-NODE_ENV=development
 MONGODB_URI=mongodb://localhost:27017/splitit
 REDIS_HOST=localhost
 REDIS_PORT=6379
-JWT_SECRET=your_super_secret_jwt_key
-CLIENT_URL=http://localhost:3000
-SERVER_URL=http://localhost:5000
+JWT_SECRET=your_super_secret_key_at_least_64_chars_long
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
+CLIENT_URL=http://localhost:3000
+NODE_ENV=development
+PORT=5000
 ```
 
-### 4. Start Development Servers
+### Running Locally
 
+**Development Mode** (frontend + backend concurrently):
 ```bash
 npm run dev
 ```
 
-This starts both frontend (port 3000) and backend (port 5000) concurrently.
+This will start:
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:5000/api
+- WebSocket: ws://localhost:5000/socket.io
 
-## 📁 Project Structure
+**Frontend only:**
+```bash
+npm start
+```
+
+**Backend only:**
+```bash
+npm run server
+```
+
+## Project Structure
 
 ```
 split-it/
-├── src/                    # React frontend
-│   ├── components/         # Reusable UI components
-│   │   ├── ui/            # Base components (shadcn/ui)
-│   │   ├── common/        # Shared components
-│   │   ├── expense/       # Expense-related components
-│   │   └── group/         # Group-related components
-│   ├── context/           # React Context providers
-│   ├── pages/             # Page components
-│   ├── hooks/             # Custom React hooks
-│   ├── lib/               # Utilities (apiClient, socketClient)
-│   └── utils/             # Helper functions
+├── src/                          # React frontend
+│   ├── components/               # React components
+│   │   ├── common/              # Shared components (Navbar, etc.)
+│   │   ├── expense/             # Expense-related components
+│   │   ├── group/               # Group-related components
+│   │   ├── layout/              # Layout components
+│   │   └── ui/                  # shadcn/ui primitives
+│   ├── context/                 # React Context (Auth, Group, etc.)
+│   ├── hooks/                   # Custom React hooks
+│   ├── lib/                     # Utilities (apiClient, socketClient)
+│   ├── pages/                   # Page components
+│   └── utils/                   # Helper functions
 │
-├── server/                 # Express.js backend
-│   ├── config/            # DB, Redis, Socket.IO config
-│   ├── controllers/       # Route handlers
-│   ├── middleware/        # Auth, validation, security
-│   ├── models/            # Mongoose schemas
-│   ├── routes/            # API route definitions
-│   ├── utils/             # Backend utilities
-│   └── workers/           # Background job processors
+├── server/                       # Express.js backend
+│   ├── config/                  # Configuration (DB, Redis, Socket, etc.)
+│   ├── controllers/             # Route handlers
+│   ├── middleware/              # Custom middleware (auth, validation, etc.)
+│   ├── models/                  # MongoDB schemas
+│   ├── routes/                  # API routes
+│   ├── utils/                   # Backend utilities
+│   ├── workers/                 # Background jobs (email, notifications, etc.)
+│   └── server.js                # Express app entry point
 │
-├── docs/                   # Documentation
-├── scripts/               # Deployment scripts
-└── docker-compose.yml     # Docker configuration
+├── public/                       # Static files (index.html, manifest, etc.)
+├── .github/workflows/           # GitHub Actions CI/CD
+├── docker-compose.yml           # Local Docker setup
+├── docker-compose.production.yml # Production Docker setup
+├── nginx.conf                   # Local nginx config
+├── nginx.production.conf        # Production nginx config
+├── Dockerfile.frontend          # Frontend build Docker image
+├── server/Dockerfile            # Backend Docker image
+├── .deployment-archive/         # Deployment guides and scripts (not tracked by git)
+└── package.json                 # Root package manifest
 ```
 
-## 🔧 Available Scripts
+## Key Concepts
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start frontend + backend (development) |
-| `npm start` | Start frontend only |
-| `npm run server` | Start backend only (with nodemon) |
-| `npm run build` | Build frontend for production |
-| `npm run install-all` | Install all dependencies |
+### Expense Split Types
 
-## 🔌 API Endpoints
+The app supports multiple split configurations:
+
+```javascript
+// Equal split - divide total equally
+{ type: 'equal', shares: {} }
+
+// Exact amounts - specify per-person amount
+{ type: 'exact', shares: { userId1: 100, userId2: 50 } }
+
+// Percentage - distribute by percentage
+{ type: 'percentage', shares: { userId1: 60, userId2: 40 } }
+
+// Itemized - assign items to members
+{ type: 'itemized', shares: { userId1: 150, userId2: 100 } }
+```
+
+### API Communication
+
+The frontend uses `apiClient` (in `src/lib/apiClient.js`) for all HTTP requests:
+- Automatic cookie-based authentication (HttpOnly cookies)
+- Built-in caching for GET requests (5-second TTL)
+- Request deduplication to prevent duplicate calls
+- Automatic retry logic for failed requests
+- Error standardization and timeout handling
+
+### Real-Time Updates
+
+Socket.IO integration enables:
+- Instant expense creation/updates across all group members
+- Live settlement notifications
+- User presence tracking
+- Real-time chat in groups
+- Typing indicators
 
 ### Authentication
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/register` | Register new user |
-| POST | `/api/auth/login` | Login user |
-| POST | `/api/auth/google` | Google OAuth |
-| POST | `/api/auth/logout` | Logout user |
-| POST | `/api/auth/refresh` | Refresh access token |
 
-### Groups
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/groups` | Get user's groups |
-| POST | `/api/groups` | Create group |
-| GET | `/api/groups/:id` | Get group details |
-| DELETE | `/api/groups/:id` | Delete group |
-| POST | `/api/invites/create` | Generate invite link |
-| POST | `/api/invites/join` | Join via invite |
+The app supports two authentication methods:
 
-### Expenses
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/expenses/group/:groupId` | Get group expenses |
-| POST | `/api/expenses` | Create expense |
-| PUT | `/api/expenses/:id` | Update expense |
-| DELETE | `/api/expenses/:id` | Delete expense |
+**Email/Password:**
+- Users can register with email and password
+- Passwords hashed with bcrypt
+- Session tokens stored in HttpOnly cookies
+- Token refresh mechanism for security
 
-### Settlements
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/settlements` | Get settlements |
-| POST | `/api/settlements` | Record settlement |
-| PUT | `/api/settlements/:id` | Update settlement |
+**Google OAuth:**
+- One-click login with Google account
+- Verified with Google's authentication library
+- User profile auto-populated from Google
 
-## � Deployment to AWS
-
-### ⚡ Quick Deploy (30 minutes)
-Deploy to AWS EC2 with a single script:
+## Available Commands
 
 ```bash
-# See the quick start guide
-cat docs/QUICK_START_DEPLOYMENT.md
+# Install dependencies for both frontend and backend
+npm run install-all
 
-# Or run automated deployment
-./scripts/deploy-to-ec2.sh
+# Start development (frontend + backend with hot reload)
+npm run dev
+
+# Build production frontend
+npm run build
+
+# Start frontend production build
+npm start
+
+# Start backend with nodemon (auto-reload on file changes)
+npm run server
+
+# Build Docker images and run with Docker Compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop containers
+docker-compose down
 ```
 
-**Cost**: ~$40/month (t3.small EC2 + Route 53)
+## Database Schema
 
-### 📖 Deployment Documentation
+### Key Collections
 
-| Document | Purpose |
-|----------|---------|
-| **[QUICK_START_DEPLOYMENT.md](docs/QUICK_START_DEPLOYMENT.md)** | 30-min EC2 quickstart ⭐ START HERE |
-| **[AWS_DEPLOYMENT.md](docs/AWS_DEPLOYMENT.md)** | All AWS options (EC2, ECS, Elastic Beanstalk) |
-| **[ROUTE53_SETUP.md](docs/ROUTE53_SETUP.md)** | Custom domain DNS configuration |
-| **[DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md)** | Step-by-step checklist |
-| **[DEPLOYMENT_TROUBLESHOOTING.md](docs/DEPLOYMENT_TROUBLESHOOTING.md)** | Fix common issues |
-| **[COMMAND_REFERENCE.md](docs/COMMAND_REFERENCE.md)** | Copy-paste AWS/Docker commands |
-| **[ARCHITECTURE_DIAGRAMS.md](docs/ARCHITECTURE_DIAGRAMS.md)** | Visual architecture overview |
-| **[DEPLOYMENT_PACKAGE.md](DEPLOYMENT_PACKAGE.md)** | What's included in deployment |
+**Users**
+- `_id`, `name`, `email`, `password` (hashed), `upiId`, `googleId`
 
-### 🐳 Docker Deployment
+**Groups**
+- `_id`, `name`, `createdBy`, `members`, `createdAt`, `inviteCode`
 
-#### Development
-```bash
-docker-compose up
-```
+**Expenses**
+- `_id`, `groupId`, `description`, `amount`, `currency`, `paidBy`, `splitAmong`, `splitConfig`, `date`, `receipts`
 
-#### Production
-```bash
-docker-compose -f docker-compose.production.yml --env-file .env.production up -d
-```
+**Settlements**
+- `_id`, `groupId`, `fromUserId`, `toUserId`, `amount`, `currency`, `paymentStatus`, `settledAt`
 
-## 🔒 Security Features
+**Invites**
+- `_id`, `groupId`, `code`, `token`, `createdBy`, `createdAt`, `expiresAt`, `usedBy`
 
-- **HttpOnly Cookies** - JWT tokens stored securely
-- **Token Refresh** - Automatic token rotation
-- **Rate Limiting** - Protection against abuse
-- **Input Sanitization** - XSS prevention
-- **CORS Configuration** - Controlled cross-origin access
-- **bcrypt Hashing** - Secure password storage
+## Development Tips
 
-## 🧪 Health Check
+### Hot Reload
+- Frontend changes auto-reload via React Fast Refresh
+- Backend changes auto-reload via nodemon (when using `npm run server`)
 
-- **Backend**: `GET /api/health`
-- **Metrics**: `GET /metrics` (Prometheus format)
+### Debugging
+- Browser DevTools for frontend debugging
+- Check `docker-compose logs` for backend issues
+- MongoDB connection: Test with MongoDB Compass
+- Redis: Check with `redis-cli`
 
-## 📱 Split Methods
+### Testing
+- Create test groups and expenses locally
+- Test split calculations with different configurations
+- Try settlement suggestions with multiple users
+- Test real-time updates with multiple browser tabs
 
-| Type | Description |
-|------|-------------|
-| **Equal** | Divide amount equally among members |
-| **Exact** | Specify exact amount per person |
-| **Percentage** | Split by percentage shares |
+## Troubleshooting
 
-## 🤝 Contributing
+### Frontend won't connect to backend
+- Check `REACT_APP_API_URL` in `.env`
+- Ensure backend is running on port 5000
+- Check browser console for CORS errors
+- Verify backend is accessible: `curl http://localhost:5000/api/health`
 
+### MongoDB connection failed
+- Verify `MONGODB_URI` in `server/.env`
+- Ensure MongoDB is running (local) or connection string is correct (Atlas)
+- Check firewall rules
+
+### Redis connection failed
+- Verify `REDIS_HOST` and `REDIS_PORT` in `server/.env`
+- Ensure Redis is running: `redis-cli ping`
+- Check firewall rules if using remote Redis
+
+### Google OAuth not working
+- Verify `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `server/.env`
+- Check Google Cloud Console for correct redirect URIs
+- Ensure `CLIENT_URL` matches http://localhost:3000 in development
+
+## Production Deployment
+
+For production deployment instructions (AWS EC2, Docker, HTTPS, CI/CD):
+- See `.deployment-archive/docs/AWS_DEPLOYMENT.md`
+- GitHub Actions workflow in `.github/workflows/deploy.yml`
+- Docker Compose production config: `docker-compose.production.yml`
+- Nginx SSL config: `nginx.production.conf`
+
+## Contributing
+
+Contributions are welcome! Please follow these steps:
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see LICENSE file for details.
 
-## 🙏 Acknowledgments
+## Support
 
-- [shadcn/ui](https://ui.shadcn.com/) - Beautiful UI components
-- [Lucide](https://lucide.dev/) - Icon library
-- [Recharts](https://recharts.org/) - Chart library
-- [Tailwind CSS](https://tailwindcss.com/) - Styling framework
+For issues, feature requests, or questions:
+- Open an issue on GitHub
+- Check existing issues for solutions
+- Review `.deployment-archive/` for deployment-specific help
 
----
+## Author
 
-**Made with ❤️ for splitting expenses with friends**
+Shubham Patra - [@ShubhamPatra](https://github.com/ShubhamPatra)

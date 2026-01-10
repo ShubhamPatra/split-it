@@ -20,6 +20,9 @@
 .env.production.local
 server/.env
 
+# Deployment archive (local reference only, not tracked)
+.deployment-archive/
+
 # IDE / Editor
 .vs/
 .idea/
@@ -46,9 +49,3 @@ yarn-error.log*
 # Temporary files
 *.tmp
 *.temp
-docs
-DEPLOYMENT_CHECKLIST.md 
-DEPLOYMENT_INDEX.md 
-DEPLOYMENT_PACKAGE.md 
-DEPLOYMENT_READY.md
-START_HERE.md
