@@ -122,8 +122,12 @@ const NotificationDropdown = () => {
                     if (groupId) {
                       navigate(`/group/${groupId}?tab=chat`);
                     }
-                  } else if (notification.actionType === 'navigate' && notification.relatedId) {
-                    navigate(notification.relatedId);
+                  } else if (notification.actionType === 'navigate') {
+                    // Support both data.url and relatedId for navigation
+                    const url = notification.data?.url || notification.relatedId;
+                    if (url) {
+                      navigate(url);
+                    }
                   }
                 }}
               >

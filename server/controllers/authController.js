@@ -1,5 +1,29 @@
 import User from '../models/User.js';
+import Notification from '../models/Notification.js';
 import { generateToken, generateRefreshToken } from '../middleware/authMiddleware.js';
+
+// Helper to create UPI reminder notification
+const createUpiReminderIfNeeded = async (user) => {
+  if (!user.upiId) {
+    // Check if we already sent a reminder in the last 7 days
+    const existingReminder = await Notification.findOne({
+      userId: user._id,
+      title: 'Add Your UPI ID',
+      createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+    });
+    
+    if (!existingReminder) {
+      await Notification.create({
+        userId: user._id,
+        type: 'warning',
+        title: 'Add Your UPI ID',
+        message: 'Add your UPI ID to receive payments directly from group members. Go to Settings → Profile to add it.',
+        actionType: 'navigate',
+        data: { url: '/settings' },
+      });
+    }
+  }
+};
 import { OAuth2Client } from 'google-auth-library';
 import { emailQueue } from '../config/queue.js';
 
@@ -109,6 +133,9 @@ export const login = async (req, res) => {
       sameSite: 'strict',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
+
+    // Send UPI reminder notification if not set
+    createUpiReminderIfNeeded(user).catch(err => console.error('UPI reminder error:', err));
 
     res.json({
       user: {
@@ -244,6 +271,9 @@ export const googleAuth = async (req, res) => {
       sameSite: 'strict',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
+
+    // Send UPI reminder notification if not set
+    createUpiReminderIfNeeded(user).catch(err => console.error('UPI reminder error:', err));
 
     res.json({
       user: {

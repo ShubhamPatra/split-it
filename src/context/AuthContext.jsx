@@ -25,8 +25,8 @@ export const AuthProvider = ({ children }) => {
       },
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     };
-    // Only store non-sensitive user info for UI purposes
-    sessionStorage.setItem('splitit_user', JSON.stringify(session));
+    // Use localStorage for persistent login across page refreshes and PWA restarts
+    localStorage.setItem('splitit_user', JSON.stringify(session));
     setUser(session.user);
     
     // Initialize push notifications after login (async, don't block)
@@ -44,7 +44,7 @@ export const AuthProvider = ({ children }) => {
     const loadSession = async () => {
       try {
         // Check if we have a session marker (cookie auth will be sent automatically)
-        const sessionData = sessionStorage.getItem('splitit_user');
+        const sessionData = localStorage.getItem('splitit_user');
         if (sessionData) {
           const { expiresAt } = JSON.parse(sessionData);
           if (new Date(expiresAt) > new Date()) {
@@ -60,10 +60,10 @@ export const AuthProvider = ({ children }) => {
               });
             } catch (error) {
               console.error('Session invalid:', error);
-              sessionStorage.removeItem('splitit_user');
+              localStorage.removeItem('splitit_user');
             }
           } else {
-            sessionStorage.removeItem('splitit_user');
+            localStorage.removeItem('splitit_user');
           }
         }
       } catch (error) {
@@ -145,7 +145,7 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Logout API error:', error);
     }
-    sessionStorage.removeItem('splitit_user');
+    localStorage.removeItem('splitit_user');
     setUser(null);
   };
 
