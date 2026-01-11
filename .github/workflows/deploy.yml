@@ -1,13 +1,10 @@
 name: Deploy to EC2
 
-# DISABLED - Manual deployment in use
-# To re-enable, change workflow_dispatch to push trigger
 on:
-  workflow_dispatch:  # Manual trigger only
-  # push:
-  #   branches:
-  #     - master
-  #     - main
+  push:
+    branches:
+      - master
+      - main
 
 jobs:
   deploy:
