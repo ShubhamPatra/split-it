@@ -19,12 +19,6 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5000
-      # ElastiCache settings (set in .env.production)
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT:-6379}
-      - REDIS_AUTH_TOKEN=${REDIS_AUTH_TOKEN:-}
-      - REDIS_TLS=${REDIS_TLS:-true}
-      - REDIS_CLUSTER_MODE=${REDIS_CLUSTER_MODE:-false}
     env_file:
       - ../env/.env.production
     volumes:
