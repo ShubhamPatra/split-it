@@ -10,37 +10,26 @@ export const registerServiceWorker = async () => {
 
   try {
     const registration = await navigator.serviceWorker.register('/service-worker.js', {
-      updateViaCache: 'none' // Always check for service worker updates
+      updateViaCache: 'none'
     });
     console.log('Service worker registered');
 
-    // Check for updates immediately
-    registration.update();
-
-    // Check for updates periodically (every 5 minutes)
+    // Check for updates periodically (every 30 minutes in production)
     setInterval(() => {
       registration.update();
-    }, 5 * 60 * 1000);
+    }, 30 * 60 * 1000);
 
-    // Handle service worker updates
+    // Handle service worker updates - DON'T auto-reload, just log
     registration.addEventListener('updatefound', () => {
       const newWorker = registration.installing;
       if (newWorker) {
         newWorker.addEventListener('statechange', () => {
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            // New content is available, prompt user to refresh
-            console.log('New version available! Refreshing...');
-            // Auto-reload for seamless updates
-            window.location.reload();
+            // New version available - it will be used on next natural page load
+            console.log('New version available. Will be used on next visit.');
           }
         });
       }
-    });
-
-    // Handle controller change (when skipWaiting is called)
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      // New service worker has taken control
-      console.log('New service worker activated');
     });
 
     return registration;

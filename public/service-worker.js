@@ -16,11 +16,12 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => cache.addAll(STATIC_ASSETS))
-      .then(() => self.skipWaiting()) // Take over immediately
+    // Don't call skipWaiting() - let the new SW wait until all tabs are closed
+    // This prevents refresh loops and ensures a clean update
   );
 });
 
-// Activate event - cleanup old caches and take control immediately
+// Activate event - cleanup old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
@@ -31,7 +32,8 @@ self.addEventListener('activate', (event) => {
             .map(name => caches.delete(name))
         );
       })
-      .then(() => self.clients.claim()) // Take control of all clients immediately
+    // Don't call clients.claim() - let new SW control only new tabs/navigations
+    // This prevents refresh loops in existing tabs
   );
 });
 

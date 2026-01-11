@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Users, Receipt, PieChart, ArrowRight, Sparkles, Shield, Zap, CheckCircle, Smartphone, Globe, CreditCard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
@@ -249,9 +249,9 @@ const Index = () => {
               </p>
               <p className="text-muted-foreground leading-relaxed">
                 We prioritize your privacy and security. Your financial data is encrypted and never sold to third parties. Read our{' '}
-                <button onClick={() => navigate('/privacy-policy')} className="text-primary hover:underline font-medium">Privacy Policy</button>
+                <Link to="/privacy-policy" className="text-primary hover:underline font-medium">Privacy Policy</Link>
                 {' '}and{' '}
-                <button onClick={() => navigate('/terms-of-service')} className="text-primary hover:underline font-medium">Terms of Service</button>
+                <Link to="/terms-of-service" className="text-primary hover:underline font-medium">Terms of Service</Link>
                 {' '}for more information.
               </p>
             </CardContent>
@@ -276,14 +276,14 @@ const Index = () => {
         <footer className="py-8 border-t border-border/50">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
             <p>© 2026 Split-It. All rights reserved.</p>
-            <div className="flex items-center gap-6">
-              <button onClick={() => navigate('/terms-of-service')} className="hover:text-primary transition-colors">
+            <nav className="flex items-center gap-6">
+              <Link to="/terms-of-service" className="hover:text-primary transition-colors">
                 Terms of Service
-              </button>
-              <button onClick={() => navigate('/privacy-policy')} className="hover:text-primary transition-colors">
+              </Link>
+              <Link to="/privacy-policy" className="hover:text-primary transition-colors">
                 Privacy Policy
-              </button>
-            </div>
+              </Link>
+            </nav>
           </div>
         </footer>
       </div>
