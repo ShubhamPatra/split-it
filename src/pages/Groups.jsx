@@ -46,21 +46,29 @@ const Groups = () => {
     }
   }, [isAuthenticated, navigate]);
 
-  // Track if we've already fetched unread counts
-  const [unreadCountsFetched, setUnreadCountsFetched] = useState(false);
-
-  // Fetch unread counts for all visible groups on mount
+  // Fetch unread counts for all member groups whenever groups or user.id changes,
+  // and refresh every 30 seconds
   useEffect(() => {
-    if (isAuthenticated && groups.length > 0 && !unreadCountsFetched) {
+    if (!isAuthenticated || !user?.id) return;
+
+    const fetchCounts = () => {
       const groupIds = groups
-        .filter(g => g.members.includes(user?.id || ''))
+        .filter(g => g.members.includes(user.id))
         .map(g => g.id);
       if (groupIds.length > 0) {
         fetchUnreadCountsForGroups(groupIds);
-        setUnreadCountsFetched(true);
       }
-    }
-  }, [isAuthenticated, groups, user?.id, fetchUnreadCountsForGroups, unreadCountsFetched]);
+    };
+
+    // Fetch immediately on change
+    fetchCounts();
+
+    // Set up interval to refresh every 30 seconds
+    const intervalId = setInterval(fetchCounts, 30000);
+
+    // Cleanup interval on unmount or dependency change
+    return () => clearInterval(intervalId);
+  }, [isAuthenticated, groups, user?.id, fetchUnreadCountsForGroups]);
 
   // Filter groups for current user
   const userGroups = useMemo(() => 

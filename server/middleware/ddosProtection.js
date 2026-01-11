@@ -21,7 +21,11 @@ export const ddosProtection = async (req, res, next) => {
   }
   
   if (requests > 50) { // 50 requests per second
-    return res.status(429).json({ message: 'Too many requests' });
+    res.setHeader('Retry-After', '1');
+    return res.status(429).json({ 
+      message: 'Too many requests. Please wait 1 second.',
+      retryAfter: 1,
+    });
   }
   
   next();

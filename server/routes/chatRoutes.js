@@ -47,7 +47,7 @@ router.post(
 // GET /api/groups/:groupId/messages - Get messages with pagination
 router.get(
   '/:groupId/messages',
-  rateLimiter({ max: 100, windowMs: 60000 }), // 100 requests per minute
+  rateLimiter({ max: 200, windowMs: 60000 }), // 200 requests per minute for read operations
   param('groupId').isMongoId().withMessage('Invalid group ID'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be 1-100'),
   query('before').optional().isMongoId().withMessage('Invalid cursor ID'),
@@ -116,7 +116,7 @@ router.post(
 // GET /api/groups/:groupId/messages/unread - Get unread count
 router.get(
   '/:groupId/messages/unread',
-  rateLimiter({ max: 100, windowMs: 60000 }), // 100 requests per minute
+  rateLimiter({ max: 200, windowMs: 60000 }), // 200 requests per minute for read operations
   param('groupId').isMongoId().withMessage('Invalid group ID'),
   validate,
   getUnreadCount

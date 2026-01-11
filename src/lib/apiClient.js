@@ -6,6 +6,14 @@ const pendingRequests = new Map();
 const CACHE_TTL = 5000; // 5 seconds
 const MAX_CACHE_SIZE = 100;  // Add size limit
 
+// Exponential backoff configuration for 429 errors
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelay: 1000, // 1 second
+  maxDelay: 8000, // 8 seconds max
+  jitterMax: 500, // Random 0-500ms jitter
+};
+
 // Track if we're currently refreshing to avoid multiple refresh calls
 let isRefreshing = false;
 let refreshPromise = null;
@@ -111,8 +119,16 @@ const handleResponse = async (response, originalRequest = null) => {
         throw new Error('You do not have permission to perform this action');
       case 404:
         throw new Error('The requested resource was not found');
-      case 429:
-        throw new Error(data.message || 'Too many requests. Please wait a moment before trying again.');
+      case 429: {
+        // Extract Retry-After header if present
+        const retryAfter = response.headers.get('Retry-After');
+        const retryAfterSeconds = retryAfter ? parseInt(retryAfter, 10) : null;
+        const waitTime = retryAfterSeconds ? `${retryAfterSeconds} second${retryAfterSeconds !== 1 ? 's' : ''}` : 'a moment';
+        const error = new Error(data.message || `Too many requests. Please wait ${waitTime} before trying again.`);
+        error.retryAfter = retryAfterSeconds;
+        error.status = 429;
+        throw error;
+      }
       case 500:
       case 502:
       case 503:
@@ -125,8 +141,23 @@ const handleResponse = async (response, originalRequest = null) => {
   return data;
 };
 
-// Helper to make requests with timeout and retry logic
-const makeRequest = async (url, options, retries = 1, cacheKey = null) => {
+// Helper to calculate exponential backoff delay with jitter
+const calculateBackoffDelay = (attempt, retryAfterSeconds = null) => {
+  // If server provided Retry-After, respect it
+  if (retryAfterSeconds) {
+    return retryAfterSeconds * 1000 + Math.random() * RETRY_CONFIG.jitterMax;
+  }
+  
+  // Exponential backoff: 1s, 2s, 4s...
+  const exponentialDelay = RETRY_CONFIG.baseDelay * Math.pow(2, attempt);
+  const clampedDelay = Math.min(exponentialDelay, RETRY_CONFIG.maxDelay);
+  const jitter = Math.random() * RETRY_CONFIG.jitterMax;
+  
+  return clampedDelay + jitter;
+};
+
+// Helper to make requests with timeout, retry logic, and exponential backoff for 429
+const makeRequest = async (url, options, retries = 1, cacheKey = null, retryOn429 = true, attempt429 = 0) => {
   // Check if we're offline
   if (!navigator.onLine) {
     throw new Error('No internet connection. Please check your network.');
@@ -169,10 +200,25 @@ const makeRequest = async (url, options, retries = 1, cacheKey = null) => {
         throw new Error('Request timeout. Please check your connection.');
       }
       
+      // Handle 429 errors with exponential backoff
+      if (error.status === 429 && retryOn429 && attempt429 < RETRY_CONFIG.maxRetries) {
+        const delay = calculateBackoffDelay(attempt429, error.retryAfter);
+        console.log(`Rate limited. Retrying in ${Math.round(delay)}ms (attempt ${attempt429 + 1}/${RETRY_CONFIG.maxRetries})`);
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+        
+        // Clean up pending request before retry
+        if (cacheKey) {
+          pendingRequests.delete(cacheKey);
+        }
+        
+        return makeRequest(url, options, retries, cacheKey, retryOn429, attempt429 + 1);
+      }
+      
       // Retry on network errors
       if (retries > 0 && (error.message.includes('Failed to fetch') || error.message.includes('NetworkError'))) {
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-        return makeRequest(url, options, retries - 1, cacheKey);
+        return makeRequest(url, options, retries - 1, cacheKey, retryOn429, attempt429);
       }
       
       throw error;
@@ -201,8 +247,9 @@ const clearCache = () => {
 
 // Create axios-like API client using HttpOnly cookie auth
 const apiClient = {
-  get: async (endpoint) => {
+  get: async (endpoint, options = {}) => {
     const cacheKey = `GET:${endpoint}`;
+    const { retryOn429 = true } = options;
     return makeRequest(
       `${API_URL}${endpoint}`,
       {
@@ -213,46 +260,70 @@ const apiClient = {
         credentials: 'include', // Send HttpOnly cookies
       },
       1,
-      cacheKey
+      cacheKey,
+      retryOn429
     );
   },
 
-  post: async (endpoint, body) => {
-    // Clear cache on mutations
-    clearCache();
-    return makeRequest(`${API_URL}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+  post: async (endpoint, body, options = {}) => {
+    // Clear cache on mutations unless skipCacheClear is set (for read-only POSTs like batch queries)
+    const { retryOn429 = false, skipCacheClear = false } = options;
+    if (!skipCacheClear) {
+      clearCache();
+    }
+    return makeRequest(
+      `${API_URL}${endpoint}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // Send HttpOnly cookies
+        body: JSON.stringify(body),
       },
-      credentials: 'include', // Send HttpOnly cookies
-      body: JSON.stringify(body),
-    });
+      1,
+      null,
+      retryOn429
+    );
   },
 
-  put: async (endpoint, body) => {
+  put: async (endpoint, body, options = {}) => {
     // Clear cache on mutations
     clearCache();
-    return makeRequest(`${API_URL}${endpoint}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
+    const { retryOn429 = false } = options; // PUT is not always idempotent, don't retry by default
+    return makeRequest(
+      `${API_URL}${endpoint}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // Send HttpOnly cookies
+        body: JSON.stringify(body),
       },
-      credentials: 'include', // Send HttpOnly cookies
-      body: JSON.stringify(body),
-    });
+      1,
+      null,
+      retryOn429
+    );
   },
 
-  delete: async (endpoint) => {
+  delete: async (endpoint, options = {}) => {
     // Clear cache on mutations
     clearCache();
-    return makeRequest(`${API_URL}${endpoint}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
+    const { retryOn429 = false } = options; // DELETE is not idempotent, don't retry by default
+    return makeRequest(
+      `${API_URL}${endpoint}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // Send HttpOnly cookies
       },
-      credentials: 'include', // Send HttpOnly cookies
-    });
+      1,
+      null,
+      retryOn429
+    );
   },
 
   // Utility to manually clear cache

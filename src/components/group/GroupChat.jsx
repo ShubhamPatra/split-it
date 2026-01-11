@@ -34,6 +34,8 @@ const GroupChat = ({ groupId }) => {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState(null);
+  const [isRateLimited, setIsRateLimited] = useState(false);
+  const [retryCountdown, setRetryCountdown] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNewMessageIndicator, setShowNewMessageIndicator] = useState(false);
@@ -56,6 +58,8 @@ const GroupChat = ({ groupId }) => {
   const newestMessageIdRef = useRef(null);
   // Track if we just finished loading older messages
   const justLoadedOlderRef = useRef(false);
+  // Track countdown interval for rate-limit retry cleanup
+  const countdownIntervalRef = useRef(null);
 
   // Group consecutive messages from the same sender within 5 minutes
   const groupMessages = useCallback((msgs) => {
@@ -154,25 +158,77 @@ const GroupChat = ({ groupId }) => {
 
   // Reset unread tracking state when switching groups
   useEffect(() => {
+    // Clear any existing countdown interval to prevent stale retries
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    
     prevMessagesLengthRef.current = 0;
     newestMessageIdRef.current = null;
     justLoadedOlderRef.current = false;
     shouldAutoScrollRef.current = true;
     setShowNewMessageIndicator(false);
     setUnreadCount(0);
+    setIsRateLimited(false);
+    setRetryCountdown(0);
+    setError(null);
+    
+    // Cleanup on unmount or group change
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
   }, [groupId]);
 
   // Load initial messages
   useEffect(() => {
+    // Clear any existing countdown interval before starting new load
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    
     const loadInitialMessages = async () => {
       if (!groupId) return;
       
       setIsInitialLoading(true);
       setError(null);
+      setIsRateLimited(false);
       
       try {
         await loadMessages(groupId);
       } catch (err) {
+        // Check if it's a rate limit error
+        if (err.message?.includes('Too many requests') || err.status === 429) {
+          setIsRateLimited(true);
+          const retryAfter = err.retryAfter || 3;
+          setRetryCountdown(retryAfter);
+          setError(`Too many requests. Retrying in ${retryAfter} seconds...`);
+          
+          // Start countdown and auto-retry, store interval ID in ref for cleanup
+          countdownIntervalRef.current = setInterval(() => {
+            setRetryCountdown(prev => {
+              if (prev <= 1) {
+                // Clear interval when countdown completes
+                if (countdownIntervalRef.current) {
+                  clearInterval(countdownIntervalRef.current);
+                  countdownIntervalRef.current = null;
+                }
+                // Auto-retry after countdown
+                loadInitialMessages();
+                return 0;
+              }
+              setError(`Too many requests. Retrying in ${prev - 1} seconds...`);
+              return prev - 1;
+            });
+          }, 1000);
+          
+          return;
+        }
+        
         setError('Failed to load messages. Please try again.');
         console.error('Error loading messages:', err);
       } finally {
@@ -181,6 +237,14 @@ const GroupChat = ({ groupId }) => {
     };
 
     loadInitialMessages();
+    
+    // Cleanup interval on effect re-run or unmount
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
   }, [groupId, loadMessages]);
 
   // Scroll to bottom on new messages (only if already at bottom)
@@ -394,7 +458,7 @@ const GroupChat = ({ groupId }) => {
   }
 
   // Error state
-  if (error) {
+  if (error && !isRateLimited) {
     return (
       <div className="flex flex-col h-full min-h-0 items-center justify-center gap-3 text-muted-foreground">
         <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
@@ -404,6 +468,19 @@ const GroupChat = ({ groupId }) => {
         <Button variant="outline" onClick={() => loadMessages(groupId)} className="mt-2">
           Try Again
         </Button>
+      </div>
+    );
+  }
+  
+  // Rate limited state with auto-retry
+  if (isRateLimited && retryCountdown > 0) {
+    return (
+      <div className="flex flex-col h-full min-h-0 items-center justify-center gap-3 text-muted-foreground">
+        <div className="w-16 h-16 rounded-full bg-warning/10 flex items-center justify-center">
+          <Loader2 className="h-8 w-8 text-warning animate-spin" />
+        </div>
+        <p className="text-sm font-medium text-warning">{error}</p>
+        <p className="text-xs text-muted-foreground">High traffic detected. Auto-retrying...</p>
       </div>
     );
   }

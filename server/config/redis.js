@@ -25,8 +25,7 @@ const buildRedisConfig = () => {
     port: parseInt(process.env.REDIS_PORT, 10) || 6379,
     maxRetriesPerRequest: null, // Required for BullMQ compatibility
     enableReadyCheck: true,
-    enableOfflineQueue: false, // Prevent queuing commands when disconnected (important for cluster)
-    lazyConnect: true, // Don't connect immediately
+    enableOfflineQueue: true, // Queue commands while connecting
     retryStrategy: (times) => {
       if (times > 3) {
         if (isDev) {
@@ -62,6 +61,7 @@ const buildRedisConfig = () => {
   if (process.env.REDIS_TLS === 'true' || process.env.ELASTICACHE_TLS === 'true') {
     config.tls = {
       rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
+      servername: process.env.REDIS_HOST || 'localhost', // Required for TLS handshake with ElastiCache
     };
     console.log('Redis: TLS enabled for ElastiCache connection');
   }
@@ -143,13 +143,6 @@ if (REDIS_ENABLED) {
 
   redis.on('reconnecting', (delay) => {
     console.log(`Redis: Reconnecting in ${delay}ms...`);
-  });
-
-  // Attempt initial connection (non-blocking)
-  redis.connect().catch(() => {
-    if (isDev) {
-      console.warn('Redis: Not available in development. Queued features disabled.');
-    }
   });
 } else {
   console.log('Redis: Disabled via REDIS_ENABLED=false');

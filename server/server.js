@@ -7,7 +7,7 @@ import connectDB from './config/db.js';
 import redis, { closeRedis } from './config/redis.js';
 import { initializeSocket, createRedisAdapter } from './config/socket.js';
 import { createIndexes } from './utils/dbIndexes.js';
-import { securityHeaders, sanitizeInput, rateLimiter } from './middleware/security.js';
+import { securityHeaders, sanitizeInput, rateLimiter, waitForRedis } from './middleware/security.js';
 import authRoutes from './routes/authRoutes.js';
 import groupRoutes from './routes/groupRoutes.js';
 import expenseRoutes from './routes/expenseRoutes.js';
@@ -45,12 +45,23 @@ connectDB().then(() => {
   createIndexes();
 });
 
-// Verify Redis connection on startup
-redis.ping().then(() => {
-  console.log('Redis: Connection verified');
-}).catch((err) => {
-  console.error('Redis: Failed to verify connection:', err.message);
-});
+// Verify Redis connection on startup and wait for readiness
+const initRedis = async () => {
+  try {
+    // Wait for Redis to be ready (with timeout)
+    const isReady = await waitForRedis(5000);
+    if (isReady) {
+      await redis.ping();
+      console.log('Redis: Connection verified');
+    } else {
+      console.warn('Redis: Not ready, rate limiting will use in-memory store');
+    }
+  } catch (err) {
+    console.error('Redis: Failed to verify connection:', err.message);
+  }
+};
+
+initRedis();
 
 // Initialize Express app
 const app = express();
