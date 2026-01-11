@@ -6,8 +6,6 @@ Split-It is a full-featured expense sharing application that makes it easy to tr
 
 🌐 **Live Demo:** [https://split-it.live](https://split-it.live)
 
-![Split-It Screenshot](https://via.placeholder.com/800x400?text=Split-It+Dashboard)
-
 ---
 
 ## ✨ Features
