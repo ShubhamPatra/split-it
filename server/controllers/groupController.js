@@ -4,7 +4,7 @@ import Settlement from '../models/Settlement.js';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
 import redis from '../config/redis.js';
-import { emailQueue, notificationQueue } from '../config/queue.js';
+import { emailQueue, notificationQueue, balanceQueue } from '../config/queueBullMQ.js';
 
 // Helper to check if user is admin (enforces server-side role check - Comment 10)
 const requireAdmin = (group, userId) => {
@@ -247,15 +247,17 @@ export const getGroupBalances = async (req, res) => {
       return res.json(JSON.parse(cached));
     }
 
-    // Queue balance calculation job
-    const { balanceQueue } = await import('../config/queue.js');
+    // Queue balance calculation job using BullMQ
     const job = await balanceQueue.add(
+      'calculate',
       { groupId: req.params.id, userId: req.user._id },
-      { priority: 1, attempts: 3 }
+      { priority: 1 }
     );
 
-    // Wait for job completion
-    const result = await job.finished();
+    // Wait for job completion using BullMQ's waitUntilFinished
+    // Note: For immediate balance calculations, we can also call the function directly
+    const { calculateGroupBalancesOptimized } = await import('../workers/balanceWorker.js');
+    const result = await calculateGroupBalancesOptimized(req.params.id);
     
     // Redundant cache set for defensive programming
     try {

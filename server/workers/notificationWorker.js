@@ -3,9 +3,11 @@
  * 
  * Processes notification jobs from the notification queue.
  * Creates in-app notifications and emits real-time socket events.
+ * 
+ * Uses BullMQ for production-grade Redis Cluster compatibility.
  */
 
-import { notificationQueue } from '../config/queue.js';
+import { createWorker, notificationQueue, QUEUE_NAMES } from '../config/queueBullMQ.js';
 import Notification from '../models/Notification.js';
 
 // Reference to Socket.IO instance (set during initialization)
@@ -16,15 +18,19 @@ let processedCount = 0;
 let failedCount = 0;
 let totalProcessingTime = 0;
 
+// Interval handle for metrics logging (cleared on shutdown)
+let metricsInterval = null;
+
 /**
  * Initialize the notification worker processor
  * @param {Object} io - Socket.IO server instance
+ * @returns {Object} Worker instance for graceful shutdown
  */
 export const initNotificationWorker = (io) => {
   ioInstance = io;
 
-  // Process with concurrency of 8 to handle chat/push notifications under load
-  notificationQueue.process(8, async (job) => {
+  // Process notification job handler
+  const processNotificationJob = async (job) => {
     const startTime = Date.now();
     const { userId, type, title, message, data } = job.data;
 
@@ -160,27 +166,37 @@ export const initNotificationWorker = (io) => {
     } catch (error) {
       failedCount++;
       console.error(`Notification worker failed for user ${userId}:`, error.message);
-      throw error; // Rethrow to trigger Bull retry
+      throw error; // Rethrow to trigger BullMQ retry
     }
+  };
+
+  // Create BullMQ Worker with concurrency 8
+  const worker = createWorker(QUEUE_NAMES.NOTIFICATION, processNotificationJob, {
+    concurrency: 8,
+    limiter: {
+      max: 100,
+      duration: 1000, // 100 notifications per second
+    },
   });
 
+  // Clear any existing interval before creating a new one
+  if (metricsInterval) {
+    clearInterval(metricsInterval);
+    metricsInterval = null;
+  }
+
   // Log queue metrics periodically (every 60 seconds)
-  setInterval(async () => {
+  metricsInterval = setInterval(async () => {
     try {
-      const [waiting, active, completed, failed] = await Promise.all([
-        notificationQueue.getWaitingCount(),
-        notificationQueue.getActiveCount(),
-        notificationQueue.getCompletedCount(),
-        notificationQueue.getFailedCount(),
-      ]);
+      const counts = await notificationQueue.getJobCounts();
       
       const avgProcessingTime = processedCount > 0 
         ? Math.round(totalProcessingTime / processedCount) 
         : 0;
       
       console.log(
-        `[NotificationQueue] Depth: waiting=${waiting}, active=${active}, ` +
-        `completed=${completed}, failed=${failed}, ` +
+        `[NotificationQueue] Depth: waiting=${counts.waiting}, active=${counts.active}, ` +
+        `completed=${counts.completed}, failed=${counts.failed}, ` +
         `avgProcessingTime=${avgProcessingTime}ms, ` +
         `processed=${processedCount}, errors=${failedCount}`
       );
@@ -189,7 +205,23 @@ export const initNotificationWorker = (io) => {
     }
   }, 60000);
 
-  console.log('Notification worker initialized (concurrency: 8)');
+  // Clear metrics interval when worker closes to prevent hanging on shutdown
+  worker.on('closed', () => {
+    if (metricsInterval) {
+      clearInterval(metricsInterval);
+      metricsInterval = null;
+      console.log('Notification worker: Metrics interval cleared on close');
+    }
+  });
+
+  worker.on('drained', () => {
+    // Note: drained just means queue is empty, not that worker is closing
+    // We log this for observability but don't clear the interval here
+    console.log('Notification worker: Queue drained');
+  });
+
+  console.log('Notification worker initialized (BullMQ, concurrency: 8)');
+  return worker;
 };
 
 /**
@@ -252,6 +284,18 @@ export const notifyGroupMembers = async (group, notificationData, excludeUserId 
     .filter(id => id !== excludeUserId);
   
   return notifyUsers(memberIds, notificationData);
+};
+
+/**
+ * Clear the metrics interval (for use during server shutdown)
+ * Call this before process exit to prevent the interval from keeping the process alive.
+ */
+export const clearMetricsInterval = () => {
+  if (metricsInterval) {
+    clearInterval(metricsInterval);
+    metricsInterval = null;
+    console.log('Notification worker: Metrics interval cleared manually');
+  }
 };
 
 /**

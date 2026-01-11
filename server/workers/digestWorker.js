@@ -2,50 +2,16 @@
  * Digest Worker
  * 
  * Sends weekly and monthly expense digest emails to subscribed users.
- * Runs on a schedule via Bull queue.
+ * Runs on a schedule via BullMQ queue.
+ * 
+ * Uses BullMQ for production-grade Redis Cluster compatibility.
  */
 
-import Bull from 'bull';
+import { createWorker, emailQueue, digestQueue, QUEUE_NAMES, getDigestQueue } from '../config/queueBullMQ.js';
 import User from '../models/User.js';
 import Group from '../models/Group.js';
 import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
-import { emailQueue } from '../config/queue.js';
-
-// Redis configuration with ElastiCache support
-const buildRedisConfig = () => {
-  const config = {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-  };
-
-  // Add password/auth token (ElastiCache AUTH token or Redis password)
-  if (process.env.REDIS_PASSWORD || process.env.REDIS_AUTH_TOKEN) {
-    config.password = process.env.REDIS_AUTH_TOKEN || process.env.REDIS_PASSWORD;
-  }
-
-  // ElastiCache TLS configuration
-  if (process.env.REDIS_TLS === 'true' || process.env.ELASTICACHE_TLS === 'true') {
-    config.tls = {
-      rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
-    };
-  }
-
-  return config;
-};
-
-const redisConfig = buildRedisConfig();
-
-// Create digest queue
-export const digestQueue = new Bull('digest', {
-  redis: redisConfig,
-  defaultJobOptions: {
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 5000 },
-    removeOnComplete: 50,
-    removeOnFail: 20,
-  },
-});
 
 /**
  * Calculate user's expense summary for a given period
@@ -265,10 +231,11 @@ async function processMonthlyDigest() {
 
 /**
  * Initialize the digest worker
+ * Returns the worker instance for graceful shutdown
  */
-export const initDigestWorker = () => {
-  // Process digest jobs
-  digestQueue.process(async (job) => {
+export const initDigestWorker = async () => {
+  // Process digest job handler
+  const processDigestJob = async (job) => {
     const { type } = job.data;
     
     if (type === 'weekly') {
@@ -278,38 +245,59 @@ export const initDigestWorker = () => {
     }
     
     throw new Error(`Unknown digest type: ${type}`);
+  };
+
+  // Create BullMQ Worker with concurrency 1 (scheduled jobs)
+  const worker = createWorker(QUEUE_NAMES.DIGEST, processDigestJob, {
+    concurrency: 1,
   });
 
   // Schedule weekly digest - Every Monday at 9 AM
-  digestQueue.add(
-    { type: 'weekly' },
-    {
-      repeat: {
-        cron: '0 9 * * 1', // Monday at 9:00 AM
-      },
-      jobId: 'weekly-digest-scheduler',
-    }
-  ).catch(err => console.error('Failed to schedule weekly digest:', err.message));
+  const queue = getDigestQueue();
+  
+  try {
+    await queue.add(
+      'weekly',
+      { type: 'weekly' },
+      {
+        repeat: {
+          pattern: '0 9 * * 1', // Monday at 9:00 AM
+        },
+        jobId: 'weekly-digest-scheduler',
+      }
+    );
+    console.log('Digest: Weekly digest scheduled (Monday 9AM)');
+  } catch (err) {
+    console.error('Failed to schedule weekly digest:', err.message);
+  }
 
   // Schedule monthly digest - First day of month at 9 AM
-  digestQueue.add(
-    { type: 'monthly' },
-    {
-      repeat: {
-        cron: '0 9 1 * *', // 1st of month at 9:00 AM
-      },
-      jobId: 'monthly-digest-scheduler',
-    }
-  ).catch(err => console.error('Failed to schedule monthly digest:', err.message));
+  try {
+    await queue.add(
+      'monthly',
+      { type: 'monthly' },
+      {
+        repeat: {
+          pattern: '0 9 1 * *', // 1st of month at 9:00 AM
+        },
+        jobId: 'monthly-digest-scheduler',
+      }
+    );
+    console.log('Digest: Monthly digest scheduled (1st 9AM)');
+  } catch (err) {
+    console.error('Failed to schedule monthly digest:', err.message);
+  }
 
-  console.log('Digest worker initialized (weekly: Monday 9AM, monthly: 1st 9AM)');
+  console.log('Digest worker initialized (BullMQ, concurrency: 1)');
+  return worker;
 };
 
 /**
  * Manually trigger digest processing (for testing)
  */
 export const triggerDigest = async (type = 'weekly') => {
-  return digestQueue.add({ type }, { priority: 1 });
+  const queue = getDigestQueue();
+  return queue.add(type, { type }, { priority: 1 });
 };
 
 export default initDigestWorker;

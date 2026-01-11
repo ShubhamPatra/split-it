@@ -2,48 +2,12 @@ import mongoose from 'mongoose';
 import Message from '../models/Message.js';
 import Group from '../models/Group.js';
 import redis from '../config/redis.js';
-import { notificationQueue } from '../config/queue.js';
+import { notificationQueue } from '../config/queueBullMQ.js';
 import { emitToGroup } from '../utils/socketEmitter.js';
 
-// Cache TTL constants (increased for better performance under load)
-const CACHE_TTL_MESSAGES = 120; // 120 seconds (2 minutes)
-const CACHE_TTL_UNREAD = 60; // 60 seconds (1 minute)
-
-// Stale-while-revalidate threshold (serve stale data while refreshing in background)
-const STALE_THRESHOLD_MESSAGES = 60; // Consider stale after 60 seconds
-const STALE_THRESHOLD_UNREAD = 30; // Consider stale after 30 seconds
-
-/**
- * Non-blocking cache write helper - fire and forget
- */
-const cacheSetAsync = (key, ttl, value) => {
-  redis.setex(key, ttl, typeof value === 'string' ? value : JSON.stringify(value))
-    .catch(err => console.error('Cache write error:', err));
-};
-
-/**
- * Get cache with timestamp for stale-while-revalidate
- * Returns { data, isStale } or null if not cached
- */
-const getCacheWithStaleness = async (key, staleThreshold) => {
-  try {
-    const ttl = await redis.ttl(key);
-    if (ttl <= 0) return null;
-    
-    const cached = await redis.get(key);
-    if (cached === null) return null;
-    
-    // Calculate age based on remaining TTL
-    // If TTL is less than (maxTTL - staleThreshold), data is stale
-    const maxTTL = staleThreshold * 2; // Approximate max TTL
-    const isStale = ttl < (maxTTL - staleThreshold);
-    
-    return { data: cached, isStale };
-  } catch (err) {
-    console.error('Cache read error:', err);
-    return null;
-  }
-};
+// Cache TTL constants
+const CACHE_TTL_MESSAGES = 60; // 60 seconds
+const CACHE_TTL_UNREAD = 30; // 30 seconds
 
 // Rate limiting tracking (in-memory, backed by Redis for persistence)
 const MESSAGE_RATE_LIMIT = 100; // messages per minute per user per group
@@ -113,49 +77,11 @@ export const getMessages = async (req, res) => {
     // Parse and validate limit
     const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 100);
     
-    // Try cache for first page (no 'before' cursor) with stale-while-revalidate
+    // Try cache for first page (no 'before' cursor)
     if (!before) {
-      const cacheKey = `chat:${groupId}:latest`;
-      const cacheResult = await getCacheWithStaleness(cacheKey, STALE_THRESHOLD_MESSAGES);
-      
-      if (cacheResult) {
-        const { data, isStale } = cacheResult;
-        const parsedData = JSON.parse(data);
-        
-        // If stale, trigger background refresh (non-blocking)
-        if (isStale) {
-          setImmediate(async () => {
-            try {
-              const freshMessages = await Message.find({ groupId, deletedAt: null })
-                .populate('senderId', 'name email')
-                .populate('metadata.expenseId', 'description amount currency')
-                .populate('metadata.settlementId', 'amount currency')
-                .sort({ _id: -1 })
-                .limit(51)
-                .lean();
-              
-              const hasMore = freshMessages.length > 50;
-              if (hasMore) freshMessages.pop();
-              
-              const safeMessages = freshMessages.map(msg => 
-                msg.deletedAt ? { ...msg, content: '[Message deleted]', metadata: {} } : msg
-              );
-              
-              const freshResult = {
-                messages: safeMessages.reverse(),
-                hasMore,
-                oldestMessageId: safeMessages.length > 0 ? safeMessages[0]._id : null,
-              };
-              
-              cacheSetAsync(cacheKey, CACHE_TTL_MESSAGES, freshResult);
-            } catch (err) {
-              console.error('Background message refresh error:', err);
-            }
-          });
-        }
-        
-        // Return cached data immediately
-        return res.json(parsedData);
+      const cached = await redis.get(`chat:${groupId}:latest`);
+      if (cached) {
+        return res.json(JSON.parse(cached));
       }
     }
     
@@ -202,9 +128,9 @@ export const getMessages = async (req, res) => {
       oldestMessageId: safeMessages.length > 0 ? safeMessages[0]._id : null,
     };
     
-    // Cache first page (non-blocking)
+    // Cache first page
     if (!before) {
-      cacheSetAsync(`chat:${groupId}:latest`, CACHE_TTL_MESSAGES, result);
+      await redis.setex(`chat:${groupId}:latest`, CACHE_TTL_MESSAGES, JSON.stringify(result));
     }
     
     res.json(result);
@@ -521,37 +447,14 @@ export const getUnreadCount = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized' });
     }
     
-    // Try cache first with stale-while-revalidate
+    // Try cache first
     const cacheKey = `chat:${groupId}:unread:${req.user._id}`;
-    const cacheResult = await getCacheWithStaleness(cacheKey, STALE_THRESHOLD_UNREAD);
-    
-    if (cacheResult) {
-      const { data, isStale } = cacheResult;
-      const cachedCount = parseInt(data);
-      
-      // If stale, trigger background refresh (non-blocking)
-      if (isStale) {
-        const userId = req.user._id;
-        setImmediate(async () => {
-          try {
-            const freshCount = await Message.countDocuments({
-              groupId,
-              deletedAt: null,
-              senderId: { $ne: userId },
-              readBy: { $ne: userId },
-            });
-            cacheSetAsync(cacheKey, CACHE_TTL_UNREAD, freshCount.toString());
-          } catch (err) {
-            console.error('Background unread count refresh error:', err);
-          }
-        });
-      }
-      
-      // Return cached data immediately
-      return res.json({ count: cachedCount });
+    const cached = await redis.get(cacheKey);
+    if (cached !== null) {
+      return res.json({ count: parseInt(cached) });
     }
     
-    // Count unread messages (cache miss)
+    // Count unread messages
     const count = await Message.countDocuments({
       groupId,
       deletedAt: null,
@@ -559,8 +462,8 @@ export const getUnreadCount = async (req, res) => {
       readBy: { $ne: req.user._id },
     });
     
-    // Cache the result (non-blocking)
-    cacheSetAsync(cacheKey, CACHE_TTL_UNREAD, count.toString());
+    // Cache the result
+    await redis.setex(cacheKey, CACHE_TTL_UNREAD, count.toString());
     
     res.json({ count });
   } catch (error) {
@@ -626,25 +529,15 @@ export const getBatchUnreadCounts = async (req, res) => {
       
       const results = await Message.aggregate(pipeline);
       
-      // Process results and warm individual caches (non-blocking)
+      // Process results and cache them
       for (const groupId of uncachedGroupIds) {
         const result = results.find(r => r._id.toString() === groupId);
         const count = result ? result.count : 0;
         counts[groupId] = count;
         
-        // Warm individual cache (non-blocking) - enables subsequent individual lookups to hit cache
+        // Cache the result
         const cacheKey = `chat:${groupId}:unread:${userId}`;
-        cacheSetAsync(cacheKey, CACHE_TTL_UNREAD, count.toString());
-      }
-    }
-    
-    // Also warm cache for groups that had cache hits (extend TTL for frequently accessed)
-    // This is non-blocking and helps keep hot data fresh
-    for (const groupId of validGroupIds) {
-      if (!uncachedGroupIds.includes(groupId)) {
-        const cacheKey = `chat:${groupId}:unread:${userId}`;
-        // Touch the cache to extend TTL for frequently accessed groups
-        redis.expire(cacheKey, CACHE_TTL_UNREAD).catch(() => {});
+        await redis.setex(cacheKey, CACHE_TTL_UNREAD, count.toString());
       }
     }
     

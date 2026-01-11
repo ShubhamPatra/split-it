@@ -3,7 +3,7 @@ import Group from '../models/Group.js';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
 import { emitToGroup, emitToUser } from '../utils/socketEmitter.js';
-import { emailQueue } from '../config/queue.js';
+import { emailQueue } from '../config/queueBullMQ.js';
 
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 const DEFAULT_EXPIRY_HOURS = parseInt(process.env.INVITE_EXPIRY_HOURS) || 168; // 7 days

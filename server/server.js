@@ -4,7 +4,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import connectDB from './config/db.js';
-import redis, { closeRedis, connectRedis, verifyRedisConnection } from './config/redis.js';
+import redis, { closeRedis, isRedisAvailable } from './config/redis.js';
 import { initializeSocket, createRedisAdapter } from './config/socket.js';
 import { createIndexes } from './utils/dbIndexes.js';
 import { securityHeaders, sanitizeInput, rateLimiter, waitForRedis } from './middleware/security.js';
@@ -27,7 +27,7 @@ import { initBalanceWorker } from './workers/balanceWorker.js';
 import { initRecurringExpenseWorker } from './workers/recurringExpenseWorker.js';
 import { initDigestWorker } from './workers/digestWorker.js';
 import { initDueReminderWorker } from './workers/dueReminderWorker.js';
-import { closeQueues } from './config/queue.js';
+import { closeAllQueues, waitForQueues, areQueuesAvailable } from './config/queueBullMQ.js';
 
 // Load environment variables
 dotenv.config();
@@ -80,27 +80,58 @@ if (redis) {
 
 // Verify Redis connection on startup and wait for readiness
 const initRedis = async () => {
+  // If Redis is disabled or not initialized, skip
+  if (!redis) {
+    console.warn('Redis: Client not initialized, skipping connection verification');
+    return false;
+  }
+  
   try {
-    // Explicitly connect to Redis (required when lazyConnect is true)
-    const connected = await connectRedis();
-    if (!connected) {
-      console.warn('Redis: Initial connection failed');
+    // Wait for Redis to be ready (with timeout)
+    const waitForReady = (timeout = 5000) => {
+      return new Promise((resolve) => {
+        // If already ready, resolve immediately
+        if (redis.status === 'ready') {
+          resolve(true);
+          return;
+        }
+        
+        const timeoutId = setTimeout(() => {
+          resolve(false);
+        }, timeout);
+        
+        redis.once('ready', () => {
+          clearTimeout(timeoutId);
+          resolve(true);
+        });
+        
+        redis.once('error', () => {
+          clearTimeout(timeoutId);
+          resolve(false);
+        });
+      });
+    };
+    
+    // Wait for ready state
+    const isReady = await waitForReady(5000);
+    if (!isReady) {
+      console.warn('Redis: Not ready within timeout, rate limiting will use in-memory store');
       return false;
     }
     
-    // Wait for Redis to be ready (with timeout)
-    const isReady = await waitForRedis(5000);
-    if (isReady) {
-      // Verify connection with ping
-      const verified = await verifyRedisConnection(3000);
-      if (verified) {
-        console.log('Redis: Connection verified and ready');
-        redisReady = true;
-        return true;
-      }
+    // Verify connection with ping
+    const pong = await Promise.race([
+      redis.ping(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Ping timeout')), 3000))
+    ]);
+    
+    if (pong === 'PONG') {
+      console.log('Redis: Connection verified and ready');
+      redisReady = true;
+      return true;
     }
     
-    console.warn('Redis: Not ready, rate limiting will use in-memory store');
+    console.warn('Redis: Ping failed, rate limiting will use in-memory store');
     return false;
   } catch (err) {
     console.error('Redis: Failed to verify connection:', err.message);
@@ -158,15 +189,42 @@ const initializeServer = async () => {
   const { setIo } = await import('./controllers/notificationController.js');
   setIo(io);
 
-  // Initialize Bull queue workers
+  // Wait for BullMQ queues to be ready
+  try {
+    await waitForQueues();
+  } catch (err) {
+    console.error('BullMQ queue initialization failed:', err.message);
+    if (process.env.NODE_ENV === 'production') {
+      console.error('Exiting: Redis/BullMQ is required in production.');
+      process.exit(1);
+    }
+  }
+
+  // Validate queues are actually available (not just mock queues)
+  if (process.env.NODE_ENV === 'production' && !areQueuesAvailable()) {
+    console.error('Exiting: BullMQ queues are not available in production. Check Redis connection.');
+    process.exit(1);
+  }
+
+  // Initialize BullMQ workers (store for graceful shutdown)
   console.log('Initializing background workers...');
-  initEmailWorker();
-  initNotificationWorker(io);
-  initBalanceWorker();
-  initRecurringExpenseWorker();
-  initDigestWorker();
-  initDueReminderWorker();
-  console.log('Background workers initialized');
+  const emailWorker = initEmailWorker();
+  const notificationWorker = initNotificationWorker(io);
+  const balanceWorker = initBalanceWorker();
+  const recurringWorker = await initRecurringExpenseWorker();
+  const digestWorker = await initDigestWorker();
+  const dueReminderWorker = await initDueReminderWorker();
+  
+  // Store workers for graceful shutdown
+  app.set('workers', {
+    emailWorker,
+    notificationWorker,
+    balanceWorker,
+    recurringWorker,
+    digestWorker,
+    dueReminderWorker,
+  });
+  console.log('Background workers initialized (BullMQ)');
 
   // Security middleware (should be first)
   app.use(securityHeaders);
@@ -299,8 +357,23 @@ const gracefulShutdown = async (signal) => {
       console.log('HTTP server closed');
     });
 
-    // Close Bull queues
-    await closeQueues();
+    // Close BullMQ workers first
+    const workers = app.get('workers');
+    if (workers) {
+      console.log('Closing BullMQ workers...');
+      const workerClosePromises = Object.entries(workers).map(async ([name, worker]) => {
+        try {
+          await worker?.close?.();
+          console.log(`Worker ${name} closed`);
+        } catch (err) {
+          console.error(`Error closing worker ${name}:`, err.message);
+        }
+      });
+      await Promise.all(workerClosePromises);
+    }
+
+    // Close BullMQ queues
+    await closeAllQueues();
     
     // Close Socket.IO Redis adapter pub/sub clients (if they exist)
     if (pubClient) await pubClient.quit().catch(() => {});

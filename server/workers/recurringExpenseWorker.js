@@ -2,7 +2,9 @@
  * Recurring Expense Worker (Comment 3)
  * 
  * Scheduled worker that generates expense instances from recurring expenses.
- * Uses Bull queue with repeatable jobs (cron) for scheduling.
+ * Uses BullMQ queue with repeatable jobs (cron) for scheduling.
+ * 
+ * Uses BullMQ for production-grade Redis Cluster compatibility.
  * 
  * Optimizations:
  * - Uses lean() for read queries
@@ -14,7 +16,14 @@
 
 import Expense from '../models/Expense.js';
 import User from '../models/User.js';
-import { recurringQueue, notificationQueue, emailQueue } from '../config/queue.js';
+import { 
+  createWorker, 
+  recurringQueue, 
+  notificationQueue, 
+  emailQueue, 
+  QUEUE_NAMES,
+  getRecurringQueue 
+} from '../config/queueBullMQ.js';
 import { checkEmailPreference } from '../utils/emailUtils.js';
 
 // Batch size for processing
@@ -213,12 +222,13 @@ async function processBatch(expenses, now, results) {
 }
 
 /**
- * Initialize the recurring expense worker with Bull queue processor
+ * Initialize the recurring expense worker with BullMQ processor
  * Sets up a repeatable job that runs every hour
+ * Returns the worker instance for graceful shutdown
  */
-export const initRecurringExpenseWorker = () => {
+export const initRecurringExpenseWorker = async () => {
   // Process recurring expense jobs
-  recurringQueue.process(async (job) => {
+  const processRecurringJob = async (job) => {
     log(`Recurring expense job ${job.id} started`);
     
     if (job.data.type === 'reminder') {
@@ -226,40 +236,52 @@ export const initRecurringExpenseWorker = () => {
     }
     
     return processRecurringExpenses();
+  };
+
+  // Create BullMQ Worker with concurrency 2
+  const worker = createWorker(QUEUE_NAMES.RECURRING, processRecurringJob, {
+    concurrency: 2,
   });
 
   // Schedule a repeatable job to run every hour
   // This ensures recurring expenses are checked regularly
-  recurringQueue.add(
-    { type: 'scheduled_check' },
-    {
-      repeat: {
-        cron: '0 * * * *', // Run at the start of every hour
-      },
-      jobId: 'recurring-expense-scheduler', // Prevent duplicate scheduled jobs
-    }
-  ).then(() => {
+  const queue = getRecurringQueue();
+  
+  try {
+    await queue.add(
+      'scheduled_check',
+      { type: 'scheduled_check' },
+      {
+        repeat: {
+          pattern: '0 * * * *', // Run at the start of every hour
+        },
+        jobId: 'recurring-expense-scheduler',
+      }
+    );
     log('Recurring expense scheduler initialized (runs hourly)');
-  }).catch((err) => {
+  } catch (err) {
     console.error('Failed to initialize recurring expense scheduler:', err.message);
-  });
+  }
 
   // Schedule daily reminder emails for upcoming recurring expenses (9 AM)
-  recurringQueue.add(
-    { type: 'reminder' },
-    {
-      repeat: {
-        cron: '0 9 * * *', // Run at 9 AM daily
-      },
-      jobId: 'recurring-expense-reminder-scheduler',
-    }
-  ).then(() => {
+  try {
+    await queue.add(
+      'reminder',
+      { type: 'reminder' },
+      {
+        repeat: {
+          pattern: '0 9 * * *', // Run at 9 AM daily
+        },
+        jobId: 'recurring-expense-reminder-scheduler',
+      }
+    );
     log('Recurring expense reminder scheduler initialized (daily 9AM)');
-  }).catch((err) => {
+  } catch (err) {
     console.error('Failed to initialize recurring expense reminder scheduler:', err.message);
-  });
+  }
 
-  log('Recurring expense worker initialized');
+  console.log('Recurring expense worker initialized (BullMQ, concurrency: 2)');
+  return worker;
 };
 
 /**

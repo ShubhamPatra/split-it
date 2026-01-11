@@ -15,40 +15,38 @@ const isDev = process.env.NODE_ENV !== 'production';
 /**
  * Build Redis configuration with support for:
  * - Local Redis (development)
- * - Amazon ElastiCache for Redis OSS (production)
+ * - Amazon ElastiCache (production)
  * - Redis Cluster mode
  * - TLS/SSL connections
- * 
- * Note: Configuration optimized for Redis OSS compatibility.
- * If migrating from Valkey, connection characteristics may differ.
  */
 const buildRedisConfig = () => {
   const config = {
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-    maxRetriesPerRequest: null, // Required for BullMQ and rate-limit-redis compatibility
-    enableReadyCheck: false, // Disable for Bull queue compatibility (prevents LOADING errors)
-    enableOfflineQueue: false, // Prevent commands from queuing when not connected
-    lazyConnect: true, // Prevent immediate connection attempts during import
+    maxRetriesPerRequest: null, // Required for BullMQ compatibility
+    enableReadyCheck: true,
+    enableOfflineQueue: true, // Queue commands while connecting - CRITICAL for stability
+    connectTimeout: parseInt(process.env.REDIS_CONNECT_TIMEOUT, 10) || 10000,
+    commandTimeout: parseInt(process.env.REDIS_COMMAND_TIMEOUT, 10) || 5000,
+    keepAlive: parseInt(process.env.REDIS_KEEP_ALIVE, 10) || 30000,
     retryStrategy: (times) => {
-      if (times > 3) {
-        if (isDev) {
-          console.warn('Redis: Not available. Running without Redis (queues disabled).');
-          return null; // Stop retrying in dev
-        }
-        if (times > 10) {
-          console.error('Redis: Max retry attempts reached. Giving up.');
-          return null;
-        }
+      // NEVER return null/undefined - always return a delay to prevent "undefinedms" errors
+      if (times > 20) {
+        console.error(`Redis: Max retry attempts (${times}) reached. Continuing with 30s delay.`);
+        return 30000; // 30 seconds max delay, but keep retrying
       }
-      // More conservative retry strategy for production ElastiCache Redis OSS
-      const delay = Math.min(times * 500, 5000);
+      if (isDev && times > 3) {
+        console.warn('Redis: Not available in dev mode. Retrying with longer delay.');
+        return 5000; // 5 seconds in dev mode
+      }
+      // Exponential backoff: 1s, 2s, 4s, 8s, ... up to 30s
+      const delay = Math.min(times * 1000, 30000);
       console.log(`Redis: Retrying connection in ${delay}ms (attempt ${times})`);
       return delay;
     },
-    // Handle cluster-specific errors gracefully (Redis OSS compatible)
+    // Handle cluster-specific errors gracefully
     reconnectOnError: (err) => {
-      const targetErrors = ['READONLY', 'CLUSTERDOWN', 'LOADING'];
+      const targetErrors = ['READONLY', 'CLUSTERDOWN', 'LOADING', 'MOVED', 'ASK'];
       if (targetErrors.some(e => err.message.includes(e))) {
         // Reconnect when the error is about cluster state
         return true;
@@ -82,17 +80,6 @@ const buildRedisConfig = () => {
     config.connectionName = process.env.REDIS_CONNECTION_NAME;
   }
 
-  // ElastiCache-specific timeouts
-  if (process.env.REDIS_CONNECT_TIMEOUT) {
-    config.connectTimeout = parseInt(process.env.REDIS_CONNECT_TIMEOUT, 10);
-  }
-  if (process.env.REDIS_COMMAND_TIMEOUT) {
-    config.commandTimeout = parseInt(process.env.REDIS_COMMAND_TIMEOUT, 10);
-  }
-
-  // Keep-alive for long-lived connections (important for ElastiCache)
-  config.keepAlive = parseInt(process.env.REDIS_KEEP_ALIVE, 10) || 30000;
-
   return config;
 };
 
@@ -106,18 +93,49 @@ if (REDIS_ENABLED) {
   if (redisConfig.isCluster) {
     // ElastiCache Cluster Mode Enabled
     const { isCluster, ...clusterNodeConfig } = redisConfig;
+    
+    // Use Configuration Endpoint for ElastiCache Cluster
     const clusterNodes = [{ host: clusterNodeConfig.host, port: clusterNodeConfig.port }];
     
     redis = new Redis.Cluster(clusterNodes, {
-      redisOptions: clusterNodeConfig,
-      clusterRetryStrategy: (times) => {
-        if (times > 10) return null;
-        return Math.min(times * 200, 2000);
-      },
+      // DNS lookup for proper resolution of cluster configuration endpoint
+      dnsLookup: (address, callback) => callback(null, address),
       enableReadyCheck: true,
+      slotsRefreshTimeout: 10000, // Prevent "Failed to refresh slots cache" errors
+      slotsRefreshInterval: 5000, // Refresh slots every 5 seconds
+      redisOptions: {
+        ...clusterNodeConfig,
+        enableOfflineQueue: true, // CRITICAL: Allow commands to queue during reconnections
+        connectTimeout: clusterNodeConfig.connectTimeout || 10000,
+        commandTimeout: clusterNodeConfig.commandTimeout || 5000,
+        keepAlive: clusterNodeConfig.keepAlive || 30000,
+      },
+      clusterRetryStrategy: (times) => {
+        // NEVER return null - always return a delay
+        if (times > 20) {
+          console.error(`Redis Cluster: Max retry attempts (${times}) reached. Continuing with 30s delay.`);
+          return 30000;
+        }
+        const delay = Math.min(times * 1000, 30000);
+        console.log(`Redis Cluster: Retrying connection in ${delay}ms (attempt ${times})`);
+        return delay;
+      },
       scaleReads: 'slave', // Read from replicas for better performance
     });
     console.log('Redis: Using ElastiCache Cluster Mode');
+    
+    // Cluster-specific event handlers
+    redis.on('node error', (err, node) => {
+      console.error(`Redis Cluster: Node error on ${node?.options?.host}:${node?.options?.port}:`, err.message);
+    });
+    
+    redis.on('+node', (node) => {
+      console.log(`Redis Cluster: Node added - ${node?.options?.host}:${node?.options?.port}`);
+    });
+    
+    redis.on('-node', (node) => {
+      console.log(`Redis Cluster: Node removed - ${node?.options?.host}:${node?.options?.port}`);
+    });
   } else {
     redis = new Redis(redisConfig);
   }
@@ -158,60 +176,6 @@ export const isRedisAvailable = () => redisAvailable;
 
 // Export config for other modules that need Redis connection info
 export const getRedisConfig = () => buildRedisConfig();
-
-/**
- * Explicitly connect to Redis and wait for ready state.
- * Call this during server startup to ensure Redis is connected before use.
- * @returns {Promise<boolean>} - True if connected successfully, false otherwise
- */
-export const connectRedis = async () => {
-  if (!redis) return false;
-  if (redis.status === 'ready') return true;
-  
-  try {
-    // ioredis connect() returns a promise when lazyConnect is true
-    await redis.connect();
-    return true;
-  } catch (err) {
-    console.error('Redis: Failed to connect:', err.message);
-    return false;
-  }
-};
-
-/**
- * Verify Redis connection by attempting a ping with timeout.
- * Use this to check if Redis is truly ready for use.
- * @param {number} timeoutMs - Maximum time to wait for ping response (default: 3000ms)
- * @returns {Promise<boolean>} - True if ping succeeds, false otherwise
- */
-export const verifyRedisConnection = async (timeoutMs = 3000) => {
-  if (!redis) {
-    console.warn('Redis: Client not initialized');
-    return false;
-  }
-  
-  if (redis.status !== 'ready' && redis.status !== 'connect') {
-    console.warn(`Redis: Client not in ready state (status: ${redis.status})`);
-    return false;
-  }
-  
-  try {
-    const pingPromise = redis.ping();
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Ping timeout')), timeoutMs);
-    });
-    
-    const result = await Promise.race([pingPromise, timeoutPromise]);
-    if (result === 'PONG') {
-      console.log('Redis: Connection verified with ping');
-      return true;
-    }
-    return false;
-  } catch (err) {
-    console.warn('Redis: Ping verification failed:', err.message);
-    return false;
-  }
-};
 
 // Graceful shutdown helper
 export const closeRedis = async () => {

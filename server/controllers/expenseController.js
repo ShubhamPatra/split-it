@@ -3,7 +3,7 @@ import Expense from '../models/Expense.js';
 import Group from '../models/Group.js';
 import Message from '../models/Message.js';
 import redis from '../config/redis.js';
-import { notificationQueue } from '../config/queue.js';
+import { notificationQueue } from '../config/queueBullMQ.js';
 import { saveReceiptFiles, deleteReceiptFiles } from '../middleware/upload.js';
 import { generateAndEmailReport } from '../utils/exportService.js';
 import { checkAndSendBudgetAlert } from '../utils/emailUtils.js';

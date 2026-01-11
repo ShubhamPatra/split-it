@@ -2,17 +2,24 @@
  * Due Reminder Worker
  * 
  * Sends daily reminders to users with uncleared dues older than 24 hours.
- * Runs on a schedule via Bull queue.
+ * Runs on a schedule via BullMQ queue.
  * 
+ * Uses BullMQ for production-grade Redis Cluster compatibility.
  * Uses the modern Split-It email template system for consistent branding.
  */
 
-import Bull from 'bull';
+import { 
+  createWorker, 
+  emailQueue, 
+  notificationQueue, 
+  dueReminderQueue,
+  QUEUE_NAMES, 
+  getDueReminderQueue 
+} from '../config/queueBullMQ.js';
 import User from '../models/User.js';
 import Group from '../models/Group.js';
 import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
-import { emailQueue, notificationQueue } from '../config/queue.js';
 import {
   brand,
   formatCurrency,
@@ -28,41 +35,6 @@ import {
   textComponent,
   greetingComponent,
 } from '../utils/emailTemplates.js';
-
-// Redis configuration with ElastiCache support
-const buildRedisConfig = () => {
-  const config = {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-  };
-
-  // Add password/auth token (ElastiCache AUTH token or Redis password)
-  if (process.env.REDIS_PASSWORD || process.env.REDIS_AUTH_TOKEN) {
-    config.password = process.env.REDIS_AUTH_TOKEN || process.env.REDIS_PASSWORD;
-  }
-
-  // ElastiCache TLS configuration
-  if (process.env.REDIS_TLS === 'true' || process.env.ELASTICACHE_TLS === 'true') {
-    config.tls = {
-      rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
-    };
-  }
-
-  return config;
-};
-
-const redisConfig = buildRedisConfig();
-
-// Create due reminder queue
-export const dueReminderQueue = new Bull('dueReminder', {
-  redis: redisConfig,
-  defaultJobOptions: {
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 5000 },
-    removeOnComplete: 50,
-    removeOnFail: 20,
-  },
-});
 
 /**
  * Calculate user's outstanding dues across all groups
@@ -551,10 +523,11 @@ async function processDueReminders() {
 
 /**
  * Initialize the due reminder worker
+ * Returns the worker instance for graceful shutdown
  */
-export const initDueReminderWorker = () => {
-  // Process due reminder jobs
-  dueReminderQueue.process(async (job) => {
+export const initDueReminderWorker = async () => {
+  // Process due reminder job handler
+  const processDueReminderJob = async (job) => {
     const { type } = job.data;
     
     if (type === 'daily') {
@@ -562,28 +535,42 @@ export const initDueReminderWorker = () => {
     }
     
     throw new Error(`Unknown due reminder type: ${type}`);
+  };
+
+  // Create BullMQ Worker with concurrency 1
+  const worker = createWorker(QUEUE_NAMES.DUE_REMINDER, processDueReminderJob, {
+    concurrency: 1,
   });
 
   // Schedule daily due reminder - Every day at 10 AM
-  // You can customize the time by changing the cron expression
-  dueReminderQueue.add(
-    { type: 'daily' },
-    {
-      repeat: {
-        cron: '0 10 * * *', // Every day at 10:00 AM
-      },
-      jobId: 'daily-due-reminder-scheduler',
-    }
-  ).catch(err => console.error('Failed to schedule daily due reminder:', err.message));
+  const queue = getDueReminderQueue();
+  
+  try {
+    await queue.add(
+      'daily',
+      { type: 'daily' },
+      {
+        repeat: {
+          pattern: '0 10 * * *', // Every day at 10:00 AM
+        },
+        jobId: 'daily-due-reminder-scheduler',
+      }
+    );
+    console.log('Due reminder: Daily reminder scheduled (10 AM)');
+  } catch (err) {
+    console.error('Failed to schedule daily due reminder:', err.message);
+  }
 
-  console.log('Due reminder worker initialized (daily: 10 AM)');
+  console.log('Due reminder worker initialized (BullMQ, concurrency: 1)');
+  return worker;
 };
 
 /**
  * Manually trigger due reminder processing (for testing)
  */
 export const triggerDueReminder = async () => {
-  return dueReminderQueue.add({ type: 'daily' }, { priority: 1 });
+  const queue = getDueReminderQueue();
+  return queue.add('daily', { type: 'daily' }, { priority: 1 });
 };
 
 /**

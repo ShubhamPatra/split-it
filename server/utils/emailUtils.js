@@ -6,7 +6,7 @@
  */
 
 import User from '../models/User.js';
-import { emailQueue } from '../config/queue.js';
+import { emailQueue } from '../config/queueBullMQ.js';
 
 /**
  * Check if a user has a specific email preference enabled

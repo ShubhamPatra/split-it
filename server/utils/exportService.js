@@ -9,7 +9,7 @@ import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
 import Group from '../models/Group.js';
 import User from '../models/User.js';
-import { emailQueue } from '../config/queue.js';
+import { emailQueue } from '../config/queueBullMQ.js';
 import { checkEmailPreference } from './emailUtils.js';
 import {
   brand,

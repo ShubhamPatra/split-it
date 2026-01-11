@@ -37,7 +37,7 @@ const createUpiReminderIfNeeded = async (user) => {
   }
 };
 import { OAuth2Client } from 'google-auth-library';
-import { emailQueue } from '../config/queue.js';
+import { emailQueue } from '../config/queueBullMQ.js';
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 

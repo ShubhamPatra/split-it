@@ -4,6 +4,8 @@
  * Processes balance calculation jobs for groups.
  * Handles complex balance computations offloaded from request handlers.
  * 
+ * Uses BullMQ for production-grade Redis Cluster compatibility.
+ * 
  * Optimizations:
  * - Uses MongoDB aggregation instead of loading all expenses/settlements
  * - Caches results with longer TTL
@@ -11,7 +13,7 @@
  */
 
 import mongoose from 'mongoose';
-import { balanceQueue } from '../config/queue.js';
+import { createWorker, balanceQueue, QUEUE_NAMES } from '../config/queueBullMQ.js';
 import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
 import Group from '../models/Group.js';
@@ -25,9 +27,10 @@ const DEBOUNCE_TTL = 5;
 
 /**
  * Initialize the balance worker processor
+ * Returns the worker instance for graceful shutdown
  */
 export const initBalanceWorker = () => {
-  balanceQueue.process(async (job) => {
+  const processBalanceJob = async (job) => {
     const { groupId, userId } = job.data;
 
     if (!groupId) {
@@ -64,9 +67,15 @@ export const initBalanceWorker = () => {
       console.error(`Balance worker failed for group ${groupId}:`, error.message);
       throw error;
     }
+  };
+
+  // Create BullMQ Worker with concurrency 3
+  const worker = createWorker(QUEUE_NAMES.BALANCE, processBalanceJob, {
+    concurrency: 3,
   });
 
-  console.log('Balance worker initialized');
+  console.log('Balance worker initialized (BullMQ, concurrency: 3)');
+  return worker;
 };
 
 /**

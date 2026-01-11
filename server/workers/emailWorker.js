@@ -4,10 +4,11 @@
  * Processes email jobs from the email queue using nodemailer.
  * Handles welcome emails, notifications, password resets, etc.
  * 
+ * Uses BullMQ for production-grade Redis Cluster compatibility.
  * Uses the modern Split-It email template system for consistent branding.
  */
 
-import { emailQueue, setEmailProcessor } from '../config/queue.js';
+import { createWorker, emailQueue, QUEUE_NAMES } from '../config/queueBullMQ.js';
 import { sendEmail, transporter } from '../config/email.js';
 import {
   brand,
@@ -144,18 +145,16 @@ const processEmailJob = async (job) => {
 
 /**
  * Initialize the email worker processor
+ * Returns the worker instance for graceful shutdown
  */
 export const initEmailWorker = () => {
-  // Register processor for direct sending when Redis is unavailable
-  setEmailProcessor(processEmailJob);
+  // Create BullMQ Worker
+  const worker = createWorker(QUEUE_NAMES.EMAIL, processEmailJob, {
+    concurrency: 5,
+  });
   
-  // Set up Bull queue processor for unnamed jobs
-  emailQueue.process(processEmailJob);
-  
-  // Also process named 'sendEmail' jobs for backward compatibility
-  emailQueue.process('sendEmail', processEmailJob);
-
-  console.log('Email worker initialized');
+  console.log('Email worker initialized (BullMQ, concurrency: 5)');
+  return worker;
 };
 
 /**

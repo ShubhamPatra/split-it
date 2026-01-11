@@ -4,6 +4,7 @@ import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
 import cookie from 'cookie';
 import redis, { isRedisAvailable } from './redis.js';
+import { notificationQueue } from './queueBullMQ.js';
 import { scanKeys, isClusterMode } from '../utils/redisClusterHelper.js';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -197,26 +198,83 @@ export const createRedisAdapter = () => {
   }
   
   try {
-    // Build config with ElastiCache support
-    const redisOptions = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-      password: process.env.REDIS_AUTH_TOKEN || process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null,
-      lazyConnect: true,
-      keepAlive: parseInt(process.env.REDIS_KEEP_ALIVE, 10) || 30000,
-    };
-
-    // ElastiCache TLS support
-    if (process.env.REDIS_TLS === 'true' || process.env.ELASTICACHE_TLS === 'true') {
-      redisOptions.tls = {
-        rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
+    const host = process.env.REDIS_HOST || 'localhost';
+    const port = parseInt(process.env.REDIS_PORT, 10) || 6379;
+    const password = process.env.REDIS_AUTH_TOKEN || process.env.REDIS_PASSWORD || undefined;
+    const isCluster = process.env.REDIS_CLUSTER_MODE === 'true';
+    const useTls = process.env.REDIS_TLS === 'true' || process.env.ELASTICACHE_TLS === 'true';
+    
+    let pubClient;
+    let subClient;
+    
+    if (isCluster) {
+      // Redis Cluster mode for ElastiCache with TLS support
+      const clusterNodes = [{ host, port }];
+      
+      const redisOptions = {
+        password,
+        maxRetriesPerRequest: null,
+        enableOfflineQueue: true,
+        keepAlive: parseInt(process.env.REDIS_KEEP_ALIVE, 10) || 30000,
       };
-    }
+      
+      if (useTls) {
+        redisOptions.tls = {
+          rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
+          servername: host,
+        };
+      }
+      
+      const clusterOptions = {
+        dnsLookup: (address, callback) => callback(null, address),
+        enableReadyCheck: true,
+        slotsRefreshTimeout: 10000,
+        slotsRefreshInterval: 5000,
+        redisOptions,
+        scaleReads: 'slave',
+        clusterRetryStrategy: (times) => {
+          if (times > 20) return 30000;
+          return Math.min(times * 1000, 30000);
+        },
+      };
+      
+      pubClient = new Redis.Cluster(clusterNodes, clusterOptions);
+      subClient = new Redis.Cluster(clusterNodes, clusterOptions);
+      
+      console.log('Socket.IO: Using Redis Cluster adapter for ElastiCache');
+    } else {
+      // Standalone Redis mode for local/dev
+      const redisOptions = {
+        host,
+        port,
+        password,
+        maxRetriesPerRequest: null,
+        lazyConnect: true,
+        keepAlive: parseInt(process.env.REDIS_KEEP_ALIVE, 10) || 30000,
+      };
 
-    // Create dedicated pub/sub clients for the adapter
-    const pubClient = new Redis(redisOptions);
-    const subClient = pubClient.duplicate();
+      if (useTls) {
+        redisOptions.tls = {
+          rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
+        };
+      }
+
+      pubClient = new Redis(redisOptions);
+      subClient = pubClient.duplicate();
+      
+      console.log('Socket.IO: Using standalone Redis adapter');
+    }
+    
+    // Attach error handlers to both clients
+    pubClient.on('error', (error) => {
+      if (isDev && error.code === 'ECONNREFUSED') return;
+      console.error('Socket.IO Redis pubClient error:', error.message);
+    });
+    
+    subClient.on('error', (error) => {
+      if (isDev && error.code === 'ECONNREFUSED') return;
+      console.error('Socket.IO Redis subClient error:', error.message);
+    });
     
     return { pubClient, subClient, adapter: createAdapter(pubClient, subClient) };
   } catch (error) {
@@ -424,7 +482,6 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
       try {
         // Load models dynamically (these are cached by Node.js module system)
         const Message = (await import('../models/Message.js')).default;
-        const { notificationQueue } = await import('./queue.js');
         
         // Use cached group membership for fast authorization
         const membership = await getGroupMembership(groupId);
