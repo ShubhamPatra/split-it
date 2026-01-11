@@ -209,7 +209,12 @@ export const ChatProvider = ({ children }) => {
       setMessages(prev => ({
         ...prev,
         [groupId]: (prev[groupId] || []).map(m => 
-          m._id === tempId ? { ...m, _status: 'failed' } : m
+          m._id === tempId ? { 
+            ...m, 
+            _status: 'failed',
+            _error: error.message,
+            _retryAfter: error.message.includes('Too many requests') ? 3000 : null
+          } : m
         ),
       }));
       console.error('Error sending message:', error);

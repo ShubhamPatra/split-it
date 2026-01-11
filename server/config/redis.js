@@ -25,6 +25,7 @@ const buildRedisConfig = () => {
     port: parseInt(process.env.REDIS_PORT, 10) || 6379,
     maxRetriesPerRequest: null, // Required for BullMQ compatibility
     enableReadyCheck: true,
+    enableOfflineQueue: false, // Prevent queuing commands when disconnected (important for cluster)
     lazyConnect: true, // Don't connect immediately
     retryStrategy: (times) => {
       if (times > 3) {
@@ -40,6 +41,15 @@ const buildRedisConfig = () => {
       const delay = Math.min(times * 200, 2000);
       console.log(`Redis: Retrying connection in ${delay}ms (attempt ${times})`);
       return delay;
+    },
+    // Handle cluster-specific errors gracefully
+    reconnectOnError: (err) => {
+      const targetError = 'READONLY' || 'CLUSTERDOWN' || 'LOADING';
+      if (err.message.includes(targetError)) {
+        // Only reconnect when the error is about cluster state
+        return true;
+      }
+      return false;
     },
   };
 

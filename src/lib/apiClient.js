@@ -112,7 +112,7 @@ const handleResponse = async (response, originalRequest = null) => {
       case 404:
         throw new Error('The requested resource was not found');
       case 429:
-        throw new Error('Too many requests. Please slow down.');
+        throw new Error(data.message || 'Too many requests. Please wait a moment before trying again.');
       case 500:
       case 502:
       case 503:

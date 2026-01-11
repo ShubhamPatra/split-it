@@ -47,7 +47,7 @@ router.post(
 // GET /api/groups/:groupId/messages - Get messages with pagination
 router.get(
   '/:groupId/messages',
-  rateLimiter({ max: 60, windowMs: 60000 }), // 60 requests per minute
+  rateLimiter({ max: 100, windowMs: 60000 }), // 100 requests per minute
   param('groupId').isMongoId().withMessage('Invalid group ID'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be 1-100'),
   query('before').optional().isMongoId().withMessage('Invalid cursor ID'),
@@ -60,7 +60,7 @@ router.get(
 // System/expense/settlement messages are created internally by controllers.
 router.post(
   '/:groupId/messages',
-  rateLimiter({ max: 30, windowMs: 60000 }), // 30 requests per minute
+  rateLimiter({ max: 100, windowMs: 60000 }), // 100 requests per minute
   param('groupId').isMongoId().withMessage('Invalid group ID'),
   body('content')
     .exists({ checkNull: true, checkFalsy: true })
@@ -116,7 +116,7 @@ router.post(
 // GET /api/groups/:groupId/messages/unread - Get unread count
 router.get(
   '/:groupId/messages/unread',
-  rateLimiter({ max: 60, windowMs: 60000 }), // 60 requests per minute
+  rateLimiter({ max: 100, windowMs: 60000 }), // 100 requests per minute
   param('groupId').isMongoId().withMessage('Invalid group ID'),
   validate,
   getUnreadCount

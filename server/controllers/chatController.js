@@ -10,7 +10,7 @@ const CACHE_TTL_MESSAGES = 60; // 60 seconds
 const CACHE_TTL_UNREAD = 30; // 30 seconds
 
 // Rate limiting tracking (in-memory, backed by Redis for persistence)
-const MESSAGE_RATE_LIMIT = 30; // messages per minute per user per group
+const MESSAGE_RATE_LIMIT = 100; // messages per minute per user per group
 const RATE_LIMIT_WINDOW = 60; // seconds
 
 /**

@@ -7,6 +7,7 @@
 
 import Group from '../models/Group.js';
 import redis from '../config/redis.js';
+import { scanKeys, deleteKeysByPattern } from '../utils/redisClusterHelper.js';
 
 // Cache TTL for membership checks (5 minutes)
 const MEMBERSHIP_CACHE_TTL = 300;
@@ -173,12 +174,15 @@ export const invalidateMembershipCache = async (groupId, userId = null) => {
       await redis.del(`membership:${groupId}:${userId}`);
       await redis.del(`admin:${groupId}:${userId}`);
     } else {
-      // Invalidate for all users - use pattern matching
-      const memberKeys = await redis.keys(`membership:${groupId}:*`);
-      const adminKeys = await redis.keys(`admin:${groupId}:*`);
+      // Invalidate for all users - use SCAN for cluster compatibility
+      const memberKeys = await scanKeys(redis, `membership:${groupId}:*`);
+      const adminKeys = await scanKeys(redis, `admin:${groupId}:*`);
       const allKeys = [...memberKeys, ...adminKeys];
       if (allKeys.length > 0) {
-        await redis.del(...allKeys);
+        // Delete individually in cluster mode to avoid CROSSSLOT errors
+        for (const key of allKeys) {
+          await redis.del(key);
+        }
       }
     }
   } catch (error) {

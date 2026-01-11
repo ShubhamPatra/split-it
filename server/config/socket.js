@@ -4,6 +4,7 @@ import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
 import cookie from 'cookie';
 import redis, { isRedisAvailable } from './redis.js';
+import { scanKeys, isClusterMode } from '../utils/redisClusterHelper.js';
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -145,8 +146,8 @@ const startTypingCleanup = () => {
       const now = Date.now();
       
       if (isRedisAvailable() && redis) {
-        // Redis-based cleanup
-        const keys = await redis.keys(`${TYPING_KEY_PREFIX}*`);
+        // Redis-based cleanup using SCAN instead of KEYS for cluster compatibility
+        const keys = await scanKeys(redis, `${TYPING_KEY_PREFIX}*`);
         for (const key of keys) {
           const typingData = await redis.hgetall(key);
           for (const [userId, dataStr] of Object.entries(typingData)) {
@@ -521,13 +522,23 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
             const otherMemberIds = membership.memberIds.filter(id => id !== userId);
             
             // Use Redis pipeline for batch cache invalidation (if available)
+            // In cluster mode, use individual deletes to avoid CROSSSLOT errors
             await safeRedisOp(async () => {
-              const pipeline = redis.pipeline();
-              pipeline.del(`chat:${groupId}:latest`);
-              for (const memberId of otherMemberIds) {
-                pipeline.del(`chat:${groupId}:unread:${memberId}`);
+              if (isClusterMode(redis)) {
+                // Cluster mode: delete individually
+                await redis.del(`chat:${groupId}:latest`);
+                for (const memberId of otherMemberIds) {
+                  await redis.del(`chat:${groupId}:unread:${memberId}`);
+                }
+              } else {
+                // Standalone: use pipeline for efficiency
+                const pipeline = redis.pipeline();
+                pipeline.del(`chat:${groupId}:latest`);
+                for (const memberId of otherMemberIds) {
+                  pipeline.del(`chat:${groupId}:unread:${memberId}`);
+                }
+                await pipeline.exec();
               }
-              await pipeline.exec();
             });
             
             // Use addBulk for parallel notification enqueueing

@@ -116,6 +116,7 @@ app.use(sanitizeInput);
 
 // Global rate limiting (1000 requests per 15 minutes per IP)
 // Auth routes have their own stricter rate limiting
+// Chat message routes have their own rate limiting (100 req/min)
 app.use(rateLimiter({
   max: 1000,
   windowMs: 15 * 60 * 1000,

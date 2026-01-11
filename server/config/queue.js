@@ -117,6 +117,7 @@ const buildQueueRedisConfig = () => {
     port: parseInt(process.env.REDIS_PORT, 10) || 6379,
     maxRetriesPerRequest: null, // Required for Bull - see https://github.com/OptimalBits/bull/issues/1873
     enableReadyCheck: false, // Required for Bull
+    enableOfflineQueue: false, // Prevent queuing commands when disconnected (important for cluster)
     retryStrategy: (times) => {
       if (times > 3) {
         return null; // Stop retrying
@@ -184,8 +185,9 @@ const initializeQueues = async () => {
     const balanceProcessors = queues.balance?.getProcessors?.() || [];
     const recurringProcessors = queues.recurring?.getProcessors?.() || [];
 
-    // Create real queues
-    queues.email = new Bull('email', {
+    // Create real queues with hash tag prefix for Redis Cluster compatibility
+    // Hash tags {...} ensure all queue-related keys hash to the same slot
+    queues.email = new Bull('{bull}:email', {
       redis: redisConfig,
       defaultJobOptions: {
         ...defaultJobOptions,
@@ -193,7 +195,7 @@ const initializeQueues = async () => {
       },
     });
 
-    queues.notification = new Bull('notification', {
+    queues.notification = new Bull('{bull}:notification', {
       redis: redisConfig,
       defaultJobOptions,
       limiter: {
@@ -203,7 +205,7 @@ const initializeQueues = async () => {
       },
     });
 
-    queues.balance = new Bull('balance', {
+    queues.balance = new Bull('{bull}:balance', {
       redis: redisConfig,
       defaultJobOptions: {
         ...defaultJobOptions,
@@ -211,7 +213,7 @@ const initializeQueues = async () => {
       },
     });
 
-    queues.recurring = new Bull('recurring', {
+    queues.recurring = new Bull('{bull}:recurring', {
       redis: redisConfig,
       defaultJobOptions: {
         ...defaultJobOptions,

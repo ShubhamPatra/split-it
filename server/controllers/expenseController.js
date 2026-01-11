@@ -7,6 +7,7 @@ import { notificationQueue } from '../config/queue.js';
 import { saveReceiptFiles, deleteReceiptFiles } from '../middleware/upload.js';
 import { generateAndEmailReport } from '../utils/exportService.js';
 import { checkAndSendBudgetAlert } from '../utils/emailUtils.js';
+import { deleteKeysByPattern } from '../utils/redisClusterHelper.js';
 
 // Helper: Calculate current month spending using aggregation (optimized)
 const getMonthlySpending = async (groupId) => {
@@ -149,10 +150,10 @@ const EXPENSE_CACHE_PREFIX = 'expenses:group:';
 // Helper to invalidate expense cache for a group
 export const invalidateExpenseCache = async (groupId) => {
   try {
-    // Delete main cache and any paginated variants
-    const keys = await redis.keys(`${EXPENSE_CACHE_PREFIX}${groupId}*`);
-    if (keys.length > 0) {
-      await redis.del(...keys);
+    // Use safe deletion helper for cluster compatibility
+    const deletedCount = await deleteKeysByPattern(redis, `${EXPENSE_CACHE_PREFIX}${groupId}*`);
+    if (deletedCount > 0) {
+      console.log(`Invalidated ${deletedCount} expense cache keys for group ${groupId}`);
     }
   } catch (error) {
     console.error('Failed to invalidate expense cache:', error);
