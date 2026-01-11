@@ -59,7 +59,7 @@ const Index = () => {
         <header className="flex items-center justify-between mb-8 sm:mb-16">
           <Logo size="sm" />
           <div className="flex items-center gap-2 sm:gap-3">
-            <Button variant="ghost" onClick={() => navigate('/privacy-policy')} size="sm" className="hidden sm:inline-flex min-h-[44px] h-auto text-sm hover:bg-primary/10">
+            <Button variant="ghost" onClick={() => navigate('/privacy-policy')} size="sm" className="min-h-[44px] h-auto text-sm hover:bg-primary/10">
               Privacy
             </Button>
             <Button variant="ghost" onClick={() => navigate('/login')} size="sm" className="min-h-[44px] h-auto text-sm hover:bg-primary/10">

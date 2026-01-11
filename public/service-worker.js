@@ -8,7 +8,7 @@ const MAX_CACHE_SIZE = 50;
 // Only cache truly static assets that don't change between builds
 const STATIC_ASSETS = [
   '/manifest.json',
-  '/logo192.png',
+  '/icon-192.png',
 ];
 
 // Install event - cache shell assets only (not index.html or hashed build files)
@@ -140,8 +140,8 @@ self.addEventListener('push', (event) => {
     const data = event.data.json();
     const options = {
       body: data.body || '',
-      icon: data.icon || '/logo192.png',
-      badge: data.badge || '/logo192.png',
+      icon: data.icon || '/icon-192.png',
+      badge: data.badge || '/icon-192.png',
       tag: data.tag || 'default',
       data: data.data || {},
       requireInteraction: data.requireInteraction || false,
