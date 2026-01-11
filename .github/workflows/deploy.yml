@@ -33,8 +33,9 @@ jobs:
           ssh -i ~/.ssh/deploy_key -p $EC2_SSH_PORT $EC2_USER@$EC2_HOST << 'EOF'
             cd ~/split-it
             
-            echo "=== Backing up env file ==="
-            cp deploy/env/.env.production /tmp/.env.production.backup 2>/dev/null || true
+            echo "=== Backing up env files ==="
+            cp deploy/env/.env.production /tmp/.env.production.server.backup 2>/dev/null || true
+            cp .env.production /tmp/.env.production.frontend.backup 2>/dev/null || true
             
             echo "=== Pulling latest code ==="
             # Stash any local changes and handle untracked files
@@ -42,9 +43,10 @@ jobs:
             git fetch origin
             git reset --hard origin/master || git reset --hard origin/main
             
-            echo "=== Restoring env file ==="
+            echo "=== Restoring env files ==="
             mkdir -p deploy/env
-            cp /tmp/.env.production.backup deploy/env/.env.production 2>/dev/null || echo "Warning: No env backup found"
+            cp /tmp/.env.production.server.backup deploy/env/.env.production 2>/dev/null || echo "Warning: No server env backup found"
+            cp /tmp/.env.production.frontend.backup .env.production 2>/dev/null || echo "Warning: No frontend env backup found"
             
             echo "=== Building frontend ==="
             npm run build
