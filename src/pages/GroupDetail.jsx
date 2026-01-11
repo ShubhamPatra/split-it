@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, Smartphone, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Link, Copy, Check, Wallet, AlertTriangle, Mail } from 'lucide-react';
+import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, Smartphone, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Wallet, AlertTriangle, Mail } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useChat } from '../context/ChatContext';
@@ -100,8 +100,8 @@ const GroupDetail = () => {
   const [isMemberDialogOpen, setIsMemberDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLink, setInviteLink] = useState('');
-  const [isGeneratingLink, setIsGeneratingLink] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
+  const [, setIsGeneratingLink] = useState(false);
+  const [, setLinkCopied] = useState(false);
   const [showPaymentPrompt, setShowPaymentPrompt] = useState(false);
   const [pendingPayment, setPendingPayment] = useState(null);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -295,6 +295,7 @@ const GroupDetail = () => {
     }
   };
 
+  // eslint-disable-next-line no-unused-vars
   const handleInviteMember = async () => {
     const email = inviteEmail.trim().toLowerCase();
     if (!email) {
@@ -340,6 +341,7 @@ const GroupDetail = () => {
     setInviteEmail('');
   };
 
+  // eslint-disable-next-line no-unused-vars
   const handleGenerateInviteLink = async () => {
     if (!group?.id) return;
     
@@ -361,6 +363,7 @@ const GroupDetail = () => {
     }
   };
 
+  // eslint-disable-next-line no-unused-vars
   const handleCopyInviteLink = () => {
     const linkToCopy = inviteLink || (group?.inviteCode ? `${window.location.origin}/join/${group.inviteCode}` : null);
     if (linkToCopy) {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Receipt, IndianRupee, Calendar, Users, Settings2, Scan, AlertCircle, TrendingUp, CheckCircle2, Repeat, ChevronDown, Upload, X, ImageIcon, Lightbulb, Zap, PieChart, History, Clock } from 'lucide-react';
+import { ArrowLeft, Receipt, IndianRupee, Calendar, Users, Settings2, Scan, AlertCircle, TrendingUp, CheckCircle2, Repeat, ChevronDown, Upload, X, ImageIcon, PieChart, History } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useNotifications } from '../context/NotificationContext';

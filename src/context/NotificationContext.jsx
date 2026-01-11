@@ -7,7 +7,7 @@ const NotificationContext = createContext(undefined);
 
 export const NotificationProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
-  const [socketConnected, setSocketConnected] = useState(false);
+  const [, setSocketConnected] = useState(false);
   const { user } = useAuth();
   const socketInitialized = useRef(false);
 

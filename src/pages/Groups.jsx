@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, UserPlus, Loader2, QrCode, Keyboard, Search, Filter, Grid3X3, List, Sparkles, TrendingUp } from 'lucide-react';
+import { Plus, Users, UserPlus, Loader2, QrCode, Keyboard, Search, Grid3X3, List, TrendingUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useChat } from '../context/ChatContext';

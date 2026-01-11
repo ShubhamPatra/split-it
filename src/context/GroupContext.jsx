@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import apiClient from '../lib/apiClient';
-import { initializeSocket, disconnectSocket, joinGroup } from '../lib/socketClient';
+import { initializeSocket, disconnectSocket } from '../lib/socketClient';
 
 // Create the context
 const GroupContext = createContext(undefined);

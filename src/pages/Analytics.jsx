@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, PieChart as PieChartIcon, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, Download, Loader2, Receipt, Users, Target, Scale, Sparkles, Filter, ChevronDown } from 'lucide-react';
+import { BarChart3, PieChart as PieChartIcon, TrendingUp, Calendar, ArrowUpRight, ArrowDownRight, Download, Loader2, Receipt, Target, Scale, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useCurrency } from '../context/CurrencyContext';

@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PieChart, TrendingUp, TrendingDown, Wallet, CheckCircle, ChevronRight, Users, Receipt, ArrowRight, Calendar, Scale } from 'lucide-react';
+import { PieChart, TrendingUp, TrendingDown, CheckCircle, ChevronRight, Users, Receipt, ArrowRight, Calendar, Scale } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import Navbar from '../components/layout/Navbar';

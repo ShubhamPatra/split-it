@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState, useCallback } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import { TrendingUp, Calendar, Users, PieChart, Receipt, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { getCategoryById } from '../../data/categories';
@@ -6,7 +6,7 @@ import { subscribeToAnalytics, subscribeToExpenseEvents } from '../../lib/socket
 
 const ExpenseAnalytics = ({ expenses, group, onExpenseChange }) => {
   // Track real-time updates indicator
-  const [lastUpdate, setLastUpdate] = useState(null);
+  const [, setLastUpdate] = useState(null);
 
   // Subscribe to real-time analytics and expense events
   useEffect(() => {
