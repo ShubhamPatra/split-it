@@ -55,6 +55,11 @@ redis.ping().then(() => {
 // Initialize Express app
 const app = express();
 
+// Trust proxy when behind Nginx/load balancer (required for rate limiting, secure cookies)
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // Create HTTP server
 const httpServer = createServer(app);
 
