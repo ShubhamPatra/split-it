@@ -59,6 +59,9 @@ const Index = () => {
         <header className="flex items-center justify-between mb-8 sm:mb-16">
           <Logo size="sm" />
           <div className="flex items-center gap-2 sm:gap-3">
+            <Button variant="ghost" onClick={() => navigate('/privacy-policy')} size="sm" className="hidden sm:inline-flex min-h-[44px] h-auto text-sm hover:bg-primary/10">
+              Privacy
+            </Button>
             <Button variant="ghost" onClick={() => navigate('/login')} size="sm" className="min-h-[44px] h-auto text-sm hover:bg-primary/10">
               Sign In
             </Button>
@@ -231,6 +234,28 @@ const Index = () => {
               <span className="text-sm font-medium text-foreground">Works Offline</span>
             </div>
           </div>
+        </div>
+
+        {/* About Section - App Purpose */}
+        <div className="py-12 lg:py-16 max-w-4xl mx-auto">
+          <Card className="border-border/50 shadow-sm">
+            <CardContent className="p-6 sm:p-8">
+              <h2 className="font-display text-xl sm:text-2xl font-bold text-foreground mb-4">About Split-It</h2>
+              <p className="text-muted-foreground leading-relaxed mb-4">
+                <strong className="text-foreground">Split-It</strong> is a free expense splitting application designed to help groups of friends, roommates, couples, and travelers easily track and settle shared expenses. Whether you're splitting rent, sharing dinner bills, or managing trip costs, Split-It makes it simple to keep track of who owes what.
+              </p>
+              <p className="text-muted-foreground leading-relaxed mb-4">
+                Our app calculates fair splits automatically, sends reminders for pending settlements, and integrates with UPI for quick payments in India. With features like receipt scanning, multiple currencies, real-time sync, and offline support, Split-It is the modern solution for group expense management.
+              </p>
+              <p className="text-muted-foreground leading-relaxed">
+                We prioritize your privacy and security. Your financial data is encrypted and never sold to third parties. Read our{' '}
+                <button onClick={() => navigate('/privacy-policy')} className="text-primary hover:underline font-medium">Privacy Policy</button>
+                {' '}and{' '}
+                <button onClick={() => navigate('/terms-of-service')} className="text-primary hover:underline font-medium">Terms of Service</button>
+                {' '}for more information.
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Footer CTA */}

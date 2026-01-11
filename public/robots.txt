@@ -1,3 +1,21 @@
 # https://www.robotstxt.org/robotstxt.html
 User-agent: *
-Disallow:
+Allow: /
+Allow: /login
+Allow: /signup
+Allow: /privacy-policy
+Allow: /terms-of-service
+
+# Disallow authenticated/private pages
+Disallow: /dashboard
+Disallow: /groups
+Disallow: /group/
+Disallow: /add-expense
+Disallow: /summary
+Disallow: /analytics
+Disallow: /profile
+Disallow: /settings/
+Disallow: /api/
+
+# Sitemap location
+Sitemap: https://split-it.live/sitemap.xml
