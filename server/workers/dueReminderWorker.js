@@ -3,6 +3,8 @@
  * 
  * Sends daily reminders to users with uncleared dues older than 24 hours.
  * Runs on a schedule via Bull queue.
+ * 
+ * Uses the modern Split-It email template system for consistent branding.
  */
 
 import Bull from 'bull';
@@ -11,6 +13,21 @@ import Group from '../models/Group.js';
 import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
 import { emailQueue, notificationQueue } from '../config/queue.js';
+import {
+  brand,
+  formatCurrency,
+  formatDate,
+  buildEmail,
+  buttonComponent,
+  cardComponent,
+  alertComponent,
+  infoRowComponent,
+  tableComponent,
+  amountDisplayComponent,
+  dividerComponent,
+  textComponent,
+  greetingComponent,
+} from '../utils/emailTemplates.js';
 
 // Redis configuration with ElastiCache support
 const buildRedisConfig = () => {
@@ -254,191 +271,177 @@ async function calculateUserDues(userId) {
 
 /**
  * Generate HTML email content for due reminder
+ * Using the modern Split-It email template system
  * @param {Object} data - Email data
  * @returns {string} - HTML content
  */
 function generateDueReminderEmailHtml(data) {
   const { userName, totalOwed, duesByGroup, currency = 'INR' } = data;
   
-  const currencySymbol = currency === 'INR' ? '₹' : currency === 'USD' ? '$' : currency;
-  
-  let groupsHtml = '';
+  // Build group tables
+  let groupsContent = '';
   for (const group of duesByGroup) {
-    let duesHtml = '';
-    for (const due of group.dues) {
-      duesHtml += `
-        <tr>
-          <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">${due.creditorName}</td>
-          <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; font-weight: 500; color: #dc2626;">${currencySymbol}${due.amount.toFixed(2)}</td>
-        </tr>
-      `;
-    }
+    const duesRows = group.dues.map(due => [
+      due.creditorName,
+      `<span style="color: ${brand.colors.danger}; font-weight: 600;">${formatCurrency(due.amount, currency)}</span>`
+    ]);
     
-    groupsHtml += `
-      <div style="margin-bottom: 20px; background: #f9fafb; border-radius: 8px; padding: 16px;">
-        <h3 style="margin: 0 0 12px 0; color: #374151; font-size: 16px;">${group.groupName}</h3>
-        <table style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr style="background: #e5e7eb;">
-              <th style="padding: 8px 12px; text-align: left; font-size: 12px; text-transform: uppercase; color: #6b7280;">Owed To</th>
-              <th style="padding: 8px 12px; text-align: right; font-size: 12px; text-transform: uppercase; color: #6b7280;">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${duesHtml}
-          </tbody>
-          <tfoot>
-            <tr style="background: #fee2e2;">
-              <td style="padding: 10px 12px; font-weight: 600;">Group Total</td>
-              <td style="padding: 10px 12px; text-align: right; font-weight: 600; color: #dc2626;">${currencySymbol}${group.groupTotal.toFixed(2)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+    groupsContent += `
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 20px;">
+        <tr>
+          <td style="background-color: ${brand.colors.borderLight}; border: 1px solid ${brand.colors.border}; border-radius: ${brand.borderRadius.md}; padding: 16px;">
+            <p style="margin: 0 0 12px; font-size: ${brand.fonts.sizeMedium}; font-weight: 600; color: ${brand.colors.textPrimary};">
+              👥 ${group.groupName}
+            </p>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 12px;">
+              <thead>
+                <tr style="background-color: ${brand.colors.border};">
+                  <th style="padding: 8px 12px; text-align: left; font-size: ${brand.fonts.sizeSmall}; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted};">Owed To</th>
+                  <th style="padding: 8px 12px; text-align: right; font-size: ${brand.fonts.sizeSmall}; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted};">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${group.dues.map(due => `
+                  <tr>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid ${brand.colors.borderLight}; color: ${brand.colors.textPrimary};">${due.creditorName}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid ${brand.colors.borderLight}; text-align: right; font-weight: 600; color: ${brand.colors.danger};">${formatCurrency(due.amount, currency)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: ${brand.colors.dangerLight}; border-radius: ${brand.borderRadius.sm};">
+              <tr>
+                <td style="padding: 10px 12px; font-weight: 600; color: ${brand.colors.textPrimary};">Group Total</td>
+                <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: ${brand.colors.danger};">${formatCurrency(group.groupTotal, currency)}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
     `;
   }
 
-  return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    </head>
-    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-        <h1 style="color: white; margin: 0; font-size: 24px;">💸 Payment Reminder</h1>
-      </div>
+  return buildEmail(
+    { 
+      title: 'Payment Reminder', 
+      subtitle: 'You have pending dues to settle', 
+      icon: '💸', 
+      variant: 'danger' 
+    },
+    `
+      ${greetingComponent(userName)}
+      ${textComponent("You have outstanding dues that haven't been cleared yet. Here's a summary of what you owe:")}
       
-      <div style="background: white; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
-        <p style="font-size: 16px; margin-bottom: 20px;">Hi <strong>${userName}</strong>,</p>
-        
-        <p style="margin-bottom: 20px;">You have outstanding dues that haven't been cleared yet. Here's a summary of what you owe:</p>
-        
-        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin-bottom: 24px; text-align: center;">
-          <p style="margin: 0; color: #991b1b; font-size: 14px;">Total Outstanding</p>
-          <p style="margin: 8px 0 0 0; color: #dc2626; font-size: 28px; font-weight: 700;">${currencySymbol}${totalOwed.toFixed(2)}</p>
-        </div>
-        
-        ${groupsHtml}
-        
-        <div style="text-align: center; margin-top: 24px;">
-          <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Settle Now</a>
-        </div>
-        
-        <p style="margin-top: 24px; font-size: 14px; color: #6b7280;">Settling your dues keeps friendships strong! 🤝</p>
-        
-        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
-        
-        <p style="font-size: 12px; color: #9ca3af; text-align: center;">
-          You're receiving this because you have payment reminders enabled in your preferences.<br>
-          <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/settings" style="color: #667eea;">Manage email preferences</a>
-        </p>
-        
-        <p style="font-size: 11px; color: #9ca3af; text-align: center; margin-top: 16px;">
-          Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #667eea;">notifications.splitit@gmail.com</a>
-        </p>
-      </div>
-    </body>
-    </html>
-  `;
+      ${amountDisplayComponent(totalOwed, { 
+        currency, 
+        variant: 'danger', 
+        label: 'Total Outstanding' 
+      })}
+      
+      ${groupsContent}
+      
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+        <tr><td align="center">
+          ${buttonComponent('Settle Now', brand.clientUrl, { variant: 'primary', size: 'large' })}
+        </td></tr>
+      </table>
+      
+      ${alertComponent('Settling your dues keeps friendships strong! 🤝', { variant: 'info' })}
+    `,
+    { showPreferences: true }
+  );
 }
 
 /**
  * Generate HTML email content for UPI setup reminder
+ * Using the modern Split-It email template system
  * @param {Object} data - Email data
  * @returns {string} - HTML content
  */
 function generateUpiReminderEmailHtml(data) {
   const { userName, totalOwedToUser, receivablesByGroup, currency = 'INR' } = data;
   
-  const currencySymbol = currency === 'INR' ? '₹' : currency === 'USD' ? '$' : currency;
-  
-  let groupsHtml = '';
+  // Build group tables for receivables
+  let groupsContent = '';
   for (const group of receivablesByGroup) {
-    let receivablesHtml = '';
-    for (const receivable of group.receivables) {
-      receivablesHtml += `
+    groupsContent += `
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 20px;">
         <tr>
-          <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">${receivable.debtorName}</td>
-          <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; font-weight: 500; color: #16a34a;">${currencySymbol}${receivable.amount.toFixed(2)}</td>
+          <td style="background-color: ${brand.colors.borderLight}; border: 1px solid ${brand.colors.border}; border-radius: ${brand.borderRadius.md}; padding: 16px;">
+            <p style="margin: 0 0 12px; font-size: ${brand.fonts.sizeMedium}; font-weight: 600; color: ${brand.colors.textPrimary};">
+              👥 ${group.groupName}
+            </p>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 12px;">
+              <thead>
+                <tr style="background-color: ${brand.colors.border};">
+                  <th style="padding: 8px 12px; text-align: left; font-size: ${brand.fonts.sizeSmall}; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted};">Owed By</th>
+                  <th style="padding: 8px 12px; text-align: right; font-size: ${brand.fonts.sizeSmall}; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted};">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${group.receivables.map(receivable => `
+                  <tr>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid ${brand.colors.borderLight}; color: ${brand.colors.textPrimary};">${receivable.debtorName}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid ${brand.colors.borderLight}; text-align: right; font-weight: 600; color: ${brand.colors.success};">${formatCurrency(receivable.amount, currency)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: ${brand.colors.successLight}; border-radius: ${brand.borderRadius.sm};">
+              <tr>
+                <td style="padding: 10px 12px; font-weight: 600; color: ${brand.colors.textPrimary};">Group Total</td>
+                <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: ${brand.colors.success};">${formatCurrency(group.groupTotal, currency)}</td>
+              </tr>
+            </table>
+          </td>
         </tr>
-      `;
-    }
-    
-    groupsHtml += `
-      <div style="margin-bottom: 20px; background: #f9fafb; border-radius: 8px; padding: 16px;">
-        <h3 style="margin: 0 0 12px 0; color: #374151; font-size: 16px;">${group.groupName}</h3>
-        <table style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr style="background: #e5e7eb;">
-              <th style="padding: 8px 12px; text-align: left; font-size: 12px; text-transform: uppercase; color: #6b7280;">Owed By</th>
-              <th style="padding: 8px 12px; text-align: right; font-size: 12px; text-transform: uppercase; color: #6b7280;">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${receivablesHtml}
-          </tbody>
-          <tfoot>
-            <tr style="background: #dcfce7;">
-              <td style="padding: 10px 12px; font-weight: 600;">Group Total</td>
-              <td style="padding: 10px 12px; text-align: right; font-weight: 600; color: #16a34a;">${currencySymbol}${group.groupTotal.toFixed(2)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      </table>
     `;
   }
 
-  return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    </head>
-    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-        <h1 style="color: white; margin: 0; font-size: 24px;">💳 Add Your UPI ID</h1>
-      </div>
+  return buildEmail(
+    { 
+      title: 'Add Your UPI ID', 
+      subtitle: 'Money is waiting for you!', 
+      icon: '💳', 
+      variant: 'success' 
+    },
+    `
+      ${greetingComponent(userName)}
+      ${textComponent("You have money waiting to be collected! Add your UPI ID to make it easy for others to pay you.")}
       
-      <div style="background: white; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
-        <p style="font-size: 16px; margin-bottom: 20px;">Hi <strong>${userName}</strong>,</p>
-        
-        <p style="margin-bottom: 20px;">You have money waiting to be collected! Add your UPI ID to make it easy for others to pay you.</p>
-        
-        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin-bottom: 24px; text-align: center;">
-          <p style="margin: 0; color: #166534; font-size: 14px;">Total Amount Owed to You</p>
-          <p style="margin: 8px 0 0 0; color: #16a34a; font-size: 28px; font-weight: 700;">${currencySymbol}${totalOwedToUser.toFixed(2)}</p>
-        </div>
-        
-        ${groupsHtml}
-        
-        <div style="background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; margin: 24px 0;">
-          <p style="margin: 0; color: #92400e; font-size: 14px;">
-            <strong>💡 Why add your UPI ID?</strong><br>
-            When you add your UPI ID, others can easily pay you directly through apps like Google Pay, PhonePe, Paytm, etc. No more awkward payment reminders!
-          </p>
-        </div>
-        
-        <div style="text-align: center; margin-top: 24px;">
-          <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/settings" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Add UPI ID Now</a>
-        </div>
-        
-        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
-        
-        <p style="font-size: 12px; color: #9ca3af; text-align: center;">
-          You're receiving this because you have payment reminders enabled in your preferences.<br>
-          <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/settings" style="color: #10b981;">Manage email preferences</a>
-        </p>
-        
-        <p style="font-size: 11px; color: #9ca3af; text-align: center; margin-top: 16px;">
-          Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #10b981;">notifications.splitit@gmail.com</a>
-        </p>
-      </div>
-    </body>
-    </html>
-  `;
+      ${amountDisplayComponent(totalOwedToUser, { 
+        currency, 
+        variant: 'success', 
+        label: 'Total Owed to You' 
+      })}
+      
+      ${groupsContent}
+      
+      ${cardComponent(`
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+          <tr>
+            <td style="font-size: 24px; padding-right: 12px; vertical-align: top;">💡</td>
+            <td>
+              <p style="margin: 0 0 8px; font-weight: 600; color: ${brand.colors.textPrimary};">Why add your UPI ID?</p>
+              <ul style="margin: 0; padding-left: 20px; color: ${brand.colors.textSecondary};">
+                <li style="margin-bottom: 4px;">Others can pay you directly via Google Pay, PhonePe, Paytm, etc.</li>
+                <li style="margin-bottom: 4px;">No more awkward payment reminders</li>
+                <li>Get paid faster and easier!</li>
+              </ul>
+            </td>
+          </tr>
+        </table>
+      `, { variant: 'warning' })}
+      
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+        <tr><td align="center">
+          ${buttonComponent('Add UPI ID Now', `${brand.clientUrl}/settings`, { variant: 'success', size: 'large' })}
+        </td></tr>
+      </table>
+    `,
+    { showPreferences: true }
+  );
 }
 
 /**

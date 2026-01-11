@@ -3,10 +3,34 @@
  * 
  * Processes email jobs from the email queue using nodemailer.
  * Handles welcome emails, notifications, password resets, etc.
+ * 
+ * Uses the modern Split-It email template system for consistent branding.
  */
 
 import { emailQueue, setEmailProcessor } from '../config/queue.js';
 import { sendEmail, transporter } from '../config/email.js';
+import {
+  brand,
+  formatCurrency,
+  formatDate,
+  buildEmail,
+  emailWrapper,
+  emailHeader,
+  emailContent,
+  emailFooter,
+  buttonComponent,
+  cardComponent,
+  alertComponent,
+  infoRowComponent,
+  tableComponent,
+  amountDisplayComponent,
+  progressBarComponent,
+  dividerComponent,
+  textComponent,
+  greetingComponent,
+  statsRowComponent,
+  badgeComponent,
+} from '../utils/emailTemplates.js';
 
 /**
  * Process a single email job
@@ -144,458 +168,445 @@ export const queueEmail = async (emailData, options = {}) => {
 };
 
 /**
- * Email templates
+ * Email templates using the new Split-It design system
  */
 export const emailTemplates = {
+  // ============================================
+  // WELCOME EMAIL
+  // ============================================
   welcome: (userName) => ({
-    subject: 'Welcome to Split-It!',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #4F46E5;">Welcome to Split-It, ${userName}!</h1>
-        <p>Thank you for joining Split-It. Start splitting expenses with your friends and family today.</p>
-        <div style="margin: 20px 0;">
-          <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/dashboard" 
-             style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
-            Go to Dashboard
-          </a>
-        </div>
-        <p style="color: #666; font-size: 14px;">Happy Splitting!</p>
-        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-        <p style="color: #9CA3AF; font-size: 11px; text-align: center;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-      </div>
-    `,
+    subject: 'Welcome to Split-It! 🎉',
+    html: buildEmail(
+      { title: 'Welcome to Split-It!', subtitle: "Let's make splitting expenses effortless", icon: '👋', variant: 'gradient' },
+      `
+        ${greetingComponent(userName)}
+        ${textComponent("Thank you for joining Split-It! We're excited to help you manage group expenses effortlessly.")}
+        
+        ${cardComponent(`
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            <tr>
+              <td style="font-size: 24px; padding-right: 12px; vertical-align: top;">✨</td>
+              <td>
+                <p style="margin: 0 0 8px; font-weight: 600; color: ${brand.colors.textPrimary};">Get Started in 3 Easy Steps</p>
+                <ol style="margin: 0; padding-left: 20px; color: ${brand.colors.textSecondary};">
+                  <li style="margin-bottom: 4px;">Create or join a group</li>
+                  <li style="margin-bottom: 4px;">Add expenses and split them fairly</li>
+                  <li>Settle up with a single tap</li>
+                </ol>
+              </td>
+            </tr>
+          </table>
+        `)}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('Go to Dashboard', `${brand.clientUrl}/dashboard`, { size: 'large' })}
+          </td></tr>
+        </table>
+        
+        ${textComponent("Happy Splitting! 🎉", { variant: 'muted', align: 'center' })}
+      `,
+      { showPreferences: false }
+    ),
   }),
 
+  // ============================================
+  // NEW MEMBER JOINED
+  // ============================================
   newMemberJoined: (groupName, memberName, recipientName) => ({
-    subject: `New member joined ${groupName}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #4F46E5;">New Member Alert</h2>
-        <p>Hi ${recipientName},</p>
-        <p><strong>${memberName}</strong> has joined your group <strong>"${groupName}"</strong> via invite link.</p>
-        <div style="margin: 20px 0;">
-          <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/groups" 
-             style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
-            View Group
-          </a>
-        </div>
-        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-        <p style="color: #9CA3AF; font-size: 11px; text-align: center;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-      </div>
-    `,
+    subject: `${memberName} joined ${groupName} 🎉`,
+    html: buildEmail(
+      { title: 'New Member Joined!', icon: '👥', variant: 'gradient' },
+      `
+        ${greetingComponent(recipientName)}
+        ${textComponent(`Great news! <strong>${memberName}</strong> has joined your group <strong>"${groupName}"</strong> via invite link.`)}
+        
+        ${alertComponent(`<strong>${memberName}</strong> can now view expenses and participate in the group.`, { variant: 'success' })}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('View Group', `${brand.clientUrl}/groups`)}
+          </td></tr>
+        </table>
+      `
+    ),
   }),
 
+  // ============================================
+  // EXPENSE ADDED
+  // ============================================
   expenseAdded: (groupName, payerName, description, amount, currency = 'INR') => ({
-    subject: `New expense in ${groupName}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #4F46E5;">New Expense Added</h2>
-        <p><strong>${payerName}</strong> added a new expense in <strong>"${groupName}"</strong>:</p>
-        <div style="background-color: #F3F4F6; padding: 16px; border-radius: 8px; margin: 16px 0;">
-          <p style="margin: 0; font-size: 18px;"><strong>${description}</strong></p>
-          <p style="margin: 8px 0 0 0; font-size: 24px; color: #4F46E5;">${currency === 'INR' ? '₹' : currency}${amount}</p>
-        </div>
-        <div style="margin: 20px 0;">
-          <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/groups" 
-             style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
-            View Details
-          </a>
-        </div>
-        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-        <p style="color: #9CA3AF; font-size: 11px; text-align: center;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-      </div>
-    `,
+    subject: `New expense in ${groupName}: ${description}`,
+    html: buildEmail(
+      { title: 'New Expense Added', icon: '💳', variant: 'gradient' },
+      `
+        ${textComponent(`<strong>${payerName}</strong> added a new expense in <strong>"${groupName}"</strong>:`)}
+        
+        ${cardComponent(`
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            <tr>
+              <td align="center">
+                <p style="margin: 0 0 8px; font-size: ${brand.fonts.sizeLarge}; font-weight: 600; color: ${brand.colors.textPrimary};">${description}</p>
+                <p style="margin: 0; font-size: ${brand.fonts.size2XL}; font-weight: 700; color: ${brand.colors.primary};">${formatCurrency(amount, currency)}</p>
+              </td>
+            </tr>
+          </table>
+        `, { variant: 'default', padding: 'large' })}
+        
+        ${textComponent(`Check your share and settle up when ready.`, { variant: 'muted' })}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('View Details', `${brand.clientUrl}/groups`)}
+          </td></tr>
+        </table>
+      `
+    ),
   }),
 
+  // ============================================
+  // SETTLEMENT REMINDER
+  // ============================================
   settlementReminder: (fromName, toName, amount, groupName, currency = 'INR') => ({
-    subject: `Payment reminder from ${fromName}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #4F46E5;">Payment Reminder</h2>
-        <p>Hi ${toName},</p>
-        <p>This is a friendly reminder that you owe <strong>${fromName}</strong>:</p>
-        <div style="background-color: #FEF3C7; padding: 16px; border-radius: 8px; margin: 16px 0;">
-          <p style="margin: 0; font-size: 24px; color: #D97706;">${currency === 'INR' ? '₹' : currency}${amount}</p>
-          <p style="margin: 8px 0 0 0; color: #92400E;">in group "${groupName}"</p>
-        </div>
-        <div style="margin: 20px 0;">
-          <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/groups" 
-             style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
-            Settle Now
-          </a>
-        </div>
-        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-        <p style="color: #9CA3AF; font-size: 11px; text-align: center;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-      </div>
-    `,
+    subject: `⏰ Reminder: You owe ${fromName} ${formatCurrency(amount, currency)}`,
+    html: buildEmail(
+      { title: 'Payment Reminder', icon: '⏰', variant: 'warning' },
+      `
+        ${greetingComponent(toName)}
+        ${textComponent(`This is a friendly reminder that you owe <strong>${fromName}</strong>:`)}
+        
+        ${amountDisplayComponent(amount, { currency, variant: 'danger', label: 'Amount Due', sublabel: `in group "${groupName}"` })}
+        
+        ${alertComponent(`Settle this balance to keep your accounts clear and friendships strong! 🤝`, { variant: 'warning' })}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('Settle Now', `${brand.clientUrl}/groups`, { variant: 'primary', size: 'large' })}
+          </td></tr>
+        </table>
+      `
+    ),
   }),
 
+  // ============================================
+  // GROUP INVITE
+  // ============================================
   groupInvite: (inviterName, groupName, inviteUrl, expiresAt) => ({
     subject: `${inviterName} invited you to join "${groupName}" on Split-It`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #4F46E5;">You're Invited!</h1>
-        <p>Hi there,</p>
-        <p><strong>${inviterName}</strong> has invited you to join the group <strong>"${groupName}"</strong> on Split-It.</p>
-        <div style="margin: 30px 0; text-align: center;">
-          <a href="${inviteUrl}" 
-             style="background-color: #4F46E5; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: 600;">
-            Join Group
-          </a>
-        </div>
-        <p style="color: #666; font-size: 14px;">This invite expires on ${new Date(expiresAt).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.</p>
-        <p style="color: #666; font-size: 14px;">If you don't have an account, you'll be prompted to create one.</p>
-        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-        <p style="color: #9CA3AF; font-size: 12px;">If you weren't expecting this invitation, you can safely ignore this email.</p>
-        <p style="color: #9CA3AF; font-size: 11px; text-align: center; margin-top: 16px;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-      </div>
-    `,
+    html: buildEmail(
+      { title: "You're Invited!", subtitle: `Join ${groupName} on Split-It`, icon: '🎉', variant: 'gradient' },
+      `
+        ${textComponent('Hi there!')}
+        ${textComponent(`<strong>${inviterName}</strong> has invited you to join the group <strong>"${groupName}"</strong> on Split-It.`)}
+        
+        ${cardComponent(`
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            <tr>
+              <td style="font-size: 28px; padding-right: 16px; vertical-align: middle;">👥</td>
+              <td>
+                <p style="margin: 0 0 4px; font-size: ${brand.fonts.sizeLarge}; font-weight: 600; color: ${brand.colors.textPrimary};">${groupName}</p>
+                <p style="margin: 0; font-size: ${brand.fonts.sizeBase}; color: ${brand.colors.textMuted};">Invited by ${inviterName}</p>
+              </td>
+            </tr>
+          </table>
+        `, { padding: 'large' })}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('Accept Invitation', inviteUrl, { variant: 'primary', size: 'large' })}
+          </td></tr>
+        </table>
+        
+        ${textComponent(`This invite expires on <strong>${formatDate(expiresAt, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</strong>.`, { variant: 'muted', align: 'center' })}
+        ${textComponent("If you don't have an account, you'll be prompted to create one.", { variant: 'small', align: 'center' })}
+        
+        ${dividerComponent()}
+        ${textComponent("If you weren't expecting this invitation, you can safely ignore this email.", { variant: 'small', align: 'center' })}
+      `,
+      { showPreferences: false }
+    ),
   }),
 
+  // ============================================
+  // MEMBER JOINED
+  // ============================================
   memberJoined: (memberName, groupName) => ({
     subject: `${memberName} joined ${groupName}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #4F46E5;">New Member Joined!</h2>
-        <p><strong>${memberName}</strong> has joined your group <strong>"${groupName}"</strong>.</p>
-        <div style="margin: 20px 0;">
-          <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/groups" 
-             style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
-            View Group
-          </a>
-        </div>
-        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-        <p style="color: #9CA3AF; font-size: 11px; text-align: center;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-      </div>
-    `,
+    html: buildEmail(
+      { title: 'New Member Joined!', icon: '🎉', variant: 'gradient' },
+      `
+        ${textComponent(`<strong>${memberName}</strong> has joined your group <strong>"${groupName}"</strong>.`)}
+        
+        ${alertComponent(`The group now has a new member! You can start splitting expenses together.`, { variant: 'success' })}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('View Group', `${brand.clientUrl}/groups`)}
+          </td></tr>
+        </table>
+      `
+    ),
   }),
 
-  // Settlement Confirmation Email - sent to both payer and receiver
+  // ============================================
+  // SETTLEMENT CONFIRMATION
+  // ============================================
   settlementConfirmation: (payerName, receiverName, amount, groupName, transactionRef, paymentMethod, isReceiver = false, currency = 'INR') => ({
     subject: isReceiver 
-      ? `Payment received: ${currency === 'INR' ? '₹' : currency}${amount} from ${payerName}`
-      : `Payment sent: ${currency === 'INR' ? '₹' : currency}${amount} to ${receiverName}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); padding: 24px; border-radius: 12px 12px 0 0;">
-          <h1 style="color: white; margin: 0; font-size: 24px;">
-            ${isReceiver ? '💰 Payment Received' : '✅ Payment Sent'}
-          </h1>
-        </div>
-        <div style="border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 12px 12px; padding: 24px;">
-          <div style="text-align: center; margin-bottom: 24px;">
-            <p style="font-size: 48px; font-weight: bold; color: #10B981; margin: 0;">
-              ${currency === 'INR' ? '₹' : currency}${amount.toLocaleString()}
-            </p>
-            <p style="color: #6B7280; margin: 8px 0 0 0;">
-              ${isReceiver ? `From ${payerName}` : `To ${receiverName}`}
-            </p>
-          </div>
-          
-          <div style="background-color: #F9FAFB; padding: 16px; border-radius: 8px; margin: 16px 0;">
-            <table style="width: 100%; border-collapse: collapse;">
-              <tr>
-                <td style="padding: 8px 0; color: #6B7280;">Group</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 600;">${groupName}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; color: #6B7280;">Payment Method</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 600;">${paymentMethod?.toUpperCase() || 'CASH'}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; color: #6B7280;">Reference</td>
-                <td style="padding: 8px 0; text-align: right; font-family: monospace; font-size: 12px;">${transactionRef || 'N/A'}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; color: #6B7280;">Date</td>
-                <td style="padding: 8px 0; text-align: right;">${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
-              </tr>
-            </table>
-          </div>
-
-          <div style="margin: 24px 0; text-align: center;">
-            <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/groups" 
-               style="background-color: #4F46E5; color: white; padding: 12px 32px; text-decoration: none; border-radius: 6px; display: inline-block;">
-              View Settlement
-            </a>
-          </div>
-          
-          <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-          <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin: 0;">
-            This is an automated email from Split-It. Please do not reply.
-          </p>
-          <p style="color: #9CA3AF; font-size: 11px; text-align: center; margin-top: 12px;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-        </div>
-      </div>
-    `,
+      ? `✅ Payment received: ${formatCurrency(amount, currency)} from ${payerName}`
+      : `✅ Payment sent: ${formatCurrency(amount, currency)} to ${receiverName}`,
+    html: buildEmail(
+      { 
+        title: isReceiver ? 'Payment Received' : 'Payment Sent', 
+        subtitle: isReceiver ? 'You got paid!' : 'Settlement complete', 
+        icon: isReceiver ? '💰' : '✅', 
+        variant: 'success' 
+      },
+      `
+        ${amountDisplayComponent(amount, { 
+          currency, 
+          variant: 'success', 
+          label: isReceiver ? 'Amount Received' : 'Amount Sent',
+          sublabel: isReceiver ? `From ${payerName}` : `To ${receiverName}`
+        })}
+        
+        ${cardComponent(`
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            ${infoRowComponent('Group', groupName)}
+            ${infoRowComponent('Payment Method', (paymentMethod || 'Cash').toUpperCase())}
+            ${infoRowComponent('Reference', transactionRef || 'N/A')}
+            ${infoRowComponent('Date', formatDate(new Date()))}
+          </table>
+        `)}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('View Settlement', `${brand.clientUrl}/groups`)}
+          </td></tr>
+        </table>
+        
+        ${textComponent("This is an automated confirmation from Split-It.", { variant: 'small', align: 'center' })}
+      `
+    ),
   }),
 
-  // Weekly/Monthly Digest Email
+  // ============================================
+  // DIGEST (WEEKLY/MONTHLY SUMMARY)
+  // ============================================
   digest: (userName, period, summaryData) => {
-    const { totalExpenses, totalSettled, youOwe, youAreOwed, topGroups, topCategories } = summaryData;
+    const { totalExpenses = 0, totalSettled = 0, youOwe = 0, youAreOwed = 0, topGroups = [], topCategories = [] } = summaryData;
     const periodLabel = period === 'weekly' ? 'Weekly' : 'Monthly';
     
-    const groupsHtml = topGroups?.length ? topGroups.map(g => 
-      `<tr>
-        <td style="padding: 8px 0;">${g.name}</td>
-        <td style="padding: 8px 0; text-align: right; font-weight: 600;">₹${g.total.toLocaleString()}</td>
-      </tr>`
-    ).join('') : '<tr><td colspan="2" style="padding: 8px 0; color: #9CA3AF;">No activity this period</td></tr>';
-
-    const categoriesHtml = topCategories?.length ? topCategories.map(c => 
-      `<span style="display: inline-block; background: #EEF2FF; color: #4F46E5; padding: 4px 12px; border-radius: 16px; margin: 4px; font-size: 13px;">
-        ${c.name}: ₹${c.total.toLocaleString()}
-      </span>`
-    ).join('') : '<span style="color: #9CA3AF;">No expenses this period</span>';
+    const groupRows = topGroups.length 
+      ? topGroups.map(g => [g.name, `<strong>${formatCurrency(g.total)}</strong>`])
+      : [['No activity this period', '-']];
+    
+    const categoriesHtml = topCategories.length 
+      ? topCategories.map(c => badgeComponent(`${c.name}: ${formatCurrency(c.total)}`, { variant: 'primary' })).join(' ')
+      : `<span style="color: ${brand.colors.textMuted};">No expenses this period</span>`;
 
     return {
-      subject: `Your ${periodLabel} Split-It Summary`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); padding: 32px; border-radius: 12px 12px 0 0; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 28px;">📊 ${periodLabel} Summary</h1>
-            <p style="color: rgba(255,255,255,0.8); margin: 8px 0 0 0;">Hi ${userName}, here's your expense overview</p>
+      subject: `📊 Your ${periodLabel} Split-It Summary`,
+      html: buildEmail(
+        { title: `${periodLabel} Summary`, subtitle: `Here's your expense overview, ${userName}`, icon: '📊', variant: 'gradient' },
+        `
+          ${statsRowComponent([
+            { label: "You're Owed", value: formatCurrency(youAreOwed), bg: brand.colors.successLight, valueColor: brand.colors.success },
+            { label: 'You Owe', value: formatCurrency(youOwe), bg: brand.colors.dangerLight, valueColor: brand.colors.danger },
+          ])}
+          
+          ${cardComponent(`
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+              ${infoRowComponent('Total Expenses', formatCurrency(totalExpenses), { highlight: true })}
+              ${infoRowComponent('Total Settled', formatCurrency(totalSettled))}
+            </table>
+          `)}
+          
+          <p style="margin: 24px 0 12px; font-size: ${brand.fonts.sizeMedium}; font-weight: 600; color: ${brand.colors.textPrimary};">Top Groups</p>
+          ${cardComponent(`
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+              ${groupRows.map(([name, total]) => `
+                <tr>
+                  <td style="padding: 8px 0; color: ${brand.colors.textPrimary};">${name}</td>
+                  <td style="padding: 8px 0; text-align: right; color: ${brand.colors.textPrimary};">${total}</td>
+                </tr>
+              `).join('')}
+            </table>
+          `)}
+          
+          <p style="margin: 24px 0 12px; font-size: ${brand.fonts.sizeMedium}; font-weight: 600; color: ${brand.colors.textPrimary};">Spending by Category</p>
+          <div style="margin-bottom: 24px;">
+            ${categoriesHtml}
           </div>
           
-          <div style="border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 12px 12px; padding: 24px;">
-            <!-- Balance Cards -->
-            <div style="display: flex; gap: 16px; margin-bottom: 24px;">
-              <div style="flex: 1; background: #ECFDF5; padding: 16px; border-radius: 8px; text-align: center;">
-                <p style="color: #059669; font-size: 12px; margin: 0; text-transform: uppercase;">You're Owed</p>
-                <p style="color: #047857; font-size: 24px; font-weight: bold; margin: 4px 0 0 0;">₹${(youAreOwed || 0).toLocaleString()}</p>
-              </div>
-              <div style="flex: 1; background: #FEF2F2; padding: 16px; border-radius: 8px; text-align: center;">
-                <p style="color: #DC2626; font-size: 12px; margin: 0; text-transform: uppercase;">You Owe</p>
-                <p style="color: #B91C1C; font-size: 24px; font-weight: bold; margin: 4px 0 0 0;">₹${(youOwe || 0).toLocaleString()}</p>
-              </div>
-            </div>
-
-            <!-- Stats -->
-            <div style="background: #F9FAFB; padding: 16px; border-radius: 8px; margin-bottom: 24px;">
-              <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                  <td style="padding: 8px 0; color: #6B7280;">Total Expenses</td>
-                  <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #4F46E5;">₹${(totalExpenses || 0).toLocaleString()}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; color: #6B7280;">Total Settled</td>
-                  <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #10B981;">₹${(totalSettled || 0).toLocaleString()}</td>
-                </tr>
-              </table>
-            </div>
-
-            <!-- Top Groups -->
-            <h3 style="color: #374151; font-size: 16px; margin: 0 0 12px 0;">Top Groups</h3>
-            <div style="background: #F9FAFB; padding: 16px; border-radius: 8px; margin-bottom: 24px;">
-              <table style="width: 100%; border-collapse: collapse;">
-                ${groupsHtml}
-              </table>
-            </div>
-
-            <!-- Categories -->
-            <h3 style="color: #374151; font-size: 16px; margin: 0 0 12px 0;">Spending by Category</h3>
-            <div style="margin-bottom: 24px;">
-              ${categoriesHtml}
-            </div>
-
-            <div style="text-align: center;">
-              <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/analytics" 
-                 style="background-color: #4F46E5; color: white; padding: 12px 32px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                View Full Analytics
-              </a>
-            </div>
-            
-            <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-            <p style="color: #9CA3AF; font-size: 12px; text-align: center;">
-              <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/settings/notifications" style="color: #6B7280;">Manage email preferences</a>
-            </p>
-            <p style="color: #9CA3AF; font-size: 11px; text-align: center; margin-top: 12px;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-          </div>
-        </div>
-      `,
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+            <tr><td align="center">
+              ${buttonComponent('View Full Analytics', `${brand.clientUrl}/analytics`)}
+            </td></tr>
+          </table>
+        `,
+        { showPreferences: true }
+      ),
     };
   },
 
-  // Recurring Expense Reminder (upcoming expense)
+  // ============================================
+  // RECURRING EXPENSE REMINDER
+  // ============================================
   recurringExpenseReminder: (userName, expenses) => {
-    const expenseRows = expenses.map(e => 
-      `<tr>
-        <td style="padding: 12px; border-bottom: 1px solid #E5E7EB;">${e.description}</td>
-        <td style="padding: 12px; border-bottom: 1px solid #E5E7EB;">${e.groupName}</td>
-        <td style="padding: 12px; border-bottom: 1px solid #E5E7EB; text-align: right; font-weight: 600;">₹${e.amount.toLocaleString()}</td>
-        <td style="padding: 12px; border-bottom: 1px solid #E5E7EB; text-align: right;">${new Date(e.nextRunAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
-      </tr>`
-    ).join('');
+    const expenseRows = expenses.map(e => [
+      e.description,
+      e.groupName,
+      `<strong>${formatCurrency(e.amount)}</strong>`,
+      formatDate(e.nextRunAt, { day: 'numeric', month: 'short' })
+    ]);
 
     return {
-      subject: `Upcoming recurring expenses - ${expenses.length} due soon`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%); padding: 24px; border-radius: 12px 12px 0 0;">
-            <h1 style="color: white; margin: 0; font-size: 24px;">🔄 Recurring Expenses Reminder</h1>
-          </div>
-          <div style="border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 12px 12px; padding: 24px;">
-            <p>Hi ${userName},</p>
-            <p>You have <strong>${expenses.length} recurring expense${expenses.length > 1 ? 's' : ''}</strong> coming up soon:</p>
-            
-            <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-              <thead>
-                <tr style="background: #F9FAFB;">
-                  <th style="padding: 12px; text-align: left; font-size: 12px; color: #6B7280; text-transform: uppercase;">Description</th>
-                  <th style="padding: 12px; text-align: left; font-size: 12px; color: #6B7280; text-transform: uppercase;">Group</th>
-                  <th style="padding: 12px; text-align: right; font-size: 12px; color: #6B7280; text-transform: uppercase;">Amount</th>
-                  <th style="padding: 12px; text-align: right; font-size: 12px; color: #6B7280; text-transform: uppercase;">Due</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${expenseRows}
-              </tbody>
-            </table>
-
-            <div style="margin: 24px 0; text-align: center;">
-              <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/dashboard" 
-                 style="background-color: #4F46E5; color: white; padding: 12px 32px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                View Dashboard
-              </a>
-            </div>
-            <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-            <p style="color: #9CA3AF; font-size: 11px; text-align: center;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-          </div>
-        </div>
-      `,
+      subject: `🔄 Upcoming: ${expenses.length} recurring expense${expenses.length > 1 ? 's' : ''} due soon`,
+      html: buildEmail(
+        { title: 'Recurring Expenses Reminder', subtitle: `${expenses.length} expense${expenses.length > 1 ? 's' : ''} coming up`, icon: '🔄', variant: 'warning' },
+        `
+          ${greetingComponent(userName)}
+          ${textComponent(`You have <strong>${expenses.length} recurring expense${expenses.length > 1 ? 's' : ''}</strong> coming up soon:`)}
+          
+          ${tableComponent(
+            ['Description', 'Group', 'Amount', 'Due'],
+            expenseRows
+          )}
+          
+          ${alertComponent('Review these expenses to ensure they still apply to your group.', { variant: 'info' })}
+          
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+            <tr><td align="center">
+              ${buttonComponent('View Dashboard', `${brand.clientUrl}/dashboard`)}
+            </td></tr>
+          </table>
+        `
+      ),
     };
   },
 
-  // Budget Alert Email
+  // ============================================
+  // BUDGET ALERT
+  // ============================================
   budgetAlert: (userName, alertType, data) => {
-    const { currentSpend, limit, percentage, category, period } = data;
+    const { currentSpend = 0, limit = 0, percentage = 0, category = 'Monthly' } = data;
     const isOverBudget = percentage >= 100;
-    const alertColor = isOverBudget ? '#DC2626' : '#F59E0B';
-    const alertBg = isOverBudget ? '#FEF2F2' : '#FFFBEB';
     
     return {
       subject: isOverBudget 
-        ? `⚠️ Budget exceeded: ${category || 'Monthly'} spending`
-        : `Budget alert: ${percentage}% of ${category || 'monthly'} limit reached`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background: ${alertColor}; padding: 24px; border-radius: 12px 12px 0 0;">
-            <h1 style="color: white; margin: 0; font-size: 24px;">
-              ${isOverBudget ? '🚨 Budget Exceeded!' : '⚠️ Budget Alert'}
-            </h1>
-          </div>
-          <div style="border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 12px 12px; padding: 24px;">
-            <p>Hi ${userName},</p>
-            <p>${isOverBudget 
-              ? `You've exceeded your ${category || 'monthly'} budget limit.`
-              : `You've reached ${percentage}% of your ${category || 'monthly'} budget limit.`
-            }</p>
-            
-            <div style="background: ${alertBg}; padding: 20px; border-radius: 8px; margin: 16px 0; text-align: center;">
-              <p style="color: #6B7280; font-size: 14px; margin: 0;">Current Spending</p>
-              <p style="font-size: 36px; font-weight: bold; color: ${alertColor}; margin: 8px 0;">₹${currentSpend.toLocaleString()}</p>
-              <p style="color: #6B7280; margin: 0;">of ₹${limit.toLocaleString()} limit</p>
-              
-              <!-- Progress bar -->
-              <div style="background: #E5E7EB; height: 8px; border-radius: 4px; margin-top: 16px; overflow: hidden;">
-                <div style="background: ${alertColor}; height: 100%; width: ${Math.min(percentage, 100)}%;"></div>
-              </div>
-              <p style="color: ${alertColor}; font-size: 14px; margin: 8px 0 0 0; font-weight: 600;">${percentage}% used</p>
-            </div>
-
-            <div style="margin: 24px 0; text-align: center;">
-              <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/analytics" 
-                 style="background-color: #4F46E5; color: white; padding: 12px 32px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                View Spending Details
-              </a>
-            </div>
-            
-            <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-            <p style="color: #9CA3AF; font-size: 12px; text-align: center;">
-              <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/settings/notifications" style="color: #6B7280;">Manage budget alerts</a>
-            </p>
-            <p style="color: #9CA3AF; font-size: 11px; text-align: center; margin-top: 12px;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-          </div>
-        </div>
-      `,
+        ? `🚨 Budget exceeded: ${category} spending is over limit`
+        : `⚠️ Budget alert: ${percentage}% of ${category} limit reached`,
+      html: buildEmail(
+        { 
+          title: isOverBudget ? 'Budget Exceeded!' : 'Budget Alert', 
+          icon: isOverBudget ? '🚨' : '⚠️', 
+          variant: isOverBudget ? 'danger' : 'warning' 
+        },
+        `
+          ${greetingComponent(userName)}
+          ${textComponent(isOverBudget 
+            ? `You've <strong>exceeded</strong> your ${category} budget limit.`
+            : `You've reached <strong>${percentage}%</strong> of your ${category} budget limit.`
+          )}
+          
+          ${cardComponent(`
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+              <tr>
+                <td align="center">
+                  <p style="margin: 0 0 4px; font-size: ${brand.fonts.sizeSmall}; text-transform: uppercase; color: ${brand.colors.textMuted};">Current Spending</p>
+                  <p style="margin: 0; font-size: ${brand.fonts.size3XL}; font-weight: 700; color: ${isOverBudget ? brand.colors.danger : brand.colors.warning};">${formatCurrency(currentSpend)}</p>
+                  <p style="margin: 4px 0 16px; font-size: ${brand.fonts.sizeBase}; color: ${brand.colors.textMuted};">of ${formatCurrency(limit)} limit</p>
+                  ${progressBarComponent(percentage, { variant: isOverBudget ? 'danger' : 'warning' })}
+                </td>
+              </tr>
+            </table>
+          `, { variant: isOverBudget ? 'danger' : 'warning', padding: 'large' })}
+          
+          ${alertComponent(
+            isOverBudget 
+              ? "Consider reviewing your spending habits and adjusting your budget if needed."
+              : "You're approaching your budget limit. Keep an eye on your spending!",
+            { variant: isOverBudget ? 'danger' : 'warning' }
+          )}
+          
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+            <tr><td align="center">
+              ${buttonComponent('View Spending Details', `${brand.clientUrl}/analytics`)}
+            </td></tr>
+          </table>
+        `,
+        { showPreferences: true }
+      ),
     };
   },
 
-  // Export Report Email (with attachment info)
+  // ============================================
+  // EXPORT REPORT
+  // ============================================
   exportReport: (userName, reportType, groupName, dateRange, downloadUrl) => ({
-    subject: `Your ${reportType} export for ${groupName || 'all groups'} is ready`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); padding: 24px; border-radius: 12px 12px 0 0;">
-          <h1 style="color: white; margin: 0; font-size: 24px;">📄 Export Ready</h1>
-        </div>
-        <div style="border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 12px 12px; padding: 24px;">
-          <p>Hi ${userName},</p>
-          <p>Your ${reportType} export is ready for download.</p>
-          
-          <div style="background: #F9FAFB; padding: 16px; border-radius: 8px; margin: 16px 0;">
-            <table style="width: 100%; border-collapse: collapse;">
-              <tr>
-                <td style="padding: 8px 0; color: #6B7280;">Report Type</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 600;">${reportType}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; color: #6B7280;">Group</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 600;">${groupName || 'All Groups'}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; color: #6B7280;">Date Range</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 600;">${dateRange || 'All Time'}</td>
-              </tr>
-            </table>
-          </div>
-
-          <div style="margin: 24px 0; text-align: center;">
-            <a href="${downloadUrl}" 
-               style="background-color: #10B981; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
-              📥 Download Report
-            </a>
-          </div>
-          
-          <p style="color: #9CA3AF; font-size: 12px; text-align: center;">
-            This download link expires in 24 hours.
-          </p>
-          <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-          <p style="color: #9CA3AF; font-size: 11px; text-align: center;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-        </div>
-      </div>
-    `,
+    subject: `📄 Your ${reportType} export for ${groupName || 'all groups'} is ready`,
+    html: buildEmail(
+      { title: 'Export Ready', subtitle: 'Your report is ready to download', icon: '📄', variant: 'gradient' },
+      `
+        ${greetingComponent(userName)}
+        ${textComponent(`Your <strong>${reportType}</strong> export is ready for download.`)}
+        
+        ${cardComponent(`
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            ${infoRowComponent('Report Type', reportType)}
+            ${infoRowComponent('Group', groupName || 'All Groups')}
+            ${infoRowComponent('Date Range', dateRange || 'All Time')}
+          </table>
+        `)}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('📥 Download Report', downloadUrl, { variant: 'success', size: 'large' })}
+          </td></tr>
+        </table>
+        
+        ${textComponent('This download link expires in 24 hours.', { variant: 'muted', align: 'center' })}
+      `
+    ),
   }),
 
-  // Payment Method Reminder
+  // ============================================
+  // PAYMENT METHOD REMINDER
+  // ============================================
   paymentMethodReminder: (userName, pendingAmount) => ({
-    subject: 'Complete your payment profile to receive settlements',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%); padding: 24px; border-radius: 12px 12px 0 0;">
-          <h1 style="color: white; margin: 0; font-size: 24px;">💳 Complete Your Profile</h1>
-        </div>
-        <div style="border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 12px 12px; padding: 24px;">
-          <p>Hi ${userName},</p>
-          <p>You have <strong>₹${pendingAmount.toLocaleString()}</strong> in pending settlements, but your payment details are incomplete.</p>
-          
-          <div style="background: #FFFBEB; border: 1px solid #FCD34D; padding: 16px; border-radius: 8px; margin: 16px 0;">
-            <p style="margin: 0; color: #92400E;">
-              <strong>Add your UPI ID</strong> to receive payments directly to your account.
-            </p>
-          </div>
-
-          <div style="margin: 24px 0; text-align: center;">
-            <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/profile" 
-               style="background-color: #4F46E5; color: white; padding: 12px 32px; text-decoration: none; border-radius: 6px; display: inline-block;">
-              Update Payment Details
-            </a>
-          </div>
-          <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-          <p style="color: #9CA3AF; font-size: 11px; text-align: center;">Need help? Contact us at <a href="mailto:notifications.splitit@gmail.com" style="color: #4F46E5;">notifications.splitit@gmail.com</a></p>
-        </div>
-      </div>
-    `,
+    subject: `💳 Add your UPI ID - ${formatCurrency(pendingAmount)} waiting for you!`,
+    html: buildEmail(
+      { title: 'Complete Your Profile', subtitle: 'Set up payments to receive money easily', icon: '💳', variant: 'warning' },
+      `
+        ${greetingComponent(userName)}
+        ${textComponent(`You have <strong>${formatCurrency(pendingAmount)}</strong> in pending settlements, but your payment details are incomplete.`)}
+        
+        ${alertComponent(`<strong>Add your UPI ID</strong> to receive payments directly to your account.`, { variant: 'warning' })}
+        
+        ${cardComponent(`
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            <tr>
+              <td style="font-size: 24px; padding-right: 12px; vertical-align: top;">💡</td>
+              <td>
+                <p style="margin: 0 0 8px; font-weight: 600; color: ${brand.colors.textPrimary};">Why add your UPI ID?</p>
+                <ul style="margin: 0; padding-left: 20px; color: ${brand.colors.textSecondary};">
+                  <li style="margin-bottom: 4px;">Receive payments instantly</li>
+                  <li style="margin-bottom: 4px;">Friends can pay you directly</li>
+                  <li>Easy settlement tracking</li>
+                </ul>
+              </td>
+            </tr>
+          </table>
+        `, { variant: 'info' })}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('Update Payment Details', `${brand.clientUrl}/profile`, { size: 'large' })}
+          </td></tr>
+        </table>
+      `
+    ),
   }),
 };
 

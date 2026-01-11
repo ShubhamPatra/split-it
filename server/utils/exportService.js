@@ -2,6 +2,7 @@
  * Export Service
  * 
  * Handles generating and emailing expense reports.
+ * Uses the modern Split-It email template system for consistent branding.
  */
 
 import Expense from '../models/Expense.js';
@@ -10,6 +11,16 @@ import Group from '../models/Group.js';
 import User from '../models/User.js';
 import { emailQueue } from '../config/queue.js';
 import { checkEmailPreference } from './emailUtils.js';
+import {
+  brand,
+  formatDate,
+  buildEmail,
+  buttonComponent,
+  cardComponent,
+  infoRowComponent,
+  textComponent,
+  greetingComponent,
+} from './emailTemplates.js';
 
 /**
  * Generate CSV content from expenses
@@ -153,53 +164,37 @@ export async function generateAndEmailReport(userId, options = {}) {
 
     const groupName = groupId ? groups[0]?.name : null;
 
-    // Queue email with attachment
+    // Queue email with attachment using the new template system
+    const emailHtml = buildEmail(
+      { title: 'Export Ready', subtitle: 'Your report is attached to this email', icon: '📄', variant: 'gradient' },
+      `
+        ${greetingComponent(user.name)}
+        ${textComponent(`Your <strong>${reportType}</strong> export is attached to this email.`)}
+        
+        ${cardComponent(`
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            ${infoRowComponent('Report Type', reportType)}
+            ${infoRowComponent('Group', groupName || 'All Groups')}
+            ${infoRowComponent('Date Range', dateRange)}
+            ${infoRowComponent('Total Expenses', expenses.length.toString())}
+            ${infoRowComponent('Total Settlements', settlements.length.toString())}
+          </table>
+        `)}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('View Analytics', `${brand.clientUrl}/analytics`)}
+          </td></tr>
+        </table>
+        
+        ${textComponent('📎 The export file is attached to this email.', { variant: 'muted', align: 'center' })}
+      `
+    );
+
     await emailQueue.add({
       to: user.email,
-      subject: `Your ${reportType} export for ${groupName || 'all groups'} is ready`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); padding: 24px; border-radius: 12px 12px 0 0;">
-            <h1 style="color: white; margin: 0; font-size: 24px;">📄 Export Ready</h1>
-          </div>
-          <div style="border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 12px 12px; padding: 24px;">
-            <p>Hi ${user.name},</p>
-            <p>Your ${reportType} export is attached to this email.</p>
-            
-            <div style="background: #F9FAFB; padding: 16px; border-radius: 8px; margin: 16px 0;">
-              <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                  <td style="padding: 8px 0; color: #6B7280;">Report Type</td>
-                  <td style="padding: 8px 0; text-align: right; font-weight: 600;">${reportType}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; color: #6B7280;">Group</td>
-                  <td style="padding: 8px 0; text-align: right; font-weight: 600;">${groupName || 'All Groups'}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; color: #6B7280;">Date Range</td>
-                  <td style="padding: 8px 0; text-align: right; font-weight: 600;">${dateRange}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; color: #6B7280;">Total Expenses</td>
-                  <td style="padding: 8px 0; text-align: right; font-weight: 600;">${expenses.length}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; color: #6B7280;">Total Settlements</td>
-                  <td style="padding: 8px 0; text-align: right; font-weight: 600;">${settlements.length}</td>
-                </tr>
-              </table>
-            </div>
-
-            <div style="margin: 24px 0; text-align: center;">
-              <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/analytics" 
-                 style="background-color: #4F46E5; color: white; padding: 12px 32px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                View Analytics
-              </a>
-            </div>
-          </div>
-        </div>
-      `,
+      subject: `📄 Your ${reportType} export for ${groupName || 'all groups'} is ready`,
+      html: emailHtml,
       attachments: [
         {
           filename: `split-it-export-${new Date().toISOString().split('T')[0]}.csv`,

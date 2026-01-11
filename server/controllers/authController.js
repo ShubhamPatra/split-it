@@ -3,6 +3,16 @@ import Notification from '../models/Notification.js';
 import { generateToken, generateRefreshToken } from '../middleware/authMiddleware.js';
 import crypto from 'crypto';
 import { sendEmail } from '../config/email.js';
+import {
+  brand,
+  buildEmail,
+  buttonComponent,
+  cardComponent,
+  alertComponent,
+  textComponent,
+  greetingComponent,
+  dividerComponent,
+} from '../utils/emailTemplates.js';
 
 // Helper to create UPI reminder notification
 const createUpiReminderIfNeeded = async (user) => {
@@ -347,22 +357,35 @@ export const forgotPassword = async (req, res) => {
     // Create reset URL to send via email
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}`;
 
-    const html = `
-      <h2>Password Reset Request</h2>
-      <p>Hi ${user.name},</p>
-      <p>You requested a password reset. Click the link below to reset your password:</p>
-      <p><a href="${resetUrl}" style="background-color: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Reset Password</a></p>
-      <p>Or copy and paste this link in your browser:</p>
-      <p>${resetUrl}</p>
-      <p><strong>This link will expire in 1 hour.</strong></p>
-      <p>If you didn't request a password reset, please ignore this email.</p>
-      <p>Best regards,<br>Split-It Team</p>
-    `;
+    const html = buildEmail(
+      { title: 'Reset Your Password', subtitle: 'Password recovery request', icon: '🔐', variant: 'gradient' },
+      `
+        ${greetingComponent(user.name)}
+        ${textComponent("You requested a password reset for your Split-It account. Click the button below to create a new password:")}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('Reset Password', resetUrl, { variant: 'primary', size: 'large' })}
+          </td></tr>
+        </table>
+        
+        ${cardComponent(`
+          <p style="margin: 0 0 8px; font-size: ${brand.fonts.sizeSmall}; color: ${brand.colors.textMuted};">Or copy and paste this link in your browser:</p>
+          <p style="margin: 0; font-size: ${brand.fonts.sizeSmall}; color: ${brand.colors.primary}; word-break: break-all;">${resetUrl}</p>
+        `, { variant: 'default', padding: 'medium' })}
+        
+        ${alertComponent('<strong>This link will expire in 1 hour.</strong> If you didn\'t request a password reset, please ignore this email.', { variant: 'warning' })}
+        
+        ${dividerComponent()}
+        ${textComponent("For security reasons, never share this link with anyone.", { variant: 'small', align: 'center' })}
+      `,
+      { showPreferences: false, showSupport: true }
+    );
 
     // Send email
     await sendEmail({
       to: user.email,
-      subject: 'Password Reset Request - Split-It',
+      subject: '🔐 Password Reset Request - Split-It',
       html,
     });
 
@@ -415,17 +438,28 @@ export const resetPassword = async (req, res) => {
     await user.save();
 
     // Send confirmation email
-    const html = `
-      <h2>Password Reset Successful</h2>
-      <p>Hi ${user.name},</p>
-      <p>Your password has been successfully reset.</p>
-      <p>If you didn't make this change, please contact our support team immediately.</p>
-      <p>Best regards,<br>Split-It Team</p>
-    `;
+    const html = buildEmail(
+      { title: 'Password Reset Successful', subtitle: 'Your password has been changed', icon: '✅', variant: 'success' },
+      `
+        ${greetingComponent(user.name)}
+        ${alertComponent('Your password has been successfully reset.', { variant: 'success' })}
+        
+        ${textComponent("You can now log in to your Split-It account with your new password.")}
+        
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+          <tr><td align="center">
+            ${buttonComponent('Login to Split-It', `${brand.clientUrl}/login`, { variant: 'primary', size: 'large' })}
+          </td></tr>
+        </table>
+        
+        ${alertComponent('<strong>Security Notice:</strong> If you didn\'t make this change, please contact our support team immediately at ' + brand.supportEmail, { variant: 'warning' })}
+      `,
+      { showPreferences: false, showSupport: true }
+    );
 
     await sendEmail({
       to: user.email,
-      subject: 'Password Reset Confirmation - Split-It',
+      subject: '✅ Password Reset Confirmation - Split-It',
       html,
     });
 
