@@ -9,8 +9,40 @@ export const registerServiceWorker = async () => {
   }
 
   try {
-    const registration = await navigator.serviceWorker.register('/service-worker.js');
+    const registration = await navigator.serviceWorker.register('/service-worker.js', {
+      updateViaCache: 'none' // Always check for service worker updates
+    });
     console.log('Service worker registered');
+
+    // Check for updates immediately
+    registration.update();
+
+    // Check for updates periodically (every 5 minutes)
+    setInterval(() => {
+      registration.update();
+    }, 5 * 60 * 1000);
+
+    // Handle service worker updates
+    registration.addEventListener('updatefound', () => {
+      const newWorker = registration.installing;
+      if (newWorker) {
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // New content is available, prompt user to refresh
+            console.log('New version available! Refreshing...');
+            // Auto-reload for seamless updates
+            window.location.reload();
+          }
+        });
+      }
+    });
+
+    // Handle controller change (when skipWaiting is called)
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      // New service worker has taken control
+      console.log('New service worker activated');
+    });
+
     return registration;
   } catch (error) {
     console.error('Service worker registration failed:', error);

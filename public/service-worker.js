@@ -1,29 +1,26 @@
 /* eslint-disable no-restricted-globals */
 
-const CACHE_NAME = 'split-it-v2';
-const RUNTIME_CACHE = 'split-it-runtime';
+const CACHE_NAME = 'split-it-v3';
+const RUNTIME_CACHE = 'split-it-runtime-v3';
 const MAX_CACHE_SIZE = 50;
-const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
-// Only cache assets that don't change names between builds
-// Hashed JS/CSS assets will be cached at runtime on first fetch
+// NEVER cache index.html - it must always be fetched fresh to get new asset references
+// Only cache truly static assets that don't change between builds
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/logo192.png',
 ];
 
-// Install event - cache shell assets only (not hashed build files)
+// Install event - cache shell assets only (not index.html or hashed build files)
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => cache.addAll(STATIC_ASSETS))
-      .then(() => self.skipWaiting())
+      .then(() => self.skipWaiting()) // Take over immediately
   );
 });
 
-// Activate event - cleanup old caches
+// Activate event - cleanup old caches and take control immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
@@ -34,11 +31,11 @@ self.addEventListener('activate', (event) => {
             .map(name => caches.delete(name))
         );
       })
-      .then(() => self.clients.claim())
+      .then(() => self.clients.claim()) // Take control of all clients immediately
   );
 });
 
-// Fetch event - network first, fallback to cache
+// Fetch event - network first for HTML, cache first for hashed assets
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -46,13 +43,13 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (request.method !== 'GET') return;
 
-  // API requests - NEVER cache authenticated API responses (security risk)
-  // Always go to network, only fallback to cache for public endpoints
+  // Skip cross-origin requests
+  if (url.origin !== location.origin) return;
+
+  // API requests - NEVER cache (security risk with authenticated data)
   if (url.pathname.startsWith('/api/')) {
-    // Skip caching for all API requests to prevent sensitive data leakage
     event.respondWith(
       fetch(request).catch(() => {
-        // Only provide offline fallback for health check
         if (url.pathname === '/api/health') {
           return new Response(JSON.stringify({ status: 'offline' }), {
             headers: { 'Content-Type': 'application/json' }
@@ -67,11 +64,30 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Hashed static assets (JS/CSS with hash in filename) - cache first, long-lived
+  // Navigation requests (HTML pages) - ALWAYS network first, no caching
+  // This ensures users always get the latest index.html with new asset references
+  if (request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          // Return fresh response, don't cache HTML
+          return response;
+        })
+        .catch(() => {
+          // Offline fallback - try cache as last resort
+          return caches.match('/').then(cached => {
+            if (cached) return cached;
+            return new Response('Offline', { status: 503 });
+          });
+        })
+    );
+    return;
+  }
+  
+  // Hashed static assets (JS/CSS with hash in filename) - cache first, immutable
   const isHashedAsset = url.pathname.match(/\/static\/(js|css)\/.*\.[a-f0-9]+\.(js|css)$/);
   
   if (isHashedAsset) {
-    // Hashed assets are immutable - cache first, never expire
     event.respondWith(
       caches.match(request)
         .then(cached => {
@@ -82,7 +98,6 @@ self.addEventListener('fetch', (event) => {
                 const responseClone = response.clone();
                 caches.open(RUNTIME_CACHE).then(async (cache) => {
                   await cache.put(request, responseClone);
-                  // Limit cache size for runtime cached assets
                   await limitCacheSize(RUNTIME_CACHE, MAX_CACHE_SIZE);
                 });
               }
@@ -94,38 +109,24 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Other static assets - stale-while-revalidate strategy
-  // Returns cached version immediately, then updates cache in background
+  // Other static assets (images, fonts, etc.) - network first with cache fallback
   event.respondWith(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      const cachedResponse = await cache.match(request);
-      
-      // Fetch in background to update cache
-      const fetchPromise = fetch(request)
-        .then(networkResponse => {
-          if (networkResponse.ok) {
-            cache.put(request, networkResponse.clone());
-          }
-          return networkResponse;
-        })
-        .catch(() => null);
-      
-      // Return cached response immediately if available
-      // Otherwise wait for network
-      if (cachedResponse) {
-        // Fire-and-forget background update
-        fetchPromise.catch(() => {});
-        return cachedResponse;
-      }
-      
-      // No cache, wait for network
-      const networkResponse = await fetchPromise;
-      if (networkResponse) {
-        return networkResponse;
-      }
-      
-      return new Response('Offline', { status: 503 });
-    })
+    fetch(request)
+      .then(response => {
+        if (response.ok) {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(request, responseClone);
+          });
+        }
+        return response;
+      })
+      .catch(() => {
+        return caches.match(request).then(cached => {
+          if (cached) return cached;
+          return new Response('Offline', { status: 503 });
+        });
+      })
   );
 });
 
