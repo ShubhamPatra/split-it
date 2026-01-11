@@ -8,57 +8,141 @@ const isLocalhost = (ip) => {
   return ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1' || ip?.includes('localhost');
 };
 
+// Track if we've already logged the in-memory fallback warning
+let hasLoggedInMemoryWarning = false;
+
 /**
  * Check if Redis is ready for use with rate limiting.
  * Returns true if Redis client exists and is in 'ready' status.
+ * More robust check for Redis OSS compatibility.
  */
 const isRedisReady = () => {
-  return redis && redis.status === 'ready';
+  if (!redis) return false;
+  // Check for ready status - compatible with Redis OSS
+  return redis.status === 'ready';
 };
 
 /**
  * Create a rate limit store based on Redis availability.
  * Falls back to in-memory store if Redis is not ready.
+ * Wrapped in try-catch for graceful degradation during Redis OSS migration.
  */
 const createRateLimitStore = () => {
-  if (isRedisReady()) {
-    return new RedisStore({
-      // Use sendCommand for ioredis compatibility (rate-limit-redis v4+)
-      sendCommand: (...args) => redis.call(...args),
-      prefix: 'rl:',
-    });
+  if (!isRedisReady()) {
+    if (!hasLoggedInMemoryWarning) {
+      console.warn('Rate limiter: Redis not ready, using in-memory store');
+      hasLoggedInMemoryWarning = true;
+    }
+    return undefined;
   }
   
-  // Fall back to in-memory store (express-rate-limit default)
-  console.warn('Rate limiter: Redis not ready, using in-memory store');
-  return undefined;
+  try {
+    const store = new RedisStore({
+      // Use sendCommand for ioredis compatibility (rate-limit-redis v4+)
+      sendCommand: (...args) => redis.call(...args),
+      // Use hash tag prefix for Redis Cluster compatibility: {rl}:prefix:key
+      prefix: '{rl}:',
+    });
+    console.log('Rate limiter: Using Redis store');
+    return store;
+  } catch (err) {
+    console.warn('Rate limiter: Failed to create Redis store, falling back to in-memory:', err.message);
+    return undefined;
+  }
 };
 
 // Rate limiting middleware with Redis (falls back to in-memory if Redis unavailable)
+// Uses dynamic store selection to handle Redis disconnects/reconnects gracefully
 export const rateLimiter = (options = {}) => {
   const windowMs = options.windowMs || 15 * 60 * 1000;
   const windowSeconds = Math.ceil(windowMs / 1000);
   
-  // Determine store at middleware creation time
-  const store = createRateLimitStore();
+  // Capture caller-provided skip function to merge with default localhost bypass
+  const userSkip = options.skip;
   
-  return rateLimit({
+  // Track cached middleware instances for Redis and in-memory
+  let redisLimiter = null;
+  let memoryLimiter = null;
+  let lastRedisStatus = null;
+  
+  // Create the base config shared between Redis and in-memory limiters
+  const createBaseConfig = () => ({
     windowMs,
     max: options.max || 100,
     message: options.message || 'Too many requests',
     standardHeaders: true,
     legacyHeaders: false,
-    ...(store && { store }), // Only set store if Redis is available
-    skip: (req) => process.env.NODE_ENV === 'development' && isLocalhost(req.ip),
-    handler: (req, res, next, options) => {
+    // Merge default localhost dev skip with caller-provided skip logic
+    skip: (req) => {
+      // Skip if in development and from localhost
+      if (process.env.NODE_ENV === 'development' && isLocalhost(req.ip)) {
+        return true;
+      }
+      // Also skip if caller-provided skip function returns true
+      if (userSkip && userSkip(req)) {
+        return true;
+      }
+      return false;
+    },
+    handler: (req, res, next, opts) => {
       // Add Retry-After header with window duration in seconds
       res.setHeader('Retry-After', String(windowSeconds));
       res.status(429).json({
-        message: options.message || `Too many requests. Please wait ${windowSeconds} seconds.`,
+        message: opts.message || `Too many requests. Please wait ${windowSeconds} seconds.`,
         retryAfter: windowSeconds,
       });
     },
   });
+  
+  // Create in-memory limiter (lazy)
+  const getMemoryLimiter = () => {
+    if (!memoryLimiter) {
+      memoryLimiter = rateLimit(createBaseConfig());
+    }
+    return memoryLimiter;
+  };
+  
+  // Create Redis limiter (lazy, recreated when Redis reconnects)
+  const getRedisLimiter = () => {
+    // If Redis status changed from non-ready to ready, rebuild the limiter
+    const currentStatus = redis?.status;
+    if (currentStatus === 'ready' && lastRedisStatus !== 'ready') {
+      redisLimiter = null; // Force rebuild
+    }
+    lastRedisStatus = currentStatus;
+    
+    if (!redisLimiter && isRedisReady()) {
+      try {
+        const store = new RedisStore({
+          sendCommand: (...args) => redis.call(...args),
+          prefix: '{rl}:',
+        });
+        redisLimiter = rateLimit({
+          ...createBaseConfig(),
+          store,
+        });
+        console.log('Rate limiter: Created/rebuilt Redis store');
+      } catch (err) {
+        console.warn('Rate limiter: Failed to create Redis store:', err.message);
+        redisLimiter = null;
+      }
+    }
+    return redisLimiter;
+  };
+  
+  // Return a middleware that dynamically selects the appropriate limiter per-request
+  return (req, res, next) => {
+    // Check Redis status on each request - use Redis limiter only if ready
+    if (isRedisReady()) {
+      const limiter = getRedisLimiter();
+      if (limiter) {
+        return limiter(req, res, next);
+      }
+    }
+    
+    // Fall back to in-memory limiter when Redis is not ready
+    return getMemoryLimiter()(req, res, next);
+  };
 };
 
 /**

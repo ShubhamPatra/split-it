@@ -4,7 +4,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import connectDB from './config/db.js';
-import redis, { closeRedis } from './config/redis.js';
+import redis, { closeRedis, connectRedis, verifyRedisConnection } from './config/redis.js';
 import { initializeSocket, createRedisAdapter } from './config/socket.js';
 import { createIndexes } from './utils/dbIndexes.js';
 import { securityHeaders, sanitizeInput, rateLimiter, waitForRedis } from './middleware/security.js';
@@ -45,23 +45,68 @@ connectDB().then(() => {
   createIndexes();
 });
 
+// Track Redis readiness state for use in health checks
+let redisReady = false;
+
+// Set up Redis event listeners to track connection state
+if (redis) {
+  redis.on('ready', async () => {
+    // Re-verify connection on ready event
+    try {
+      const pong = await redis.ping();
+      if (pong === 'PONG') {
+        redisReady = true;
+        console.log('Redis: Connection ready (event)');
+      }
+    } catch (err) {
+      redisReady = false;
+      console.warn('Redis: Ready event fired but ping failed:', err.message);
+    }
+  });
+
+  redis.on('error', (err) => {
+    redisReady = false;
+    // Avoid verbose logging for expected connection refused in dev
+    if (!(process.env.NODE_ENV !== 'production' && err.code === 'ECONNREFUSED')) {
+      console.error('Redis: Connection error (event):', err.message);
+    }
+  });
+
+  redis.on('close', () => {
+    redisReady = false;
+    console.log('Redis: Connection closed (event)');
+  });
+}
+
 // Verify Redis connection on startup and wait for readiness
 const initRedis = async () => {
   try {
+    // Explicitly connect to Redis (required when lazyConnect is true)
+    const connected = await connectRedis();
+    if (!connected) {
+      console.warn('Redis: Initial connection failed');
+      return false;
+    }
+    
     // Wait for Redis to be ready (with timeout)
     const isReady = await waitForRedis(5000);
     if (isReady) {
-      await redis.ping();
-      console.log('Redis: Connection verified');
-    } else {
-      console.warn('Redis: Not ready, rate limiting will use in-memory store');
+      // Verify connection with ping
+      const verified = await verifyRedisConnection(3000);
+      if (verified) {
+        console.log('Redis: Connection verified and ready');
+        redisReady = true;
+        return true;
+      }
     }
+    
+    console.warn('Redis: Not ready, rate limiting will use in-memory store');
+    return false;
   } catch (err) {
     console.error('Redis: Failed to verify connection:', err.message);
+    return false;
   }
 };
-
-initRedis();
 
 // Initialize Express app
 const app = express();
@@ -74,127 +119,174 @@ if (process.env.NODE_ENV === 'production') {
 // Create HTTP server
 const httpServer = createServer(app);
 
-// Create Redis adapter for Socket.IO horizontal scaling (optional in dev)
-const redisAdapterResult = createRedisAdapter();
-const pubClient = redisAdapterResult?.pubClient;
-const subClient = redisAdapterResult?.subClient;
-const redisAdapter = redisAdapterResult?.adapter;
+// Variables for Redis adapter (will be set during async initialization)
+let pubClient = null;
+let subClient = null;
+let io = null;
 
-if (redisAdapter) {
-  console.log('Socket.IO: Redis adapter created for horizontal scaling');
-}
+/**
+ * Async initialization function that ensures proper startup order:
+ * 1. Connect to MongoDB
+ * 2. Wait for Redis to be ready (with timeout)
+ * 3. Create Redis adapter for Socket.IO
+ * 4. Initialize Socket.IO
+ * 5. Set up middleware (including rate limiters)
+ * 6. Register routes
+ * 7. Start HTTP server
+ */
+const initializeServer = async () => {
+  // Wait for Redis to be ready before setting up middleware
+  await initRedis();
+  
+  // Create Redis adapter for Socket.IO horizontal scaling (optional in dev)
+  const redisAdapterResult = createRedisAdapter();
+  pubClient = redisAdapterResult?.pubClient;
+  subClient = redisAdapterResult?.subClient;
+  const redisAdapter = redisAdapterResult?.adapter;
 
-// Initialize Socket.IO with Redis adapter (if available)
-const io = initializeSocket(httpServer, redisAdapter);
-
-// Store io instance on app for use in controllers
-app.set('io', io);
-
-// Pass io to notification controller
-import { setIo } from './controllers/notificationController.js';
-setIo(io);
-
-// Initialize Bull queue workers
-console.log('Initializing background workers...');
-initEmailWorker();
-initNotificationWorker(io);
-initBalanceWorker();
-initRecurringExpenseWorker();
-initDigestWorker();
-initDueReminderWorker();
-console.log('Background workers initialized');
-
-// Security middleware (should be first)
-app.use(securityHeaders);
-
-// CORS configuration
-const corsOptions = {
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
-  credentials: true,
-  optionsSuccessStatus: 200
-};
-app.use(cors(corsOptions));
-
-// Cookie parser middleware (must be before auth routes)
-app.use(cookieParser());
-
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' })); // Limit payload size
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Input sanitization
-app.use(sanitizeInput);
-
-// Global rate limiting (1000 requests per 15 minutes per IP)
-// Auth routes have their own stricter rate limiting
-// Chat message routes have their own rate limiting (100 req/min)
-app.use(rateLimiter({
-  max: 1000,
-  windowMs: 15 * 60 * 1000,
-  message: 'Too many requests from this IP. Please try again later.',
-  skip: (req) => req.path.startsWith('/api/auth/'), // Auth routes have their own rate limit
-}));
-
-// Request logging middleware (only in development)
-if (process.env.NODE_ENV !== 'production') {
-  app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-    next();
-  });
-}
-
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/groups', groupRoutes);
-app.use('/api/groups', chatRoutes); // Chat routes nested under groups
-app.use('/api/messages', chatRoutes); // Messages routes for batch operations like /api/messages/unread-counts
-app.use('/api/expenses', expenseRoutes);
-app.use('/api/settlements', settlementRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/push', pushRoutes);
-app.use('/api/ocr', ocrRoutes);
-app.use('/api/invites', inviteRoutes);
-
-// Health check route
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  // Log error details (in production, use proper logging service)
-  if (process.env.NODE_ENV !== 'production') {
-    console.error('Error occurred:', {
-      message: err.message,
-      stack: err.stack,
-      path: req.path,
-      method: req.method,
-      timestamp: new Date().toISOString()
-    });
-  } else {
-    // In production, log only essential info
-    console.error(`Error: ${err.message} - Path: ${req.path}`);
+  if (redisAdapter) {
+    console.log('Socket.IO: Redis adapter created for horizontal scaling');
   }
 
-  // Don't leak error details in production
-  const isDev = process.env.NODE_ENV === 'development';
+  // Initialize Socket.IO with Redis adapter (if available)
+  io = initializeSocket(httpServer, redisAdapter);
+
+  // Store io instance on app for use in controllers
+  app.set('io', io);
+
+  // Pass io to notification controller
+  const { setIo } = await import('./controllers/notificationController.js');
+  setIo(io);
+
+  // Initialize Bull queue workers
+  console.log('Initializing background workers...');
+  initEmailWorker();
+  initNotificationWorker(io);
+  initBalanceWorker();
+  initRecurringExpenseWorker();
+  initDigestWorker();
+  initDueReminderWorker();
+  console.log('Background workers initialized');
+
+  // Security middleware (should be first)
+  app.use(securityHeaders);
+
+  // CORS configuration
+  const corsOptions = {
+    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    credentials: true,
+    optionsSuccessStatus: 200
+  };
+  app.use(cors(corsOptions));
+
+  // Cookie parser middleware (must be before auth routes)
+  app.use(cookieParser());
+
+  // Body parsing middleware
+  app.use(express.json({ limit: '10mb' })); // Limit payload size
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // Input sanitization
+  app.use(sanitizeInput);
+
+  // Global rate limiting (1000 requests per 15 minutes per IP)
+  // Auth routes have their own stricter rate limiting
+  // Chat message routes have their own rate limiting (100 req/min)
+  // Lazy-initialized: starts with in-memory and auto-upgrades to Redis when available
+  let _globalRateLimiter = null;
+  const globalRateLimitOptions = {
+    max: 1000,
+    windowMs: 15 * 60 * 1000,
+    message: 'Too many requests from this IP. Please try again later.',
+    skip: (req) => req.path.startsWith('/api/auth/'), // Auth routes have their own rate limit
+  };
   
-  res.status(err.status || 500).json({
-    message: err.status === 500 && !isDev ? 'Internal Server Error' : err.message,
-    ...(isDev && { stack: err.stack })
+  app.use((req, res, next) => {
+    // Lazy-initialize rate limiter on first request (allows Redis to connect)
+    // The rateLimiter function handles dynamic store selection per-request
+    if (!_globalRateLimiter) {
+      _globalRateLimiter = rateLimiter(globalRateLimitOptions);
+    }
+    return _globalRateLimiter(req, res, next);
   });
-});
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ message: 'Route not found' });
-});
+  // Request logging middleware (only in development)
+  if (process.env.NODE_ENV !== 'production') {
+    app.use((req, res, next) => {
+      console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+      next();
+    });
+  }
 
-// Start server
-const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  // Routes
+  app.use('/api/auth', authRoutes);
+  app.use('/api/groups', groupRoutes);
+  app.use('/api/groups', chatRoutes); // Chat routes nested under groups
+  app.use('/api/messages', chatRoutes); // Messages routes for batch operations like /api/messages/unread-counts
+  app.use('/api/expenses', expenseRoutes);
+  app.use('/api/settlements', settlementRoutes);
+  app.use('/api/notifications', notificationRoutes);
+  app.use('/api/users', userRoutes);
+  app.use('/api/push', pushRoutes);
+  app.use('/api/ocr', ocrRoutes);
+  app.use('/api/invites', inviteRoutes);
+
+  // Health check route with Redis status
+  app.get('/api/health', async (req, res) => {
+    const redisStatus = redis && redis.status === 'ready' ? 'connected' : 'disconnected';
+    const rateLimitStore = redisReady ? 'redis' : 'in-memory';
+    
+    res.json({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(),
+      redis: {
+        status: redisStatus,
+        rateLimitStore: rateLimitStore
+      }
+    });
+  });
+
+  // Error handling middleware
+  app.use((err, req, res, next) => {
+    // Log error details (in production, use proper logging service)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Error occurred:', {
+        message: err.message,
+        stack: err.stack,
+        path: req.path,
+        method: req.method,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      // In production, log only essential info
+      console.error(`Error: ${err.message} - Path: ${req.path}`);
+    }
+
+    // Don't leak error details in production
+    const isDev = process.env.NODE_ENV === 'development';
+    
+    res.status(err.status || 500).json({
+      message: err.status === 500 && !isDev ? 'Internal Server Error' : err.message,
+      ...(isDev && { stack: err.stack })
+    });
+  });
+
+  // 404 handler
+  app.use((req, res) => {
+    res.status(404).json({ message: 'Route not found' });
+  });
+
+  // Start server
+  const PORT = process.env.PORT || 5000;
+  httpServer.listen(PORT, () => {
+    console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  });
+};
+
+// Start the async initialization
+initializeServer().catch((err) => {
+  console.error('Failed to initialize server:', err);
+  process.exit(1);
 });
 
 // Graceful shutdown handler

@@ -15,17 +15,21 @@ const isDev = process.env.NODE_ENV !== 'production';
 /**
  * Build Redis configuration with support for:
  * - Local Redis (development)
- * - Amazon ElastiCache (production)
+ * - Amazon ElastiCache for Redis OSS (production)
  * - Redis Cluster mode
  * - TLS/SSL connections
+ * 
+ * Note: Configuration optimized for Redis OSS compatibility.
+ * If migrating from Valkey, connection characteristics may differ.
  */
 const buildRedisConfig = () => {
   const config = {
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-    maxRetriesPerRequest: null, // Required for BullMQ compatibility
-    enableReadyCheck: true,
-    enableOfflineQueue: true, // Queue commands while connecting
+    maxRetriesPerRequest: null, // Required for BullMQ and rate-limit-redis compatibility
+    enableReadyCheck: false, // Disable for Bull queue compatibility (prevents LOADING errors)
+    enableOfflineQueue: false, // Prevent commands from queuing when not connected
+    lazyConnect: true, // Prevent immediate connection attempts during import
     retryStrategy: (times) => {
       if (times > 3) {
         if (isDev) {
@@ -37,15 +41,16 @@ const buildRedisConfig = () => {
           return null;
         }
       }
-      const delay = Math.min(times * 200, 2000);
+      // More conservative retry strategy for production ElastiCache Redis OSS
+      const delay = Math.min(times * 500, 5000);
       console.log(`Redis: Retrying connection in ${delay}ms (attempt ${times})`);
       return delay;
     },
-    // Handle cluster-specific errors gracefully
+    // Handle cluster-specific errors gracefully (Redis OSS compatible)
     reconnectOnError: (err) => {
-      const targetError = 'READONLY' || 'CLUSTERDOWN' || 'LOADING';
-      if (err.message.includes(targetError)) {
-        // Only reconnect when the error is about cluster state
+      const targetErrors = ['READONLY', 'CLUSTERDOWN', 'LOADING'];
+      if (targetErrors.some(e => err.message.includes(e))) {
+        // Reconnect when the error is about cluster state
         return true;
       }
       return false;
@@ -153,6 +158,60 @@ export const isRedisAvailable = () => redisAvailable;
 
 // Export config for other modules that need Redis connection info
 export const getRedisConfig = () => buildRedisConfig();
+
+/**
+ * Explicitly connect to Redis and wait for ready state.
+ * Call this during server startup to ensure Redis is connected before use.
+ * @returns {Promise<boolean>} - True if connected successfully, false otherwise
+ */
+export const connectRedis = async () => {
+  if (!redis) return false;
+  if (redis.status === 'ready') return true;
+  
+  try {
+    // ioredis connect() returns a promise when lazyConnect is true
+    await redis.connect();
+    return true;
+  } catch (err) {
+    console.error('Redis: Failed to connect:', err.message);
+    return false;
+  }
+};
+
+/**
+ * Verify Redis connection by attempting a ping with timeout.
+ * Use this to check if Redis is truly ready for use.
+ * @param {number} timeoutMs - Maximum time to wait for ping response (default: 3000ms)
+ * @returns {Promise<boolean>} - True if ping succeeds, false otherwise
+ */
+export const verifyRedisConnection = async (timeoutMs = 3000) => {
+  if (!redis) {
+    console.warn('Redis: Client not initialized');
+    return false;
+  }
+  
+  if (redis.status !== 'ready' && redis.status !== 'connect') {
+    console.warn(`Redis: Client not in ready state (status: ${redis.status})`);
+    return false;
+  }
+  
+  try {
+    const pingPromise = redis.ping();
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Ping timeout')), timeoutMs);
+    });
+    
+    const result = await Promise.race([pingPromise, timeoutPromise]);
+    if (result === 'PONG') {
+      console.log('Redis: Connection verified with ping');
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.warn('Redis: Ping verification failed:', err.message);
+    return false;
+  }
+};
 
 // Graceful shutdown helper
 export const closeRedis = async () => {
