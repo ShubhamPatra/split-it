@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, Smartphone, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Link, Copy, Check, Wallet, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, Smartphone, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Link, Copy, Check, Wallet, AlertTriangle, Mail } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useChat } from '../context/ChatContext';
@@ -455,6 +455,10 @@ const GroupDetail = () => {
                     <DropdownMenuItem onClick={() => { exportFullReportToCsv(expenses, settlements, balances, group.name, getUserProfile); toast({ title: "CSV exported" }); }} className="cursor-pointer">
                       <FileSpreadsheet size={16} className="mr-2 text-green-500" />Download CSV
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={async () => { try { await apiClient.post('/expenses/export', { groupId: group.id }); toast({ title: "Report sent", description: "Check your email for the expense report" }); } catch (err) { toast({ title: "Failed to send", description: err.message || "Could not send report", variant: "destructive" }); } }} className="cursor-pointer">
+                      <Mail size={16} className="mr-2 text-blue-500" />Email Report
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Button variant="outline" size="sm" onClick={() => setIsSettleDialogOpen(true)} className="min-h-[44px] h-auto border-border/50 hover:border-success/30 hover:bg-success/5 hover:text-success"><CheckCircle size={16} className="sm:mr-1" /><span className="hidden sm:inline">Settle</span></Button>
@@ -777,45 +781,9 @@ const GroupDetail = () => {
         <DialogContent className="w-[calc(100%-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-base sm:text-lg">Manage Members</DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm">Invite new members by email or manage existing members</DialogDescription>
+            <DialogDescription className="text-xs sm:text-sm">View and manage group members</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 sm:space-y-6 py-4">
-            <div className="space-y-3">
-              <Label className="flex items-center gap-2 text-sm sm:text-base"><Link size={16} />Invite by Link</Label>
-              <div className="space-y-2">
-                {!inviteLink && !group?.inviteCode ? (
-                  <Button 
-                    onClick={handleGenerateInviteLink} 
-                    disabled={isGeneratingLink}
-                    variant="outline"
-                    className="w-full min-h-[44px] h-auto"
-                  >
-                    <Link size={16} className="mr-2" />
-                    {isGeneratingLink ? 'Generating...' : 'Generate Invite Link'}
-                  </Button>
-                ) : (
-                  <div className="flex gap-2">
-                    <Input 
-                      type="text" 
-                      value={inviteLink || `${window.location.origin}/join/${group?.inviteCode}`} 
-                      readOnly 
-                      className="flex-1 font-mono text-xs sm:text-sm min-h-[44px]" 
-                    />
-                    <Button onClick={handleCopyInviteLink} variant="outline" className="min-h-[44px] min-w-[44px]">
-                      {linkCopied ? <Check size={16} /> : <Copy size={16} />}
-                    </Button>
-                  </div>
-                )}
-                <p className="text-xs text-muted-foreground">Share this link with anyone to invite them to the group</p>
-              </div>
-            </div>
-            <div className="space-y-3">
-              <Label className="flex items-center gap-2 text-sm sm:text-base"><UserPlus size={16} />Invite by Email</Label>
-              <div className="flex gap-2">
-                <Input type="email" placeholder="Enter email address" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleInviteMember(); } }} className="flex-1 min-h-[44px]" />
-                <Button onClick={handleInviteMember} disabled={!inviteEmail.trim()} className="min-h-[44px]"><Plus size={16} />Invite</Button>
-              </div>
-            </div>
             <div className="space-y-3">
               <Label className="flex items-center gap-2 text-sm sm:text-base"><Users size={16} />Current Members ({group.members.length})</Label>
               <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto mobile-scroll">

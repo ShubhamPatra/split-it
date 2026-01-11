@@ -1,6 +1,8 @@
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
 import { generateToken, generateRefreshToken } from '../middleware/authMiddleware.js';
+import crypto from 'crypto';
+import { sendEmail } from '../config/email.js';
 
 // Helper to create UPI reminder notification
 const createUpiReminderIfNeeded = async (user) => {
@@ -68,12 +70,17 @@ export const register = async (req, res) => {
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       });
 
-      // Send welcome email (Comment 2)
+      // Send welcome email using template
       emailQueue.add({
+        template: 'welcome',
         to: user.email,
-        subject: 'Welcome to Split-It!',
-        html: `<h1>Welcome ${user.name}!</h1><p>Thank you for joining Split-It. Start splitting expenses with your friends and family today.</p>`,
-      }).catch(err => console.error('Email queue error:', err));
+        data: {
+          userName: user.name,
+        },
+      }).catch(err => console.error('Welcome email queue error:', err));
+
+      // Create UPI reminder notification for new users
+      createUpiReminderIfNeeded(user).catch(err => console.error('UPI reminder error:', err));
 
       res.status(201).json({
         success: true,
@@ -238,6 +245,7 @@ export const googleAuth = async (req, res) => {
 
     // Check if user exists
     let user = await User.findOne({ email });
+    let isNewUser = false;
 
     if (user) {
       // User exists, update googleId if not set
@@ -252,6 +260,7 @@ export const googleAuth = async (req, res) => {
         name,
         email,
       });
+      isNewUser = true;
     }
 
     // Generate token and set as HttpOnly cookie
@@ -272,6 +281,17 @@ export const googleAuth = async (req, res) => {
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
 
+    // Send welcome email for new Google users
+    if (isNewUser) {
+      emailQueue.add({
+        template: 'welcome',
+        to: user.email,
+        data: {
+          userName: user.name,
+        },
+      }).catch(err => console.error('Welcome email queue error:', err));
+    }
+
     // Send UPI reminder notification if not set
     createUpiReminderIfNeeded(user).catch(err => console.error('UPI reminder error:', err));
 
@@ -289,5 +309,131 @@ export const googleAuth = async (req, res) => {
   } catch (error) {
     console.error('Google auth error:', error);
     res.status(500).json({ message: error.message || 'Error authenticating with Google' });
+  }
+};
+
+// @desc    Forgot Password - Send reset email
+// @route   POST /api/auth/forgot-password
+// @access  Public
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: 'Please provide an email address' });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      // For security, don't reveal if email exists or not
+      return res.status(200).json({ 
+        message: 'If an account with that email exists, you will receive a password reset email shortly.' 
+      });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    
+    // Hash the token for storage
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    
+    // Save hashed token and expiry to user (valid for 1 hour)
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpire = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await user.save();
+
+    // Create reset URL to send via email
+    const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}`;
+
+    const html = `
+      <h2>Password Reset Request</h2>
+      <p>Hi ${user.name},</p>
+      <p>You requested a password reset. Click the link below to reset your password:</p>
+      <p><a href="${resetUrl}" style="background-color: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Reset Password</a></p>
+      <p>Or copy and paste this link in your browser:</p>
+      <p>${resetUrl}</p>
+      <p><strong>This link will expire in 1 hour.</strong></p>
+      <p>If you didn't request a password reset, please ignore this email.</p>
+      <p>Best regards,<br>Split-It Team</p>
+    `;
+
+    // Send email
+    await sendEmail({
+      to: user.email,
+      subject: 'Password Reset Request - Split-It',
+      html,
+    });
+
+    // Return success message (don't reveal if email was sent successfully for security)
+    res.status(200).json({ 
+      message: 'If an account with that email exists, you will receive a password reset email shortly.' 
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ message: 'Error processing password reset request' });
+  }
+};
+
+// @desc    Reset Password - Update password with token
+// @route   POST /api/auth/reset-password
+// @access  Public
+export const resetPassword = async (req, res) => {
+  try {
+    const { token, password, confirmPassword } = req.body;
+
+    if (!token || !password || !confirmPassword) {
+      return res.status(400).json({ message: 'Please provide token and new password' });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: 'Passwords do not match' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+
+    // Hash the token to match what's in the database
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Find user with matching reset token that hasn't expired
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpire: { $gt: Date.now() },
+    }).select('+resetPasswordToken +resetPasswordExpire');
+
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired reset token' });
+    }
+
+    // Update password
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save();
+
+    // Send confirmation email
+    const html = `
+      <h2>Password Reset Successful</h2>
+      <p>Hi ${user.name},</p>
+      <p>Your password has been successfully reset.</p>
+      <p>If you didn't make this change, please contact our support team immediately.</p>
+      <p>Best regards,<br>Split-It Team</p>
+    `;
+
+    await sendEmail({
+      to: user.email,
+      subject: 'Password Reset Confirmation - Split-It',
+      html,
+    });
+
+    res.status(200).json({ 
+      message: 'Password reset successfully. You can now login with your new password.' 
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: 'Error resetting password' });
   }
 };

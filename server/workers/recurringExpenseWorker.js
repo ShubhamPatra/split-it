@@ -13,7 +13,9 @@
  */
 
 import Expense from '../models/Expense.js';
-import { recurringQueue, notificationQueue } from '../config/queue.js';
+import User from '../models/User.js';
+import { recurringQueue, notificationQueue, emailQueue } from '../config/queue.js';
+import { checkEmailPreference } from '../utils/emailUtils.js';
 
 // Batch size for processing
 const BATCH_SIZE = 50;
@@ -218,6 +220,11 @@ export const initRecurringExpenseWorker = () => {
   // Process recurring expense jobs
   recurringQueue.process(async (job) => {
     log(`Recurring expense job ${job.id} started`);
+    
+    if (job.data.type === 'reminder') {
+      return sendRecurringExpenseReminders();
+    }
+    
     return processRecurringExpenses();
   });
 
@@ -237,8 +244,94 @@ export const initRecurringExpenseWorker = () => {
     console.error('Failed to initialize recurring expense scheduler:', err.message);
   });
 
+  // Schedule daily reminder emails for upcoming recurring expenses (9 AM)
+  recurringQueue.add(
+    { type: 'reminder' },
+    {
+      repeat: {
+        cron: '0 9 * * *', // Run at 9 AM daily
+      },
+      jobId: 'recurring-expense-reminder-scheduler',
+    }
+  ).then(() => {
+    log('Recurring expense reminder scheduler initialized (daily 9AM)');
+  }).catch((err) => {
+    console.error('Failed to initialize recurring expense reminder scheduler:', err.message);
+  });
+
   log('Recurring expense worker initialized');
 };
+
+/**
+ * Send reminder emails for upcoming recurring expenses
+ */
+async function sendRecurringExpenseReminders() {
+  log('Sending recurring expense reminders...');
+  
+  try {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(23, 59, 59, 999);
+
+    // Find recurring expenses due in the next 24 hours
+    const upcomingExpenses = await Expense.find({
+      'recurrence.enabled': true,
+      'recurrence.nextRunAt': { $lte: tomorrow, $gte: now },
+    })
+    .populate('paidBy', 'name email emailPreferences')
+    .populate('groupId', 'name')
+    .lean();
+
+    if (upcomingExpenses.length === 0) {
+      log('No upcoming recurring expenses');
+      return { sent: 0 };
+    }
+
+    // Group by user
+    const userExpenses = {};
+    for (const expense of upcomingExpenses) {
+      const userId = expense.paidBy._id.toString();
+      if (!userExpenses[userId]) {
+        userExpenses[userId] = {
+          user: expense.paidBy,
+          expenses: [],
+        };
+      }
+      userExpenses[userId].expenses.push({
+        description: expense.description,
+        amount: expense.amount,
+        groupName: expense.groupId?.name || 'Unknown',
+        nextRunAt: expense.recurrence.nextRunAt,
+      });
+    }
+
+    let sent = 0;
+    for (const userId of Object.keys(userExpenses)) {
+      const { user, expenses } = userExpenses[userId];
+      
+      // Check if user has preference enabled
+      const isEnabled = await checkEmailPreference(userId, 'recurringExpenseReminder');
+      if (!isEnabled) continue;
+
+      await emailQueue.add({
+        to: user.email,
+        template: 'recurringExpenseReminder',
+        data: {
+          userName: user.name,
+          expenses,
+        },
+      });
+      sent++;
+    }
+
+    log(`Recurring expense reminders sent: ${sent}`);
+    return { sent };
+  } catch (error) {
+    console.error('Error sending recurring expense reminders:', error);
+    throw error;
+  }
+}
 
 /**
  * Manually trigger recurring expense processing

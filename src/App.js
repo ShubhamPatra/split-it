@@ -13,12 +13,15 @@ import Loading from './components/common/Loading';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import OfflineIndicator from './components/common/OfflineIndicator';
 import PwaInstallPrompt from './components/common/PwaInstallPrompt';
+import PushNotificationPrompt from './components/common/PushNotificationPrompt';
 import './App.css';
 
 // Lazy load pages for better performance
 const Index = lazy(() => import('./pages/Index'));
 const Login = lazy(() => import('./pages/Login'));
 const Signup = lazy(() => import('./pages/Signup'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Groups = lazy(() => import('./pages/Groups'));
 const GroupDetail = lazy(() => import('./pages/GroupDetail'));
@@ -26,8 +29,11 @@ const AddExpense = lazy(() => import('./pages/AddExpense'));
 const Summary = lazy(() => import('./pages/Summary'));
 const Analytics = lazy(() => import('./pages/Analytics'));
 const Profile = lazy(() => import('./pages/Profile'));
+const NotificationSettings = lazy(() => import('./pages/NotificationSettings'));
 const JoinGroup = lazy(() => import('./pages/JoinGroup'));
 const NotFound = lazy(() => import('./pages/NotFound'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const TermsOfService = lazy(() => import('./pages/TermsOfService'));
 
 // PrivateRoute wrapper component
 const PrivateRoute = ({ children }) => {
@@ -66,6 +72,7 @@ function App() {
             <TooltipProvider>
               <OfflineIndicator />
               <PwaInstallPrompt />
+              <PushNotificationPrompt />
             <Toaster />
                   <Suspense fallback={<Loading />}>
                     <Routes>
@@ -73,7 +80,11 @@ function App() {
                     <Route path="/" element={<Index />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/signup" element={<Signup />} />
+                    <Route path="/forgot-password" element={<ForgotPassword />} />
+                    <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="/join/:inviteCode" element={<JoinGroup />} />
+                    <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+                    <Route path="/terms-of-service" element={<TermsOfService />} />
                     
                     {/* Protected Routes */}
                     <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
@@ -83,6 +94,7 @@ function App() {
                   <Route path="/summary" element={<PrivateRoute><Summary /></PrivateRoute>} />
                   <Route path="/analytics" element={<PrivateRoute><Analytics /></PrivateRoute>} />
                   <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
+                  <Route path="/settings/notifications" element={<PrivateRoute><NotificationSettings /></PrivateRoute>} />
                   
                   {/* Catch-all */}
                   <Route path="*" element={<NotFound />} />

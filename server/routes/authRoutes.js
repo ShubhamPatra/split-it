@@ -1,5 +1,5 @@
 import express from 'express';
-import { register, login, getMe, googleAuth, logout } from '../controllers/authController.js';
+import { register, login, getMe, googleAuth, logout, forgotPassword, resetPassword } from '../controllers/authController.js';
 import { protect, refreshAccessToken } from '../middleware/authMiddleware.js';
 import { registerValidation, loginValidation, validate } from '../middleware/validation.js';
 import { authRateLimit } from '../middleware/security.js';
@@ -12,6 +12,10 @@ router.post('/login', authRateLimit, loginValidation, validate, login);
 router.post('/google', authRateLimit, googleAuth);
 router.post('/logout', logout);
 router.get('/me', protect, getMe);
+
+// Password reset endpoints
+router.post('/forgot-password', authRateLimit, forgotPassword);
+router.post('/reset-password', authRateLimit, resetPassword);
 
 // Refresh token endpoint (Comment 11)
 router.post('/refresh', refreshAccessToken);

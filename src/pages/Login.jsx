@@ -193,7 +193,12 @@ const Login = () => {
 
             {/* Password Field */}
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm sm:text-base font-medium">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-sm sm:text-base font-medium">Password</Label>
+                <Link to="/forgot-password" className="text-xs sm:text-sm text-primary hover:text-primary-dark transition-colors font-medium">
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
                 <Input

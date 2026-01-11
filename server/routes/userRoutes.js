@@ -4,6 +4,10 @@ import {
   updateUserProfile,
   getUserById,
   searchUsers,
+  getEmailPreferences,
+  updateEmailPreferences,
+  getBudgetSettings,
+  updateBudgetSettings,
 } from '../controllers/userController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -19,6 +23,16 @@ router.route('/profile')
 router.route('/me')
   .get(getUserProfile)
   .put(updateUserProfile);
+
+// Email preferences routes
+router.route('/email-preferences')
+  .get(getEmailPreferences)
+  .put(updateEmailPreferences);
+
+// Budget settings routes
+router.route('/budget-settings')
+  .get(getBudgetSettings)
+  .put(updateBudgetSettings);
 
 router.get('/search', searchUsers);
 router.get('/:id', getUserById);

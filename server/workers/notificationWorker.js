@@ -80,6 +80,69 @@ export const initNotificationWorker = (io) => {
         }
       }
 
+      // Handle expense notifications - send push for new expenses
+      if (data?.actionType === 'expense_added' || data?.actionType === 'expense_updated') {
+        try {
+          const { sendPushToUser } = await import('../utils/pushNotifier.js');
+          await sendPushToUser(userId, {
+            title: title,
+            body: message,
+            icon: '/logo192.png',
+            badge: '/logo192.png',
+            tag: `expense-${data.groupId}`,
+            data: {
+              url: `/group/${data.groupId}`,
+              groupId: data.groupId,
+              expenseId: data.expenseId,
+            },
+          });
+        } catch (pushError) {
+          console.error('Push notification failed for expense:', pushError.message);
+        }
+      }
+
+      // Handle settlement notifications - send push for payment requests/confirmations
+      if (data?.actionType === 'settlement_created' || data?.actionType === 'settlement_confirmed') {
+        try {
+          const { sendPushToUser } = await import('../utils/pushNotifier.js');
+          await sendPushToUser(userId, {
+            title: title,
+            body: message,
+            icon: '/logo192.png',
+            badge: '/logo192.png',
+            tag: `settlement-${data.groupId}`,
+            requireInteraction: true, // Keep visible until user interacts
+            data: {
+              url: `/group/${data.groupId}?tab=settlements`,
+              groupId: data.groupId,
+              settlementId: data.settlementId,
+            },
+          });
+        } catch (pushError) {
+          console.error('Push notification failed for settlement:', pushError.message);
+        }
+      }
+
+      // Handle payment reminders
+      if (data?.actionType === 'payment_reminder') {
+        try {
+          const { sendPushToUser } = await import('../utils/pushNotifier.js');
+          await sendPushToUser(userId, {
+            title: title,
+            body: message,
+            icon: '/logo192.png',
+            badge: '/logo192.png',
+            tag: `reminder-${data.groupId || 'general'}`,
+            requireInteraction: true,
+            data: {
+              url: data.groupId ? `/group/${data.groupId}?tab=settlements` : '/summary',
+            },
+          });
+        } catch (pushError) {
+          console.error('Push notification failed for payment reminder:', pushError.message);
+        }
+      }
+
       console.log(`Notification created for user ${userId}: ${title}`);
 
       // Track metrics
@@ -136,6 +199,33 @@ export const initNotificationWorker = (io) => {
  */
 export const queueNotification = async (notificationData, options = {}) => {
   return notificationQueue.add(notificationData, options);
+};
+
+/**
+ * Send instant notification via socket AND queue for persistence
+ * Use this for time-sensitive notifications where real-time is critical
+ * @param {Object} notificationData - Notification data { userId, type, title, message, data }
+ */
+export const sendInstantNotification = async (notificationData) => {
+  const { userId, type, title, message, data } = notificationData;
+  
+  // Emit immediately via socket (before queue processing)
+  if (ioInstance) {
+    ioInstance.to(`user:${userId}`).emit('notification:new', {
+      id: `instant-${Date.now()}`, // Temporary ID until DB record created
+      type: type || 'info',
+      title,
+      message,
+      timestamp: new Date(),
+      read: false,
+      actionType: data?.actionType || 'none',
+      data,
+      _pending: true, // Frontend can use this to show "syncing" state
+    });
+  }
+  
+  // Queue for persistence and push notification
+  return notificationQueue.add(notificationData);
 };
 
 /**

@@ -1,316 +1,340 @@
-# Split-It: Expense Sharing Made Simple
+# Split-It
 
-Split-It is a modern web application for splitting expenses among friends and family groups. Built with React, Express.js, MongoDB, and Redis, it provides real-time updates, multiple split methods, and seamless payment tracking.
+**Split expenses effortlessly with friends, family, and groups.**
 
-## Features
+Split-It is a full-featured expense sharing application that makes it easy to track shared costs, settle debts, and manage group finances. Whether you're splitting rent with roommates, tracking trip expenses, or managing shared household costs, Split-It handles the complexity so you don't have to.
 
-- **Group Management**: Create groups and invite friends via shareable invite codes
-- **Flexible Expense Splitting**: 
-  - Equal split (divide equally among members)
-  - Exact amount (specify exact amounts for each person)
-  - Percentage-based (distribute by percentage)
-  - Itemized (assign items to specific members)
-- **Real-Time Updates**: WebSocket integration for instant expense and settlement notifications
-- **Smart Settlements**: Auto-calculate optimal payment settlements to minimize transactions
-- **Multiple Currencies**: Support for INR, USD, EUR, GBP (easily extensible)
-- **Receipt Management**: Upload and store receipts for expense documentation
-- **Google OAuth**: One-click authentication with Google
-- **Recurring Expenses**: Set up recurring expenses (daily, weekly, monthly, yearly)
-- **Push Notifications**: Real-time notifications for group activities
-- **Responsive Design**: Works seamlessly on desktop, tablet, and mobile browsers
+🌐 **Live Demo:** [https://split-it.live](https://split-it.live)
 
-## Tech Stack
+![Split-It Screenshot](https://via.placeholder.com/800x400?text=Split-It+Dashboard)
 
-**Frontend:**
-- React 19 with React Router v7
-- Tailwind CSS for styling
-- shadcn/ui component library
-- Socket.IO for real-time updates
+---
 
-**Backend:**
-- Node.js 20 with Express.js
-- MongoDB for data storage (Atlas recommended for production)
-- Redis for caching and session management
-- Socket.IO for WebSocket communication
-- Passport.js for OAuth authentication
+## ✨ Features
 
-**Infrastructure:**
-- Docker & Docker Compose for containerization
-- Nginx for reverse proxy and static file serving
+### 👥 Group Management
+- **Create unlimited groups** for different scenarios (trips, roommates, events, etc.)
+- **Invite members** via shareable invite links or codes
+- **Real-time member sync** - see who's online and active
+- **Group chat** for discussing expenses and settlements
 
-## Getting Started Locally
+### 💰 Flexible Expense Splitting
+Split expenses in multiple ways to match any real-world scenario:
 
-### Prerequisites
+| Split Type | Description | Use Case |
+|------------|-------------|----------|
+| **Equal** | Divide total equally among all members | Shared meals, utilities |
+| **Exact Amount** | Specify exact amount each person owes | Varied purchases |
+| **Percentage** | Split by custom percentages | Income-based splits |
+| **Itemized** | Assign specific items to specific people | Restaurant bills, shopping |
 
-- Node.js 20+ and npm
-- MongoDB (local or Atlas connection string)
-- Redis (local or cloud instance)
-- Google OAuth credentials (optional, for authentication)
+### 📊 Smart Settlements
+- **Optimized debt simplification** - minimizes the number of transactions needed
+- **Settlement suggestions** - see exactly who owes whom
+- **One-click settlement recording** - mark debts as paid instantly
+- **Payment history** - track all past settlements
 
-### Installation
+### 💱 Multi-Currency Support
+- Support for **INR, USD, EUR, GBP** out of the box
+- Per-group default currency settings
+- Per-expense currency override
+- Automatic currency display formatting
 
-1. **Clone the repository:**
-```bash
-git clone https://github.com/ShubhamPatra/split-it.git
-cd split-it
+### 🔔 Notifications & Reminders
+- **Push notifications** for new expenses and settlements
+- **Email notifications** for important updates
+- **Due date reminders** for recurring expenses
+- **Weekly digest emails** summarizing group activity
+
+### 📱 Progressive Web App (PWA)
+- **Install on any device** - works like a native app
+- **Offline support** - view cached data without internet
+- **Push notifications** - stay updated even when app is closed
+- **Responsive design** - optimized for mobile, tablet, and desktop
+
+### 🔄 Recurring Expenses
+Set up automatic recurring expenses for:
+- Daily (subscriptions)
+- Weekly (groceries, cleaning)
+- Monthly (rent, utilities, subscriptions)
+- Yearly (insurance, memberships)
+
+### 🧾 Receipt Management
+- **Upload receipts** as images for expense documentation
+- **View receipts** directly in the app
+- **Attach multiple receipts** per expense
+
+### 📈 Analytics & Insights
+- **Spending breakdown** by category and member
+- **Monthly/yearly trends** visualization
+- **Group balance summary** at a glance
+- **Export data** for personal records
+
+---
+
+## 🖥️ Application Pages
+
+### Public Pages
+| Page | Description |
+|------|-------------|
+| **Home** | Landing page with app overview and features |
+| **Login** | Email/password or Google OAuth sign-in |
+| **Register** | Create new account with email verification |
+| **Forgot Password** | Request password reset via email |
+| **Reset Password** | Set new password from reset link |
+| **Privacy Policy** | Data handling and privacy information |
+| **Terms of Service** | Usage terms and conditions |
+
+### Authenticated Pages
+| Page | Description |
+|------|-------------|
+| **Dashboard** | Overview of all groups, recent activity, and balances |
+| **Groups** | List and manage all your expense groups |
+| **Group Detail** | View expenses, balances, and settlements for a group |
+| **Add Expense** | Create new expense with split configuration |
+| **Analytics** | Detailed spending insights and charts |
+| **Summary** | Overall financial summary across all groups |
+| **Profile** | Manage account settings, UPI ID, and preferences |
+| **Notification Settings** | Configure push and email notification preferences |
+| **Join Group** | Accept invite link to join a group |
+
+---
+
+## 🛠️ Tech Stack
+
+### Frontend
+- **React 19** - Modern UI with hooks and functional components
+- **React Router v7** - Client-side routing with nested layouts
+- **Tailwind CSS** - Utility-first styling
+- **shadcn/ui** - Beautiful, accessible component library
+- **Socket.IO Client** - Real-time WebSocket communication
+- **Chart.js** - Interactive analytics visualizations
+
+### Backend
+- **Node.js 20** - JavaScript runtime
+- **Express.js** - Web application framework
+- **MongoDB** - Document database for flexible data storage
+- **Redis** - Caching, sessions, and real-time pub/sub
+- **Socket.IO** - WebSocket server for real-time features
+- **Passport.js** - Authentication middleware (Local + Google OAuth)
+- **Nodemailer** - Email delivery for notifications
+- **Web Push** - Browser push notifications
+- **BullMQ** - Background job processing
+
+### Security
+- **JWT tokens** in HttpOnly cookies (XSS-safe)
+- **bcrypt** password hashing
+- **Rate limiting** on authentication endpoints
+- **CORS** protection
+- **Helmet.js** security headers
+- **Input validation** with express-validator
+
+---
+
+## 🔐 Authentication
+
+### Email & Password
+1. Register with email, name, and password
+2. Passwords securely hashed with bcrypt (12 rounds)
+3. JWT access token stored in HttpOnly cookie
+4. Automatic token refresh for seamless sessions
+5. Password reset via email link
+
+### Google OAuth
+1. Click "Sign in with Google"
+2. Authorize Split-It in Google consent screen
+3. Account auto-created or linked if email exists
+4. Profile picture and name synced from Google
+
+---
+
+## 💳 Settlement Flow
+
+1. **View Balances** - Dashboard shows who owes whom in each group
+2. **Get Suggestions** - App calculates optimal settlement path
+3. **Record Settlement** - Mark payment as complete with optional notes
+4. **Notification** - Both parties notified of the settlement
+5. **History** - All settlements tracked with timestamps
+
+### Settlement Optimization Algorithm
+Split-It uses a **debt simplification algorithm** that minimizes the total number of transactions:
+- Groups debts by creditor/debtor pairs
+- Nets out circular debts automatically
+- Suggests minimum transactions to settle all balances
+
+---
+
+## 🔄 Real-Time Features
+
+Split-It uses WebSockets for instant updates across all connected devices:
+
+| Event | Description |
+|-------|-------------|
+| `expense:created` | New expense added to group |
+| `expense:updated` | Expense modified |
+| `expense:deleted` | Expense removed |
+| `settlement:created` | New settlement recorded |
+| `member:joined` | New member joined group |
+| `member:left` | Member left group |
+| `chat:message` | New chat message in group |
+| `user:typing` | Typing indicator in chat |
+
+---
+
+## 📧 Email Notifications
+
+Split-It sends transactional emails for:
+- **Welcome email** - Account creation confirmation
+- **Password reset** - Secure reset link
+- **Expense added** - When someone adds an expense you're part of
+- **Settlement received** - When someone settles a debt with you
+- **Payment reminder** - Customizable reminders for pending balances
+- **Weekly digest** - Summary of group activity (configurable)
+
+---
+
+## 🗄️ Data Models
+
+### User
+```
+- name, email, password (hashed)
+- googleId (for OAuth users)
+- upiId (for UPI payments)
+- avatar, preferences
+- notificationSettings
 ```
 
-2. **Install dependencies:**
-```bash
-npm run install-all
+### Group
+```
+- name, description
+- createdBy (owner)
+- members[] with roles (admin/member)
+- defaultCurrency
+- inviteCode, inviteToken
 ```
 
-3. **Create environment files:**
-
-Create `.env` in the root directory:
-```env
-REACT_APP_API_URL=http://localhost:5000/api
-REACT_APP_GOOGLE_CLIENT_ID=your_google_client_id
+### Expense
+```
+- groupId, description, amount, currency
+- paidBy (user who paid)
+- splitAmong[] (users involved)
+- splitConfig { type, shares }
+- date, receipts[], notes
+- isRecurring, recurringConfig
 ```
 
-Create `server/.env`:
-```env
-MONGODB_URI=mongodb://localhost:27017/splitit
-REDIS_HOST=localhost
-REDIS_PORT=6379
-JWT_SECRET=your_super_secret_key_at_least_64_chars_long
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
-CLIENT_URL=http://localhost:3000
-NODE_ENV=development
-PORT=5000
+### Settlement
+```
+- groupId
+- fromUserId → toUserId
+- amount, currency
+- paymentMethod, notes
+- status (pending/completed)
+- settledAt
 ```
 
-### Running Locally
+---
 
-**Development Mode** (frontend + backend concurrently):
-```bash
-npm run dev
-```
-
-This will start:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:5000/api
-- WebSocket: ws://localhost:5000/socket.io
-
-**Frontend only:**
-```bash
-npm start
-```
-
-**Backend only:**
-```bash
-npm run server
-```
-
-## Project Structure
-
-```
-split-it/
-├── src/                          # React frontend
-│   ├── components/               # React components
-│   │   ├── common/              # Shared components (Navbar, etc.)
-│   │   ├── expense/             # Expense-related components
-│   │   ├── group/               # Group-related components
-│   │   ├── layout/              # Layout components
-│   │   └── ui/                  # shadcn/ui primitives
-│   ├── context/                 # React Context (Auth, Group, etc.)
-│   ├── hooks/                   # Custom React hooks
-│   ├── lib/                     # Utilities (apiClient, socketClient)
-│   ├── pages/                   # Page components
-│   └── utils/                   # Helper functions
-│
-├── server/                       # Express.js backend
-│   ├── config/                  # Configuration (DB, Redis, Socket, etc.)
-│   ├── controllers/             # Route handlers
-│   ├── middleware/              # Custom middleware (auth, validation, etc.)
-│   ├── models/                  # MongoDB schemas
-│   ├── routes/                  # API routes
-│   ├── utils/                   # Backend utilities
-│   ├── workers/                 # Background jobs (email, notifications, etc.)
-│   └── server.js                # Express app entry point
-│
-├── public/                       # Static files (index.html, manifest, etc.)
-├── .github/workflows/           # GitHub Actions CI/CD
-├── docker-compose.yml           # Local Docker setup
-├── docker-compose.production.yml # Production Docker setup
-├── nginx.conf                   # Local nginx config
-├── nginx.production.conf        # Production nginx config
-├── Dockerfile.frontend          # Frontend build Docker image
-├── server/Dockerfile            # Backend Docker image
-├── .deployment-archive/         # Deployment guides and scripts (not tracked by git)
-└── package.json                 # Root package manifest
-```
-
-## Key Concepts
-
-### Expense Split Types
-
-The app supports multiple split configurations:
-
-```javascript
-// Equal split - divide total equally
-{ type: 'equal', shares: {} }
-
-// Exact amounts - specify per-person amount
-{ type: 'exact', shares: { userId1: 100, userId2: 50 } }
-
-// Percentage - distribute by percentage
-{ type: 'percentage', shares: { userId1: 60, userId2: 40 } }
-
-// Itemized - assign items to members
-{ type: 'itemized', shares: { userId1: 150, userId2: 100 } }
-```
-
-### API Communication
-
-The frontend uses `apiClient` (in `src/lib/apiClient.js`) for all HTTP requests:
-- Automatic cookie-based authentication (HttpOnly cookies)
-- Built-in caching for GET requests (5-second TTL)
-- Request deduplication to prevent duplicate calls
-- Automatic retry logic for failed requests
-- Error standardization and timeout handling
-
-### Real-Time Updates
-
-Socket.IO integration enables:
-- Instant expense creation/updates across all group members
-- Live settlement notifications
-- User presence tracking
-- Real-time chat in groups
-- Typing indicators
+## 🧪 API Endpoints
 
 ### Authentication
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/register` | Create new account |
+| POST | `/api/auth/login` | Sign in |
+| POST | `/api/auth/logout` | Sign out |
+| POST | `/api/auth/google` | Google OAuth |
+| POST | `/api/auth/forgot-password` | Request reset |
+| POST | `/api/auth/reset-password` | Set new password |
 
-The app supports two authentication methods:
+### Groups
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/groups` | List user's groups |
+| POST | `/api/groups` | Create group |
+| GET | `/api/groups/:id` | Get group details |
+| PUT | `/api/groups/:id` | Update group |
+| DELETE | `/api/groups/:id` | Delete group |
+| POST | `/api/groups/:id/join` | Join via invite |
+| POST | `/api/groups/:id/leave` | Leave group |
 
-**Email/Password:**
-- Users can register with email and password
-- Passwords hashed with bcrypt
-- Session tokens stored in HttpOnly cookies
-- Token refresh mechanism for security
+### Expenses
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/groups/:id/expenses` | List group expenses |
+| POST | `/api/expenses` | Create expense |
+| GET | `/api/expenses/:id` | Get expense |
+| PUT | `/api/expenses/:id` | Update expense |
+| DELETE | `/api/expenses/:id` | Delete expense |
 
-**Google OAuth:**
-- One-click login with Google account
-- Verified with Google's authentication library
-- User profile auto-populated from Google
+### Settlements
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/groups/:id/settlements` | List settlements |
+| POST | `/api/settlements` | Record settlement |
+| GET | `/api/groups/:id/balances` | Get group balances |
+| GET | `/api/groups/:id/suggestions` | Get settlement suggestions |
 
-## Available Commands
+### User
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/users/me` | Get current user |
+| PUT | `/api/users/me` | Update profile |
+| PUT | `/api/users/me/notifications` | Update notification prefs |
 
-```bash
-# Install dependencies for both frontend and backend
-npm run install-all
+---
 
-# Start development (frontend + backend with hot reload)
-npm run dev
+## 🎨 UI Components
 
-# Build production frontend
-npm run build
+Split-It uses **shadcn/ui** for consistent, accessible components:
 
-# Start frontend production build
-npm start
+- **Button** - Primary, secondary, outline, ghost variants
+- **Card** - Container for expenses, groups, summaries
+- **Dialog** - Modals for forms and confirmations
+- **Dropdown Menu** - Context menus and settings
+- **Input / Textarea** - Form fields with validation
+- **Select** - Currency, split type, member selectors
+- **Tabs** - Navigation within pages
+- **Toast** - Success/error notifications
+- **Avatar** - User profile pictures
+- **Badge** - Status indicators
+- **Skeleton** - Loading states
 
-# Start backend with nodemon (auto-reload on file changes)
-npm run server
+---
 
-# Build Docker images and run with Docker Compose
-docker-compose up -d
+## 📱 Mobile Experience
 
-# View logs
-docker-compose logs -f
+Split-It is designed mobile-first:
 
-# Stop containers
-docker-compose down
-```
+- **Bottom navigation** on mobile for easy thumb access
+- **Swipe gestures** for common actions
+- **Pull-to-refresh** on lists
+- **Touch-optimized** buttons and inputs
+- **PWA installation** prompt on supported browsers
+- **Offline mode** with cached data display
 
-## Database Schema
+---
 
-### Key Collections
+## 🔒 Privacy & Security
 
-**Users**
-- `_id`, `name`, `email`, `password` (hashed), `upiId`, `googleId`
+- **No ads or tracking** - Your data stays yours
+- **Encrypted passwords** - bcrypt with 12 salt rounds
+- **Secure cookies** - HttpOnly, SameSite, Secure flags
+- **Rate limiting** - Protection against brute force
+- **Input sanitization** - XSS and injection prevention
+- **HTTPS only** - All traffic encrypted in transit
 
-**Groups**
-- `_id`, `name`, `createdBy`, `members`, `createdAt`, `inviteCode`
+---
 
-**Expenses**
-- `_id`, `groupId`, `description`, `amount`, `currency`, `paidBy`, `splitAmong`, `splitConfig`, `date`, `receipts`
+## 📄 License
 
-**Settlements**
-- `_id`, `groupId`, `fromUserId`, `toUserId`, `amount`, `currency`, `paymentStatus`, `settledAt`
+This project is licensed under the MIT License.
 
-**Invites**
-- `_id`, `groupId`, `code`, `token`, `createdBy`, `createdAt`, `expiresAt`, `usedBy`
+---
 
-## Development Tips
+## 👨‍💻 Author
 
-### Hot Reload
-- Frontend changes auto-reload via React Fast Refresh
-- Backend changes auto-reload via nodemon (when using `npm run server`)
+**Shubham Patra**
 
-### Debugging
-- Browser DevTools for frontend debugging
-- Check `docker-compose logs` for backend issues
-- MongoDB connection: Test with MongoDB Compass
-- Redis: Check with `redis-cli`
-
-### Testing
-- Create test groups and expenses locally
-- Test split calculations with different configurations
-- Try settlement suggestions with multiple users
-- Test real-time updates with multiple browser tabs
-
-## Troubleshooting
-
-### Frontend won't connect to backend
-- Check `REACT_APP_API_URL` in `.env`
-- Ensure backend is running on port 5000
-- Check browser console for CORS errors
-- Verify backend is accessible: `curl http://localhost:5000/api/health`
-
-### MongoDB connection failed
-- Verify `MONGODB_URI` in `server/.env`
-- Ensure MongoDB is running (local) or connection string is correct (Atlas)
-- Check firewall rules
-
-### Redis connection failed
-- Verify `REDIS_HOST` and `REDIS_PORT` in `server/.env`
-- Ensure Redis is running: `redis-cli ping`
-- Check firewall rules if using remote Redis
-
-### Google OAuth not working
-- Verify `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `server/.env`
-- Check Google Cloud Console for correct redirect URIs
-- Ensure `CLIENT_URL` matches http://localhost:3000 in development
-
-## Production Deployment
-
-For production deployment instructions (AWS EC2, Docker, HTTPS, CI/CD):
-- See `.deployment-archive/docs/AWS_DEPLOYMENT.md`
-- GitHub Actions workflow in `.github/workflows/deploy.yml`
-- Docker Compose production config: `docker-compose.production.yml`
-- Nginx SSL config: `nginx.production.conf`
-
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see LICENSE file for details.
-
-## Support
-
-For issues, feature requests, or questions:
-- Open an issue on GitHub
-- Check existing issues for solutions
-- Review `.deployment-archive/` for deployment-specific help
-
-## Author
-
-Shubham Patra - [@ShubhamPatra](https://github.com/ShubhamPatra)
+- GitHub: [@ShubhamPatra](https://github.com/ShubhamPatra)
+- Website: [split-it.live](https://split-it.live)

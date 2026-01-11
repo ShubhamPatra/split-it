@@ -5,6 +5,8 @@ import Message from '../models/Message.js';
 import redis from '../config/redis.js';
 import { notificationQueue } from '../config/queue.js';
 import { saveReceiptFiles, deleteReceiptFiles } from '../middleware/upload.js';
+import { generateAndEmailReport } from '../utils/exportService.js';
+import { checkAndSendBudgetAlert } from '../utils/emailUtils.js';
 
 // Helper: Calculate current month spending using aggregation (optimized)
 const getMonthlySpending = async (groupId) => {
@@ -700,6 +702,113 @@ export const deleteExpenseReceipt = async (req, res) => {
     await expense.save();
 
     res.json({ success: true, message: 'Receipt deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Export expenses report and email to user
+// @route   POST /api/expenses/export
+// @access  Private
+export const exportExpensesReport = async (req, res) => {
+  try {
+    const { groupId, startDate, endDate, format } = req.body;
+
+    const result = await generateAndEmailReport(req.user._id, {
+      groupId,
+      startDate,
+      endDate,
+      format: format || 'csv',
+    });
+
+    if (!result.success) {
+      if (result.reason === 'preference_disabled') {
+        return res.status(400).json({ 
+          message: 'Export reports are disabled in your email preferences. Enable them to receive reports via email.',
+          code: 'PREFERENCE_DISABLED'
+        });
+      }
+      if (result.reason === 'no_groups') {
+        return res.status(400).json({ message: 'No groups found for export' });
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Export report has been sent to your email',
+      expenses: result.expenses,
+      settlements: result.settlements,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Check and send budget alerts for user
+// @route   POST /api/expenses/check-budget
+// @access  Private
+export const checkUserBudget = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Get user's groups and calculate current month spending
+    const groups = await Group.find({ members: userId }).lean();
+    const groupIds = groups.map(g => g._id);
+
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    // Calculate total spending for current month
+    const result = await Expense.aggregate([
+      {
+        $match: {
+          groupId: { $in: groupIds },
+          date: { $gte: startOfMonth },
+          splitAmong: userId,
+        },
+      },
+      {
+        $unwind: '$splitConfig.shares',
+      },
+      {
+        $group: {
+          _id: null,
+          total: {
+            $sum: {
+              $cond: [
+                { $eq: [{ $toString: '$splitConfig.shares.k' }, userId.toString()] },
+                '$splitConfig.shares.v',
+                0
+              ]
+            }
+          },
+        },
+      },
+    ]);
+
+    // Simpler calculation - just get user's share from all expenses
+    const expenses = await Expense.find({
+      groupId: { $in: groupIds },
+      date: { $gte: startOfMonth },
+      splitAmong: userId,
+    }).lean();
+
+    let currentSpend = 0;
+    expenses.forEach(exp => {
+      const shares = exp.splitConfig?.shares || {};
+      if (shares[userId.toString()]) {
+        currentSpend += shares[userId.toString()];
+      }
+    });
+
+    // Check and potentially send budget alert
+    await checkAndSendBudgetAlert(userId, currentSpend);
+
+    res.json({ 
+      currentSpend,
+      month: startOfMonth.toISOString(),
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

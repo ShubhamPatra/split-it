@@ -8,6 +8,8 @@ import {
   deleteExpense,
   uploadExpenseReceipts,
   deleteExpenseReceipt,
+  exportExpensesReport,
+  checkUserBudget,
 } from '../controllers/expenseController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { createExpenseValidation, idValidation, groupIdValidation, validate } from '../middleware/validation.js';
@@ -20,6 +22,10 @@ router.use(protect); // All routes are protected
 router.route('/')
   .get(getExpenses)
   .post(createExpenseValidation, validate, createExpense);
+
+// Export and budget routes
+router.post('/export', exportExpensesReport);
+router.post('/check-budget', checkUserBudget);
 
 router.get('/group/:groupId', groupIdValidation, validate, getExpensesByGroup);
 

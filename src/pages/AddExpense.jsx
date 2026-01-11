@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Receipt, IndianRupee, Calendar, Users, Settings2, Scan, AlertCircle, TrendingUp, CheckCircle2, Repeat, ChevronDown, Upload, X, ImageIcon } from 'lucide-react';
+import { ArrowLeft, Receipt, IndianRupee, Calendar, Users, Settings2, Scan, AlertCircle, TrendingUp, CheckCircle2, Repeat, ChevronDown, Upload, X, ImageIcon, Lightbulb, Zap, PieChart, History, Clock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useNotifications } from '../context/NotificationContext';
-import { categories } from '../data/categories';
+import { categories, getCategoryById } from '../data/categories';
 import { sanitizeInput } from '../lib/utils';
 import Navbar from '../components/layout/Navbar';
 import AdvancedSplitDialog from '../components/expense/AdvancedSplitDialog';
@@ -12,7 +12,7 @@ import BillScanner from '../components/expense/BillScanner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Card, CardContent } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import {
   Select,
   SelectContent,
@@ -85,6 +85,34 @@ const AddExpense = () => {
 
   const userGroups = groups.filter(g => g.members.includes(user?.id || ''));
   const currentGroup = groups.find(g => g.id === selectedGroup);
+
+  // Get recent expenses for suggestions
+  const recentExpenses = useMemo(() => {
+    const userExpenses = groups
+      .filter(g => g.members.includes(user?.id || ''))
+      .flatMap(g => (g.expenses || []).map(e => ({ ...e, groupName: g.name })))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 3);
+    return userExpenses;
+  }, [groups, user?.id]);
+
+  // Most used categories
+  const topCategories = useMemo(() => {
+    const categoryCount = {};
+    groups.forEach(g => {
+      (g.expenses || []).forEach(exp => {
+        const cat = exp.category || 'other';
+        categoryCount[cat] = (categoryCount[cat] || 0) + 1;
+      });
+    });
+    return Object.entries(categoryCount)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 4)
+      .map(([cat]) => getCategoryById(cat));
+  }, [groups]);
+
+  // Check if sidebar has content to show
+  const hasSidebarContent = topCategories.length > 0 || recentExpenses.length > 0;
 
   // Memoize split amount calculation
   const splitAmountPerPerson = useMemo(() => {
@@ -357,22 +385,26 @@ const AddExpense = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
       
-      <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8 max-w-lg mx-auto">
-        <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 sm:mb-6 transition-colors min-h-[44px] min-w-[44px] group">
-          <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" /><span className="text-sm sm:text-base">Back</span>
-        </button>
+      <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
+        {/* Desktop Layout */}
+        <div className={`${hasSidebarContent ? 'lg:grid lg:grid-cols-12 lg:gap-8' : 'max-w-2xl mx-auto'}`}>
+          {/* Main Content */}
+          <div className={hasSidebarContent ? 'lg:col-span-8 xl:col-span-8' : ''}>
+            <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 sm:mb-6 transition-colors min-h-[44px] min-w-[44px] group">
+              <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" /><span className="text-sm sm:text-base">Back</span>
+            </button>
 
-        <Card className="border-border/50 shadow-sm animate-fade-in">
-          <CardContent className="p-4 sm:p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-3 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">
-                <Receipt className="text-primary" size={22} />
-              </div>
-              <div className="min-w-0">
-                <h1 className="font-display text-xl sm:text-2xl font-bold text-foreground">Add Expense</h1>
-                <p className="text-muted-foreground text-sm">Split an expense with your group</p>
-              </div>
-            </div>
+            <Card className="border-border/50 shadow-sm animate-fade-in">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-3 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">
+                    <Receipt className="text-primary" size={22} />
+                  </div>
+                  <div className="min-w-0">
+                    <h1 className="font-display text-xl sm:text-2xl font-bold text-foreground">Add Expense</h1>
+                    <p className="text-muted-foreground text-sm">Split an expense with your group</p>
+                  </div>
+                </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
@@ -719,6 +751,72 @@ const AddExpense = () => {
             </form>
           </CardContent>
         </Card>
+          </div>
+
+          {/* Sidebar - Desktop Only */}
+          {hasSidebarContent && (
+            <aside className="hidden lg:block lg:col-span-4 xl:col-span-4">
+              <div className="sticky top-24 space-y-6">
+              {/* Popular Categories */}
+              {topCategories.length > 0 && (
+                <Card className="border-border/50 shadow-sm animate-fade-in" style={{ animationDelay: '0.1s' }}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                      <PieChart size={16} className="text-primary" />
+                      Your Top Categories
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                      {topCategories.map(cat => {
+                        const IconComponent = cat.icon;
+                        return (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setCategory(cat.id)}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${
+                              category === cat.id 
+                                ? 'bg-primary/10 border-primary/30 text-primary' 
+                                : 'bg-muted/30 border-border/50 hover:border-primary/30 hover:bg-primary/5'
+                            }`}
+                          >
+                            <IconComponent size={14} className={cat.color} />
+                            <span className="text-sm font-medium">{cat.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Recent Activity */}
+              {recentExpenses.length > 0 && (
+                <Card className="border-border/50 shadow-sm animate-fade-in" style={{ animationDelay: '0.2s' }}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                      <History size={16} className="text-primary" />
+                      Recent Expenses
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {recentExpenses.map((exp, index) => (
+                      <div key={index} className="flex items-center justify-between p-2 rounded-lg bg-muted/30 border border-border/30">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground truncate">{exp.description}</p>
+                          <p className="text-xs text-muted-foreground">{exp.groupName}</p>
+                        </div>
+                        <span className="text-sm font-semibold text-foreground">₹{exp.amount?.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+              </div>
+            </aside>
+          )}
+        </div>
       </main>
 
       {/* Bill Scanner Component */}

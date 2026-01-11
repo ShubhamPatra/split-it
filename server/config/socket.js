@@ -3,7 +3,9 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
 import cookie from 'cookie';
-import redis from './redis.js';
+import redis, { isRedisAvailable } from './redis.js';
+
+const isDev = process.env.NODE_ENV !== 'production';
 
 // Redis keys for presence and typing state (shared across nodes)
 const PRESENCE_KEY_PREFIX = 'socket:presence:';
@@ -13,24 +15,42 @@ const PRESENCE_TTL = 120; // 2 minutes TTL for presence
 const TYPING_TTL = 10; // 10 seconds TTL for typing indicators
 const GROUP_MEMBERS_TTL = 300; // 5 minutes TTL for group membership cache
 
+// In-memory fallback for when Redis is not available
+const memoryPresence = new Map(); // groupId -> Set of userIds
+const memoryTyping = new Map(); // groupId -> Map of userId -> data
+const memoryGroupCache = new Map(); // groupId -> membership data
+
 // Helper functions for Redis-based presence management
 const getPresenceKey = (groupId) => `${PRESENCE_KEY_PREFIX}${groupId}`;
 const getTypingKey = (groupId) => `${TYPING_KEY_PREFIX}${groupId}`;
 const getGroupMembersKey = (groupId) => `${GROUP_MEMBERS_PREFIX}${groupId}`;
 
+// Safe Redis operation wrapper
+const safeRedisOp = async (operation, fallback = null) => {
+  if (!isRedisAvailable() || !redis) {
+    return typeof fallback === 'function' ? fallback() : fallback;
+  }
+  try {
+    return await operation();
+  } catch (error) {
+    if (isDev) {
+      // Silently fall back in dev
+      return typeof fallback === 'function' ? fallback() : fallback;
+    }
+    throw error;
+  }
+};
+
 // Get or cache group membership for fast authorization checks
 const getGroupMembership = async (groupId) => {
-  const cacheKey = getGroupMembersKey(groupId);
+  // Try Redis cache first
+  const cached = await safeRedisOp(async () => {
+    const cacheKey = getGroupMembersKey(groupId);
+    const data = await redis.get(cacheKey);
+    return data ? JSON.parse(data) : null;
+  }, () => memoryGroupCache.get(groupId));
   
-  // Try cache first
-  const cached = await redis.get(cacheKey);
-  if (cached) {
-    try {
-      return JSON.parse(cached);
-    } catch (e) {
-      // Invalid cache, continue to fetch
-    }
-  }
+  if (cached) return cached;
   
   // Fetch from DB with lean projection (only member IDs)
   const Group = (await import('../models/Group.js')).default;
@@ -41,90 +61,157 @@ const getGroupMembership = async (groupId) => {
   const memberIds = group.members.map(m => m.toString());
   const membership = { name: group.name, memberIds };
   
-  // Cache for 5 minutes
-  await redis.setex(cacheKey, GROUP_MEMBERS_TTL, JSON.stringify(membership));
+  // Cache in Redis or memory
+  await safeRedisOp(async () => {
+    const cacheKey = getGroupMembersKey(groupId);
+    await redis.setex(cacheKey, GROUP_MEMBERS_TTL, JSON.stringify(membership));
+  }, () => {
+    memoryGroupCache.set(groupId, membership);
+    // Auto-expire memory cache
+    setTimeout(() => memoryGroupCache.delete(groupId), GROUP_MEMBERS_TTL * 1000);
+  });
   
   return membership;
 };
 
 // Invalidate group membership cache (call when members change)
 const invalidateGroupMembershipCache = async (groupId) => {
-  await redis.del(getGroupMembersKey(groupId));
+  await safeRedisOp(
+    () => redis.del(getGroupMembersKey(groupId)),
+    () => memoryGroupCache.delete(groupId)
+  );
 };
 
-// Add user to group presence in Redis
+// Add user to group presence
 const addUserPresence = async (groupId, userId) => {
-  const key = getPresenceKey(groupId);
-  await redis.sadd(key, userId);
-  await redis.expire(key, PRESENCE_TTL);
+  await safeRedisOp(async () => {
+    const key = getPresenceKey(groupId);
+    await redis.sadd(key, userId);
+    await redis.expire(key, PRESENCE_TTL);
+  }, () => {
+    if (!memoryPresence.has(groupId)) {
+      memoryPresence.set(groupId, new Set());
+    }
+    memoryPresence.get(groupId).add(userId);
+  });
 };
 
-// Remove user from group presence in Redis
+// Remove user from group presence
 const removeUserPresence = async (groupId, userId) => {
-  const key = getPresenceKey(groupId);
-  await redis.srem(key, userId);
+  await safeRedisOp(
+    () => redis.srem(getPresenceKey(groupId), userId),
+    () => memoryPresence.get(groupId)?.delete(userId)
+  );
 };
 
-// Get all online users for a group from Redis
+// Get all online users for a group
 const getGroupOnlineUsersFromRedis = async (groupId) => {
-  const key = getPresenceKey(groupId);
-  return await redis.smembers(key);
+  return await safeRedisOp(
+    () => redis.smembers(getPresenceKey(groupId)),
+    () => Array.from(memoryPresence.get(groupId) || [])
+  );
 };
 
-// Set user typing status in Redis
+// Set user typing status
 const setUserTyping = async (groupId, userId, userName) => {
-  const key = getTypingKey(groupId);
-  await redis.hset(key, userId, JSON.stringify({ userName, timestamp: Date.now() }));
-  await redis.expire(key, TYPING_TTL);
+  await safeRedisOp(async () => {
+    const key = getTypingKey(groupId);
+    await redis.hset(key, userId, JSON.stringify({ userName, timestamp: Date.now() }));
+    await redis.expire(key, TYPING_TTL);
+  }, () => {
+    if (!memoryTyping.has(groupId)) {
+      memoryTyping.set(groupId, new Map());
+    }
+    memoryTyping.get(groupId).set(userId, { userName, timestamp: Date.now() });
+  });
 };
 
-// Remove user typing status from Redis
+// Remove user typing status
 const removeUserTyping = async (groupId, userId) => {
-  const key = getTypingKey(groupId);
-  await redis.hdel(key, userId);
+  await safeRedisOp(
+    () => redis.hdel(getTypingKey(groupId), userId),
+    () => memoryTyping.get(groupId)?.delete(userId)
+  );
 };
 
 // Cleanup stale typing indicators every 5 seconds
-setInterval(async () => {
-  try {
-    const now = Date.now();
-    // Get all typing keys
-    const keys = await redis.keys(`${TYPING_KEY_PREFIX}*`);
-    for (const key of keys) {
-      const typingData = await redis.hgetall(key);
-      for (const [userId, dataStr] of Object.entries(typingData)) {
-        try {
-          const data = JSON.parse(dataStr);
-          if (now - data.timestamp > 5000) { // 5 second timeout
-            await redis.hdel(key, userId);
+let typingCleanupInterval = null;
+
+const startTypingCleanup = () => {
+  if (typingCleanupInterval) return;
+  
+  typingCleanupInterval = setInterval(async () => {
+    try {
+      const now = Date.now();
+      
+      if (isRedisAvailable() && redis) {
+        // Redis-based cleanup
+        const keys = await redis.keys(`${TYPING_KEY_PREFIX}*`);
+        for (const key of keys) {
+          const typingData = await redis.hgetall(key);
+          for (const [userId, dataStr] of Object.entries(typingData)) {
+            try {
+              const data = JSON.parse(dataStr);
+              if (now - data.timestamp > 5000) {
+                await redis.hdel(key, userId);
+              }
+            } catch (e) {
+              await redis.hdel(key, userId);
+            }
           }
-        } catch (e) {
-          // Invalid data, remove it
-          await redis.hdel(key, userId);
+        }
+      } else {
+        // Memory-based cleanup
+        for (const [groupId, users] of memoryTyping) {
+          for (const [userId, data] of users) {
+            if (now - data.timestamp > 5000) {
+              users.delete(userId);
+            }
+          }
+          if (users.size === 0) {
+            memoryTyping.delete(groupId);
+          }
         }
       }
+    } catch (error) {
+      // Suppress errors in dev when Redis isn't available
+      if (!isDev || isRedisAvailable()) {
+        console.error('Typing cleanup error:', error);
+      }
     }
-  } catch (error) {
-    console.error('Typing cleanup error:', error);
-  }
-}, 5000);
+  }, 5000);
+};
+
+// Start cleanup immediately
+startTypingCleanup();
 
 // Store io instance for exports
 let ioInstance = null;
 
 // Create Redis adapter - exported for server.js to call before handlers
 export const createRedisAdapter = () => {
-  // Create dedicated pub/sub clients for the adapter
-  const pubClient = new Redis({
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    maxRetriesPerRequest: null,
-  });
+  if (!isRedisAvailable()) {
+    console.log('Socket.IO: Redis not available, running without adapter (single-node mode)');
+    return null;
+  }
   
-  const subClient = pubClient.duplicate();
-  
-  return { pubClient, subClient, adapter: createAdapter(pubClient, subClient) };
+  try {
+    // Create dedicated pub/sub clients for the adapter
+    const pubClient = new Redis({
+      host: process.env.REDIS_HOST || 'localhost',
+      port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+      password: process.env.REDIS_PASSWORD || undefined,
+      maxRetriesPerRequest: null,
+      lazyConnect: true,
+    });
+    
+    const subClient = pubClient.duplicate();
+    
+    return { pubClient, subClient, adapter: createAdapter(pubClient, subClient) };
+  } catch (error) {
+    console.warn('Socket.IO: Failed to create Redis adapter:', error.message);
+    return null;
+  }
 };
 
 export const initializeSocket = (httpServer, redisAdapter = null) => {
@@ -377,13 +464,17 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
           return;
         }
         
-        // Rate limiting using Redis
+        // Rate limiting using Redis (with in-memory fallback)
         const rateLimitKey = `chat:ratelimit:${groupId}:${userId}`;
-        const count = await redis.incr(rateLimitKey);
-        if (count === 1) {
-          await redis.expire(rateLimitKey, 60); // 60 second window
-        }
-        if (count > 30) { // 30 messages per minute per user per group
+        const rateLimited = await safeRedisOp(async () => {
+          const count = await redis.incr(rateLimitKey);
+          if (count === 1) {
+            await redis.expire(rateLimitKey, 60); // 60 second window
+          }
+          return count > 30; // 30 messages per minute per user per group
+        }, () => false); // Skip rate limiting if Redis unavailable
+        
+        if (rateLimited) {
           if (typeof ackCallback === 'function') {
             ackCallback({ success: false, error: 'Rate limit exceeded. Please slow down.' });
           }
@@ -419,13 +510,15 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
             const senderName = populatedMessage.senderId?.name || 'Someone';
             const otherMemberIds = membership.memberIds.filter(id => id !== userId);
             
-            // Use Redis pipeline for batch cache invalidation
-            const pipeline = redis.pipeline();
-            pipeline.del(`chat:${groupId}:latest`);
-            for (const memberId of otherMemberIds) {
-              pipeline.del(`chat:${groupId}:unread:${memberId}`);
-            }
-            await pipeline.exec();
+            // Use Redis pipeline for batch cache invalidation (if available)
+            await safeRedisOp(async () => {
+              const pipeline = redis.pipeline();
+              pipeline.del(`chat:${groupId}:latest`);
+              for (const memberId of otherMemberIds) {
+                pipeline.del(`chat:${groupId}:unread:${memberId}`);
+              }
+              await pipeline.exec();
+            });
             
             // Use addBulk for parallel notification enqueueing
             if (otherMemberIds.length > 0) {

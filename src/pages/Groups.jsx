@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, UserPlus, Loader2, QrCode, Keyboard } from 'lucide-react';
+import { Plus, Users, UserPlus, Loader2, QrCode, Keyboard, Search, Filter, Grid3X3, List, Sparkles, TrendingUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useChat } from '../context/ChatContext';
@@ -20,6 +20,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '../components/ui/dialog';
+import { Card, CardContent } from '../components/ui/card';
 import { useToast } from '../hooks/use-toast';
 
 const Groups = () => {
@@ -35,6 +36,8 @@ const Groups = () => {
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [inviteCode, setInviteCode] = useState('');
   const [joinLoading, setJoinLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState('grid');
 
   // useEffect to redirect if not authenticated
   useEffect(() => {
@@ -60,7 +63,23 @@ const Groups = () => {
   }, [isAuthenticated, groups, user?.id, fetchUnreadCountsForGroups, unreadCountsFetched]);
 
   // Filter groups for current user
-  const userGroups = groups.filter(g => g.members.includes(user?.id || ''));
+  const userGroups = useMemo(() => 
+    groups.filter(g => g.members.includes(user?.id || '')),
+    [groups, user?.id]
+  );
+
+  // Filter groups by search query
+  const filteredGroups = useMemo(() => {
+    if (!searchQuery.trim()) return userGroups;
+    const query = searchQuery.toLowerCase();
+    return userGroups.filter(g => g.name.toLowerCase().includes(query));
+  }, [userGroups, searchQuery]);
+
+  // Calculate stats
+  const totalMembers = useMemo(() => 
+    userGroups.reduce((sum, g) => sum + g.members.length, 0),
+    [userGroups]
+  );
 
   // Handle group creation
   const handleCreateGroup = async () => {
@@ -138,18 +157,22 @@ const Groups = () => {
       <Navbar />
       
       <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8 animate-fade-in">
-          <div>
-            <h1 className="font-display text-2xl sm:text-3xl font-bold text-foreground mb-2">
-              Your Groups
-            </h1>
-            <p className="text-muted-foreground">
-              Manage and organize your expense groups
-            </p>
-          </div>
-          
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+        {/* Desktop Layout */}
+        <div className={`lg:grid lg:gap-8 ${userGroups.length > 0 ? 'lg:grid-cols-12' : ''}`}>
+          {/* Main Content */}
+          <div className={userGroups.length > 0 ? 'lg:col-span-8 xl:col-span-9' : ''}>
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 animate-fade-in">
+              <div>
+                <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground mb-2">
+                  Your Groups
+                </h1>
+                <p className="text-muted-foreground">
+                  {userGroups.length} group{userGroups.length !== 1 ? 's' : ''} • {totalMembers} total members
+                </p>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             {/* Join Group Dialog */}
             <Dialog open={isJoinDialogOpen} onOpenChange={setIsJoinDialogOpen}>
               <DialogTrigger asChild>
@@ -309,32 +332,121 @@ const Groups = () => {
         </div>
         </div>
 
+            {/* Search and View Toggle - Desktop */}
+            {userGroups.length > 0 && (
+              <div className="flex flex-col sm:flex-row gap-3 mb-6 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                  <input
+                    type="text"
+                    placeholder="Search groups..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full h-11 pl-10 pr-4 rounded-xl border border-border/50 bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/20 outline-none transition-all text-sm"
+                  />
+                </div>
+                <div className="hidden md:flex items-center gap-1 p-1 bg-muted/50 rounded-lg border border-border/50">
+                  <Button
+                    variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('grid')}
+                    className="h-9 w-9 p-0"
+                  >
+                    <Grid3X3 size={16} />
+                  </Button>
+                  <Button
+                    variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('list')}
+                    className="h-9 w-9 p-0"
+                  >
+                    <List size={16} />
+                  </Button>
+                </div>
+              </div>
+            )}
+
         {/* Groups Grid */}
-        {userGroups.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {userGroups.map((group, index) => (
-              <div key={group.id} className="animate-fade-in" style={{ animationDelay: `${0.05 * index}s` }}>
+        {filteredGroups.length > 0 ? (
+          <div className={viewMode === 'grid' 
+            ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" 
+            : "space-y-3"
+          }>
+            {filteredGroups.map((group, index) => (
+              <div key={group.id} className="animate-fade-in" style={{ animationDelay: `${0.03 * index}s` }}>
                 <GroupCard group={group} />
               </div>
             ))}
           </div>
+        ) : searchQuery ? (
+          <Card className="border-border/50 shadow-sm">
+            <CardContent className="p-8 sm:p-12 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
+                <Search className="text-muted-foreground" size={28} />
+              </div>
+              <h3 className="font-display font-semibold text-lg text-foreground mb-2">
+                No groups found
+              </h3>
+              <p className="text-muted-foreground mb-4">
+                No groups match "{searchQuery}"
+              </p>
+              <Button variant="outline" onClick={() => setSearchQuery('')}>
+                Clear search
+              </Button>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="bg-card rounded-2xl p-8 sm:p-12 text-center border border-border/50 shadow-sm animate-fade-in">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center mx-auto mb-4">
-              <Users className="text-primary" size={28} />
-            </div>
-            <h3 className="font-display font-semibold text-lg text-foreground mb-2">
-              No groups yet
-            </h3>
-            <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
-              Create your first group to start splitting expenses with friends and family
-            </p>
-            <Button onClick={() => setIsDialogOpen(true)} className="min-h-[48px] h-auto shadow-lg shadow-primary/25">
-              <Plus size={18} />
-              Create Your First Group
-            </Button>
-          </div>
+          <Card className="border-border/50 shadow-sm animate-fade-in">
+            <CardContent className="p-8 sm:p-12 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center mx-auto mb-4">
+                <Users className="text-primary" size={28} />
+              </div>
+              <h3 className="font-display font-semibold text-lg text-foreground mb-2">
+                No groups yet
+              </h3>
+              <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
+                Create your first group to start splitting expenses with friends and family
+              </p>
+              <Button onClick={() => setIsDialogOpen(true)} className="min-h-[48px] h-auto shadow-lg shadow-primary/25">
+                <Plus size={18} />
+                Create Your First Group
+              </Button>
+            </CardContent>
+          </Card>
         )}
+          </div>
+
+          {/* Sidebar - Desktop Only (only show when there are groups) */}
+          {userGroups.length > 0 && (
+            <aside className="hidden lg:block lg:col-span-4 xl:col-span-3">
+              <div className="sticky top-24 space-y-6">
+                {/* Stats Card */}
+                <Card className="border-border/50 shadow-sm animate-fade-in bg-gradient-to-br from-primary/5 to-transparent" style={{ animationDelay: '0.3s' }}>
+                  <CardContent className="p-5">
+                    <h3 className="font-semibold text-sm flex items-center gap-2 mb-4">
+                      <TrendingUp size={14} className="text-primary" />
+                      Overview
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Total Groups</span>
+                        <span className="font-bold text-foreground">{userGroups.length}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Total Members</span>
+                        <span className="font-bold text-foreground">{totalMembers}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Avg. Members/Group</span>
+                        <span className="font-bold text-foreground">{(totalMembers / userGroups.length).toFixed(1)}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </aside>
+          )}
+        </div>
       </main>
     </div>
   );

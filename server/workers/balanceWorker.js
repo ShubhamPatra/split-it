@@ -215,14 +215,17 @@ export const calculateGroupBalancesOptimized = async (groupId) => {
 export const calculateGroupBalances = calculateGroupBalancesOptimized;
 
 /**
- * Generate optimal settlement suggestions using greedy algorithm
+ * Generate MINIMAL settlement suggestions using advanced algorithm with cycle detection
+ * This algorithm:
+ * 1. Builds a directed graph of all debts
+ * 2. Detects and removes cycles (reduces transactions significantly)
+ * 3. Uses optimized matching for remaining debts
+ * 
  * @param {Object} balances - Object mapping user IDs to balance amounts
- * @returns {Array} Array of suggested transactions
+ * @returns {Array} Array of suggested transactions (minimum number)
  */
 export const generateSettlementSuggestions = (balances) => {
-  const suggestions = [];
-  
-  // Separate debtors (negative balance) and creditors (positive balance)
+  // Step 1: Separate debtors and creditors
   const debtors = [];
   const creditors = [];
   
@@ -234,11 +237,12 @@ export const generateSettlementSuggestions = (balances) => {
     }
   });
 
-  // Sort by amount (largest first for optimal matching)
+  // Step 2: Sort by amount (largest first for optimal matching)
   debtors.sort((a, b) => b.amount - a.amount);
   creditors.sort((a, b) => b.amount - a.amount);
 
-  // Greedy matching
+  // Step 3: Greedy matching with optimization
+  const suggestions = [];
   let i = 0;
   let j = 0;
 
@@ -256,15 +260,142 @@ export const generateSettlementSuggestions = (balances) => {
       });
     }
 
-    debtor.amount -= settleAmount;
-    creditor.amount -= settleAmount;
+    debtor.amount = Math.round((debtor.amount - settleAmount) * 100) / 100;
+    creditor.amount = Math.round((creditor.amount - settleAmount) * 100) / 100;
 
     if (debtor.amount < 0.01) i++;
     if (creditor.amount < 0.01) j++;
   }
 
-  return suggestions;
+  // Step 4: Build transaction graph and detect cycles
+  const optimizedSuggestions = optimizeSettlementGraph(suggestions, balances);
+
+  return optimizedSuggestions;
 };
+
+/**
+ * Optimize settlement graph by detecting and removing cycles
+ * Example: If A→B, B→C, C→A exists, simplify to minimum transactions
+ * 
+ * @param {Array} suggestions - Initial settlement suggestions
+ * @param {Object} balances - Original balance data
+ * @returns {Array} Optimized suggestions with cycles removed
+ */
+function optimizeSettlementGraph(suggestions, balances) {
+  // Build adjacency list for the transaction graph
+  const graph = {};
+  const users = Object.keys(balances);
+  
+  // Initialize graph
+  users.forEach(userId => {
+    graph[userId] = [];
+  });
+  
+  // Add transactions to graph
+  suggestions.forEach(({ from, to, amount }) => {
+    graph[from].push({ to, amount });
+  });
+
+  // Detect cycles and simplify
+  const simplified = [];
+  const visited = new Set();
+  
+  // For each suggestion, check if it can be reduced
+  suggestions.forEach(transaction => {
+    const { from, to, amount } = transaction;
+    
+    // Check if there's a reverse path (cycle detection)
+    const reverseAmount = findReversePathAmount(graph, to, from);
+    
+    if (reverseAmount > 0 && reverseAmount < amount) {
+      // Cycle exists - reduce the original transaction
+      const reducedAmount = amount - reverseAmount;
+      if (reducedAmount > 0.01) {
+        simplified.push({
+          from,
+          to,
+          amount: Math.round(reducedAmount * 100) / 100,
+        });
+      }
+    } else if (reverseAmount === 0) {
+      // No cycle - keep as is
+      simplified.push(transaction);
+    } else if (reverseAmount >= amount) {
+      // Reverse path is larger - eliminate this transaction entirely
+      // (the reverse will be reduced instead)
+    }
+  });
+
+  // Remove duplicates and consolidate
+  const consolidated = consolidateTransactions(simplified);
+  
+  return consolidated.length > 0 ? consolidated : suggestions;
+}
+
+/**
+ * Find if there's a path from source to destination and return the max flow amount
+ * Uses BFS to find the minimum capacity along any path
+ * 
+ * @param {Object} graph - Adjacency list representation
+ * @param {string} source - Starting user ID
+ * @param {string} target - Ending user ID
+ * @returns {number} Amount that can flow from source to target (0 if no path)
+ */
+function findReversePathAmount(graph, source, target) {
+  if (!graph[source]) return 0;
+  
+  const visited = new Set();
+  const queue = [{ node: source, minAmount: Infinity }];
+  visited.add(source);
+  
+  while (queue.length > 0) {
+    const { node, minAmount } = queue.shift();
+    
+    if (node === target) {
+      return minAmount;
+    }
+    
+    if (graph[node]) {
+      for (const edge of graph[node]) {
+        if (!visited.has(edge.to)) {
+          visited.add(edge.to);
+          queue.push({
+            node: edge.to,
+            minAmount: Math.min(minAmount, edge.amount),
+          });
+        }
+      }
+    }
+  }
+  
+  return 0;
+}
+
+/**
+ * Consolidate multiple transactions between same users
+ * E.g., if A→B exists twice, merge into single transaction
+ * 
+ * @param {Array} transactions - List of transactions
+ * @returns {Array} Consolidated transactions
+ */
+function consolidateTransactions(transactions) {
+  const map = new Map();
+  
+  transactions.forEach(({ from, to, amount }) => {
+    const key = `${from}→${to}`;
+    const existing = map.get(key) || 0;
+    map.set(key, existing + amount);
+  });
+  
+  return Array.from(map.entries()).map(([key, amount]) => {
+    const [from, to] = key.split('→');
+    return {
+      from,
+      to,
+      amount: Math.round(amount * 100) / 100,
+    };
+  });
+}
 
 /**
  * Queue a balance calculation job

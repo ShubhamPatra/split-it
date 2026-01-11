@@ -4,6 +4,7 @@ import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import Message from '../models/Message.js';
 import { validateUpiId, validatePaymentAmount, generateTransactionRef } from '../utils/upiValidation.js';
+import { sendPreferenceEmail } from '../utils/emailUtils.js';
 
 // @desc    Get all settlements for user's groups
 // @route   GET /api/settlements
@@ -147,6 +148,41 @@ export const createSettlement = async (req, res) => {
       actionCompleted: false,
     });
 
+    // Send settlement confirmation emails to both parties
+    const receiver = await User.findById(toUserId);
+    
+    // Email to payer
+    await sendPreferenceEmail(fromUserId, 'settlementConfirmation', {
+      to: payer.email,
+      template: 'settlementConfirmation',
+      data: {
+        payerName: payer.name,
+        receiverName: receiver.name,
+        amount,
+        groupName: group.name,
+        transactionRef: finalTransactionRef,
+        paymentMethod,
+        isReceiver: false,
+        currency: currency || 'INR',
+      },
+    });
+
+    // Email to receiver
+    await sendPreferenceEmail(toUserId, 'settlementConfirmation', {
+      to: receiver.email,
+      template: 'settlementConfirmation',
+      data: {
+        payerName: payer.name,
+        receiverName: receiver.name,
+        amount,
+        groupName: group.name,
+        transactionRef: finalTransactionRef,
+        paymentMethod,
+        isReceiver: true,
+        currency: currency || 'INR',
+      },
+    });
+
     // Emit socket event to group members
     const io = req.app.get('io');
     if (io) {
@@ -155,7 +191,6 @@ export const createSettlement = async (req, res) => {
       
       // Create system message for chat
       try {
-        const receiver = await User.findById(toUserId);
         const systemMessage = await Message.create({
           groupId,
           senderId: fromUserId,

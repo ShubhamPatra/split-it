@@ -58,6 +58,29 @@ const Home = () => {
           </div>
         </div>
       </div>
+
+      {/* Footer */}
+      <footer className="bg-white border-t border-gray-200 py-8 mt-auto">
+        <div className="container mx-auto px-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-600">
+            <p>© 2026 Split-It. All rights reserved.</p>
+            <div className="flex items-center gap-6">
+              <Link to="/terms-of-service" className="hover:text-primary-600 transition-colors">
+                Terms of Service
+              </Link>
+              <Link to="/privacy-policy" className="hover:text-primary-600 transition-colors">
+                Privacy Policy
+              </Link>
+            </div>
+          </div>
+          <div className="text-center mt-4 text-sm text-gray-500">
+            Need help? Contact us at{' '}
+            <a href="mailto:notifications.splitit@gmail.com" className="text-primary-600 hover:underline">
+              notifications.splitit@gmail.com
+            </a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };

@@ -1,6 +1,38 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
+const emailPreferencesSchema = new mongoose.Schema({
+  // Digest emails
+  weeklyDigest: { type: Boolean, default: false },
+  monthlyDigest: { type: Boolean, default: false },
+  
+  // Transaction emails
+  expenseAdded: { type: Boolean, default: true },
+  settlementConfirmation: { type: Boolean, default: true },
+  paymentReminders: { type: Boolean, default: true },
+  
+  // Recurring expense emails
+  recurringExpenseReminder: { type: Boolean, default: true },
+  recurringExpenseGenerated: { type: Boolean, default: false },
+  
+  // Group emails
+  memberJoined: { type: Boolean, default: true },
+  groupInvite: { type: Boolean, default: true },
+  
+  // Budget & Reports
+  budgetAlerts: { type: Boolean, default: true },
+  exportReports: { type: Boolean, default: true },
+  
+  // Account emails (always enabled, not user-configurable)
+  // welcome, password reset, security alerts - handled separately
+}, { _id: false });
+
+const budgetSettingsSchema = new mongoose.Schema({
+  monthlyLimit: { type: Number, default: 0 }, // 0 means no limit
+  categoryLimits: { type: Map, of: Number, default: {} },
+  alertThreshold: { type: Number, default: 80 }, // Alert at 80% of limit
+}, { _id: false });
+
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -31,6 +63,26 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: '',
+  },
+  emailPreferences: {
+    type: emailPreferencesSchema,
+    default: () => ({}),
+  },
+  budgetSettings: {
+    type: budgetSettingsSchema,
+    default: () => ({}),
+  },
+  lastDigestSent: {
+    weekly: { type: Date },
+    monthly: { type: Date },
+  },
+  resetPasswordToken: {
+    type: String,
+    select: false, // Don't include in queries by default
+  },
+  resetPasswordExpire: {
+    type: Date,
+    select: false,
   },
   createdAt: {
     type: Date,

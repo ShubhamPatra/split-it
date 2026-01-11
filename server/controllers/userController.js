@@ -11,6 +11,8 @@ export const getUserProfile = async (req, res) => {
       name: user.name,
       email: user.email,
       upiId: user.upiId || '',
+      emailPreferences: user.emailPreferences || {},
+      budgetSettings: user.budgetSettings || {},
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -48,7 +50,96 @@ export const updateUserProfile = async (req, res) => {
       name: user.name,
       email: user.email,
       upiId: user.upiId || '',
+      emailPreferences: user.emailPreferences || {},
+      budgetSettings: user.budgetSettings || {},
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get email preferences
+// @route   GET /api/users/email-preferences
+// @access  Private
+export const getEmailPreferences = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('emailPreferences');
+    res.json(user.emailPreferences || {});
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Update email preferences
+// @route   PUT /api/users/email-preferences
+// @access  Private
+export const updateEmailPreferences = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const validPreferences = [
+      'weeklyDigest', 'monthlyDigest',
+      'expenseAdded', 'settlementConfirmation', 'paymentReminders',
+      'recurringExpenseReminder', 'recurringExpenseGenerated',
+      'memberJoined', 'groupInvite',
+      'budgetAlerts', 'exportReports'
+    ];
+
+    // Update only valid preference fields
+    for (const key of validPreferences) {
+      if (req.body[key] !== undefined) {
+        user.emailPreferences[key] = Boolean(req.body[key]);
+      }
+    }
+
+    await user.save();
+    res.json(user.emailPreferences);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get budget settings
+// @route   GET /api/users/budget-settings
+// @access  Private
+export const getBudgetSettings = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('budgetSettings');
+    res.json(user.budgetSettings || {});
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Update budget settings
+// @route   PUT /api/users/budget-settings
+// @access  Private
+export const updateBudgetSettings = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const { monthlyLimit, categoryLimits, alertThreshold } = req.body;
+
+    if (monthlyLimit !== undefined) {
+      user.budgetSettings.monthlyLimit = Math.max(0, Number(monthlyLimit));
+    }
+    if (categoryLimits !== undefined) {
+      user.budgetSettings.categoryLimits = categoryLimits;
+    }
+    if (alertThreshold !== undefined) {
+      user.budgetSettings.alertThreshold = Math.min(100, Math.max(1, Number(alertThreshold)));
+    }
+
+    await user.save();
+    res.json(user.budgetSettings);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -4,7 +4,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import connectDB from './config/db.js';
-import redis from './config/redis.js';
+import redis, { closeRedis } from './config/redis.js';
 import { initializeSocket, createRedisAdapter } from './config/socket.js';
 import { createIndexes } from './utils/dbIndexes.js';
 import { securityHeaders, sanitizeInput, rateLimiter } from './middleware/security.js';
@@ -25,6 +25,8 @@ import { initEmailWorker } from './workers/emailWorker.js';
 import { initNotificationWorker } from './workers/notificationWorker.js';
 import { initBalanceWorker } from './workers/balanceWorker.js';
 import { initRecurringExpenseWorker } from './workers/recurringExpenseWorker.js';
+import { initDigestWorker } from './workers/digestWorker.js';
+import { initDueReminderWorker } from './workers/dueReminderWorker.js';
 import { closeQueues } from './config/queue.js';
 
 // Load environment variables
@@ -56,11 +58,17 @@ const app = express();
 // Create HTTP server
 const httpServer = createServer(app);
 
-// Create Redis adapter for Socket.IO horizontal scaling
-const { pubClient, subClient, adapter: redisAdapter } = createRedisAdapter();
-console.log('Socket.IO: Redis adapter created for horizontal scaling');
+// Create Redis adapter for Socket.IO horizontal scaling (optional in dev)
+const redisAdapterResult = createRedisAdapter();
+const pubClient = redisAdapterResult?.pubClient;
+const subClient = redisAdapterResult?.subClient;
+const redisAdapter = redisAdapterResult?.adapter;
 
-// Initialize Socket.IO with Redis adapter
+if (redisAdapter) {
+  console.log('Socket.IO: Redis adapter created for horizontal scaling');
+}
+
+// Initialize Socket.IO with Redis adapter (if available)
 const io = initializeSocket(httpServer, redisAdapter);
 
 // Store io instance on app for use in controllers
@@ -76,6 +84,8 @@ initEmailWorker();
 initNotificationWorker(io);
 initBalanceWorker();
 initRecurringExpenseWorker();
+initDigestWorker();
+initDueReminderWorker();
 console.log('Background workers initialized');
 
 // Security middleware (should be first)
@@ -177,13 +187,15 @@ const gracefulShutdown = async (signal) => {
     // Close Bull queues
     await closeQueues();
     
-    // Close Socket.IO Redis adapter pub/sub clients
-    await pubClient.quit();
-    await subClient.quit();
-    console.log('Socket.IO Redis adapter connections closed');
+    // Close Socket.IO Redis adapter pub/sub clients (if they exist)
+    if (pubClient) await pubClient.quit().catch(() => {});
+    if (subClient) await subClient.quit().catch(() => {});
+    if (pubClient || subClient) {
+      console.log('Socket.IO Redis adapter connections closed');
+    }
     
     // Close Redis connection
-    await redis.quit();
+    await closeRedis();
     console.log('Redis connection closed');
     
     process.exit(0);
