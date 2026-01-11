@@ -11,9 +11,11 @@
  * Migrated from Bull to BullMQ for Redis Cluster compatibility.
  */
 
-import { Queue, Worker, QueueEvents, QueueScheduler } from 'bullmq';
+import bullmq from 'bullmq';
 import Redis from 'ioredis';
 import dotenv from 'dotenv';
+
+const { Queue, Worker, QueueEvents, QueueScheduler } = bullmq;
 
 // Load environment variables
 dotenv.config();

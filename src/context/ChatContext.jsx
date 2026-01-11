@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { useAuth } from './AuthContext';
 import apiClient from '../lib/apiClient';
 import { getSocket, initializeSocket } from '../lib/socketClient';
+import { debounce, createRequestDeduplicator } from '../lib/debounce';
 
 // Create the context
 const ChatContext = createContext(undefined);
@@ -27,6 +28,8 @@ export const ChatProvider = ({ children }) => {
   const subscribedGroupsRef = useRef(new Set());
   // Track group access order for LRU eviction
   const groupAccessOrderRef = useRef([]);
+  // Deduplication for unread count fetches
+  const unreadDeduplicatorRef = useRef(createRequestDeduplicator());
 
   // LRU eviction helper - evicts messages from least recently accessed groups
   const evictOldMessages = useCallback((currentMessages, accessedGroupId = null) => {
@@ -72,8 +75,8 @@ export const ChatProvider = ({ children }) => {
     return evictedMessages;
   }, []);
 
-  // Load messages for a group
-  const loadMessages = useCallback(async (groupId, before = null) => {
+  // Load messages for a group with debouncing for rapid calls
+  const loadMessagesImpl = useCallback(async (groupId, before = null) => {
     if (!groupId) return;
     
     setIsLoadingMessages(true);
@@ -121,6 +124,9 @@ export const ChatProvider = ({ children }) => {
       setIsLoadingMessages(false);
     }
   }, [evictOldMessages]);
+
+  // Debounced version of loadMessages - coalesces rapid calls within 300ms window
+  const loadMessages = useRef(debounce(loadMessagesImpl, 300, { trailing: true })).current;
 
   // Send a message via WebSocket with REST fallback
   const sendMessage = useCallback(async (groupId, content, type = 'text', metadata = null) => {
@@ -384,12 +390,19 @@ export const ChatProvider = ({ children }) => {
     }
   }, [user]);
 
-  // Fetch unread count for a group
+  // Fetch unread count for a group with deduplication
   const fetchUnreadCount = useCallback(async (groupId) => {
     if (!groupId) return 0;
     
+    // Use deduplicator to prevent multiple in-flight requests for same groupId
+    const deduplicator = unreadDeduplicatorRef.current;
+    const key = `unread:${groupId}`;
+    
     try {
-      const response = await apiClient.get(`/groups/${groupId}/messages/unread`);
+      const response = await deduplicator.track(key, async () => {
+        return apiClient.get(`/groups/${groupId}/messages/unread`);
+      });
+      
       setUnreadCounts(prev => ({
         ...prev,
         [groupId]: response.count,
@@ -401,12 +414,19 @@ export const ChatProvider = ({ children }) => {
     }
   }, []);
 
-  // Fetch unread counts for multiple groups (batch)
-  const fetchUnreadCountsForGroups = useCallback(async (groupIds) => {
+  // Fetch unread counts for multiple groups (batch) with debouncing
+  const fetchUnreadCountsForGroupsImpl = useCallback(async (groupIds) => {
     if (!groupIds || groupIds.length === 0) return {};
     
+    // Use deduplicator to prevent multiple in-flight batch requests
+    const deduplicator = unreadDeduplicatorRef.current;
+    const key = `unread:batch:${groupIds.sort().join(',')}`;
+    
     try {
-      const response = await apiClient.post('/groups/batch/unread-counts', { groupIds });
+      const response = await deduplicator.track(key, async () => {
+        return apiClient.post('/groups/batch/unread-counts', { groupIds });
+      });
+      
       const counts = response.counts || {};
       
       setUnreadCounts(prev => ({
@@ -420,6 +440,11 @@ export const ChatProvider = ({ children }) => {
       return {};
     }
   }, []);
+
+  // Debounced batch unread count fetcher - coalesces rapid batch calls within 250ms window
+  const fetchUnreadCountsForGroups = useRef(
+    debounce(fetchUnreadCountsForGroupsImpl, 250, { trailing: true })
+  ).current;
 
   // Send typing indicator
   const sendTypingIndicator = useCallback((groupId, isTyping) => {
@@ -728,14 +753,14 @@ export const ChatProvider = ({ children }) => {
     onlineUsers,
     isLoadingMessages,
     hasMoreMessages,
-    loadMessages,
+    loadMessages, // Debounced function
     sendMessage,
     retryMessage,
     editMessage,
     deleteMessage,
     markAsRead,
     fetchUnreadCount,
-    fetchUnreadCountsForGroups,
+    fetchUnreadCountsForGroups, // Debounced function
     sendTypingIndicator,
     subscribeToGroup,
     unsubscribeFromGroup,
@@ -751,14 +776,12 @@ export const ChatProvider = ({ children }) => {
     onlineUsers,
     isLoadingMessages,
     hasMoreMessages,
-    loadMessages,
     sendMessage,
     retryMessage,
     editMessage,
     deleteMessage,
     markAsRead,
     fetchUnreadCount,
-    fetchUnreadCountsForGroups,
     sendTypingIndicator,
     subscribeToGroup,
     unsubscribeFromGroup,
@@ -767,6 +790,8 @@ export const ChatProvider = ({ children }) => {
     getTypingUsers,
     isUserOnline,
     getOnlineUsers,
+    // Note: loadMessages and fetchUnreadCountsForGroups are debounced refs
+    // and don't need to be in deps as they maintain stable reference
   ]);
 
   return (

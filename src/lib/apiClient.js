@@ -6,6 +6,9 @@ const pendingRequests = new Map();
 const CACHE_TTL = 5000; // 5 seconds
 const MAX_CACHE_SIZE = 100;  // Add size limit
 
+// 429 rate limit tracking
+const rateLimitTracking = new Map(); // key -> { retryAfter, resetTime }
+
 // Track if we're currently refreshing to avoid multiple refresh calls
 let isRefreshing = false;
 let refreshPromise = null;
@@ -28,8 +31,34 @@ const cleanupCache = () => {
   }
 };
 
+// Clean up rate limit tracking (remove entries past their reset time)
+const cleanupRateLimitTracking = () => {
+  const now = Date.now();
+  for (const [key, value] of rateLimitTracking.entries()) {
+    if (now > value.resetTime) {
+      rateLimitTracking.delete(key);
+    }
+  }
+};
+
+// Exponential backoff with jitter for 429 responses
+const calculateBackoffDelay = (retryCount, retryAfter = null) => {
+  if (retryAfter) {
+    return retryAfter;
+  }
+  
+  // Exponential backoff: 2^retryCount * 100ms, max 32 seconds
+  const baseDelay = Math.min(Math.pow(2, retryCount) * 100, 32000);
+  // Add jitter: ±25% of baseDelay
+  const jitter = baseDelay * 0.25 * (Math.random() * 2 - 1);
+  return Math.max(100, baseDelay + jitter);
+};
+
 // Run cleanup every 10 seconds
-setInterval(cleanupCache, 10000);
+setInterval(() => {
+  cleanupCache();
+  cleanupRateLimitTracking();
+}, 10000);
 
 // Try to refresh the access token (Comment 11)
 const tryRefreshToken = async () => {
@@ -112,7 +141,12 @@ const handleResponse = async (response, originalRequest = null) => {
       case 404:
         throw new Error('The requested resource was not found');
       case 429:
-        throw new Error(data.message || 'Too many requests. Please wait a moment before trying again.');
+        // Rate limited - pass error with retry-after header to makeRequest for backoff retry
+        const retryAfter = response.headers.get('Retry-After');
+        const error = new Error(data.message || 'Too many requests. Please wait a moment before trying again.');
+        error.status = 429;
+        error.retryAfter = retryAfter ? parseInt(retryAfter) * 1000 : null; // Convert to ms
+        throw error;
       case 500:
       case 502:
       case 503:
@@ -126,7 +160,7 @@ const handleResponse = async (response, originalRequest = null) => {
 };
 
 // Helper to make requests with timeout and retry logic
-const makeRequest = async (url, options, retries = 1, cacheKey = null) => {
+const makeRequest = async (url, options, retries = 1, cacheKey = null, retryCount = 0) => {
   // Check if we're offline
   if (!navigator.onLine) {
     throw new Error('No internet connection. Please check your network.');
@@ -169,10 +203,25 @@ const makeRequest = async (url, options, retries = 1, cacheKey = null) => {
         throw new Error('Request timeout. Please check your connection.');
       }
       
+      // Handle 429 rate limit with exponential backoff retry
+      if (error.status === 429) {
+        const maxRetries = 3;
+        if (retryCount < maxRetries) {
+          const backoffDelay = calculateBackoffDelay(retryCount, error.retryAfter);
+          console.warn(`Rate limited (429). Retrying after ${backoffDelay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+          
+          await new Promise(resolve => setTimeout(resolve, backoffDelay));
+          return makeRequest(url, options, retries, cacheKey, retryCount + 1);
+        } else {
+          console.error('Rate limit retry exhausted after', maxRetries, 'attempts');
+          throw new Error('Rate limit exceeded. Please try again later.');
+        }
+      }
+      
       // Retry on network errors
       if (retries > 0 && (error.message.includes('Failed to fetch') || error.message.includes('NetworkError'))) {
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-        return makeRequest(url, options, retries - 1, cacheKey);
+        return makeRequest(url, options, retries - 1, cacheKey, retryCount);
       }
       
       throw error;

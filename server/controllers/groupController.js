@@ -247,23 +247,33 @@ export const getGroupBalances = async (req, res) => {
       return res.json(JSON.parse(cached));
     }
 
-    // Queue balance calculation job using BullMQ
+    // Use BullMQ job with waitUntilFinished to get result asynchronously
+    // This prevents duplicate computation - only the worker calculates
     const job = await balanceQueue.add(
       'calculate',
       { groupId: req.params.id, userId: req.user._id },
       { priority: 1 }
     );
 
-    // Wait for job completion using BullMQ's waitUntilFinished
-    // Note: For immediate balance calculations, we can also call the function directly
-    const { calculateGroupBalancesOptimized } = await import('../workers/balanceWorker.js');
-    const result = await calculateGroupBalancesOptimized(req.params.id);
-    
-    // Redundant cache set for defensive programming
+    // Wait for the job to complete and get its result
+    let result;
     try {
-      await redis.setex(cacheKey, 300, JSON.stringify(result));
-    } catch (e) {
-      console.error('Redis cache set failed:', e);
+      result = await job.waitUntilFinished();
+    } catch (jobError) {
+      console.error('Balance job failed:', jobError);
+      // Fallback: if job fails, compute synchronously once
+      const { calculateGroupBalancesOptimized } = await import('../workers/balanceWorker.js');
+      result = await calculateGroupBalancesOptimized(req.params.id);
+    }
+    
+    // Cache the result for future requests
+    if (result) {
+      try {
+        await redis.setex(cacheKey, 300, JSON.stringify(result));
+      } catch (e) {
+        console.error('Redis cache set failed:', e);
+        // Continue even if caching fails
+      }
     }
     
     res.json(result);
