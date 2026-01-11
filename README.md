@@ -112,7 +112,7 @@ Set up automatic recurring expenses for:
 - **Node.js 20** - JavaScript runtime
 - **Express.js** - Web application framework
 - **MongoDB** - Document database for flexible data storage
-- **Redis** - Caching, sessions, and real-time pub/sub
+- **Redis / Amazon ElastiCache** - Caching, sessions, and real-time pub/sub
 - **Socket.IO** - WebSocket server for real-time features
 - **Passport.js** - Authentication middleware (Local + Google OAuth)
 - **Nodemailer** - Email delivery for notifications

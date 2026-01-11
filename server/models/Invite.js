@@ -56,6 +56,25 @@ const inviteSchema = new mongoose.Schema({
   acceptedAt: {
     type: Date,
   },
+  // For multi-use invites (link/code type)
+  maxUses: {
+    type: Number,
+    default: 0, // 0 = unlimited
+  },
+  usedCount: {
+    type: Number,
+    default: 0,
+  },
+  usedBy: [{
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    usedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
   metadata: {
     ipAddress: String,
     userAgent: String,
@@ -78,13 +97,40 @@ inviteSchema.methods.isExpired = function() {
 };
 
 inviteSchema.methods.isValid = function() {
-  return this.status === 'pending' && !this.isExpired();
+  // Check if expired
+  if (this.isExpired()) return false;
+  
+  // For email invites, check if already accepted
+  if (this.type === 'email') {
+    return this.status === 'pending';
+  }
+  
+  // For link/code invites, check if within usage limit
+  // status 'pending' means still usable, maxUses 0 = unlimited
+  if (this.maxUses > 0 && this.usedCount >= this.maxUses) {
+    return false;
+  }
+  
+  return this.status === 'pending';
 };
 
 inviteSchema.methods.markAccepted = async function(userId) {
-  this.status = 'accepted';
-  this.acceptedBy = userId;
-  this.acceptedAt = new Date();
+  // For email invites, mark as fully accepted (single use)
+  if (this.type === 'email') {
+    this.status = 'accepted';
+    this.acceptedBy = userId;
+    this.acceptedAt = new Date();
+  } else {
+    // For link/code invites, track usage but keep pending
+    this.usedCount += 1;
+    this.usedBy.push({ userId, usedAt: new Date() });
+    
+    // If maxUses is set and reached, mark as accepted
+    if (this.maxUses > 0 && this.usedCount >= this.maxUses) {
+      this.status = 'accepted';
+      this.acceptedAt = new Date();
+    }
+  }
   return this.save();
 };
 

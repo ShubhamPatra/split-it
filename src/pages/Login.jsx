@@ -24,11 +24,15 @@ const Login = () => {
   // useEffect to redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      // Check for pending invite code
+      // Check for pending invite code or token
       const pendingInviteCode = sessionStorage.getItem('pendingInviteCode');
+      const pendingInviteToken = sessionStorage.getItem('pendingInviteToken');
       if (pendingInviteCode) {
         sessionStorage.removeItem('pendingInviteCode');
         navigate(`/join/${pendingInviteCode}`);
+      } else if (pendingInviteToken) {
+        sessionStorage.removeItem('pendingInviteToken');
+        navigate(`/join/${pendingInviteToken}`);
       } else {
         navigate('/dashboard');
       }
@@ -75,11 +79,15 @@ const Login = () => {
           description: "You have successfully logged in.",
         });
         
-        // Check for pending invite code
+        // Check for pending invite code or token
         const pendingInviteCode = sessionStorage.getItem('pendingInviteCode');
+        const pendingInviteToken = sessionStorage.getItem('pendingInviteToken');
         if (pendingInviteCode) {
           sessionStorage.removeItem('pendingInviteCode');
           navigate(`/join/${pendingInviteCode}`);
+        } else if (pendingInviteToken) {
+          sessionStorage.removeItem('pendingInviteToken');
+          navigate(`/join/${pendingInviteToken}`);
         } else {
           navigate('/dashboard');
         }
@@ -106,11 +114,15 @@ const Login = () => {
           description: "You have successfully signed in with Google.",
         });
         
-        // Check for pending invite code
+        // Check for pending invite code or token
         const pendingInviteCode = sessionStorage.getItem('pendingInviteCode');
+        const pendingInviteToken = sessionStorage.getItem('pendingInviteToken');
         if (pendingInviteCode) {
           sessionStorage.removeItem('pendingInviteCode');
           navigate(`/join/${pendingInviteCode}`);
+        } else if (pendingInviteToken) {
+          sessionStorage.removeItem('pendingInviteToken');
+          navigate(`/join/${pendingInviteToken}`);
         } else {
           navigate('/dashboard');
         }

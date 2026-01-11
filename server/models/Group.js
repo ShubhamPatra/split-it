@@ -100,6 +100,11 @@ groupSchema.methods.isAdmin = function(userId) {
   return role === 'admin' || this.createdBy.toString() === userId.toString();
 };
 
+// Method to check if user is the creator
+groupSchema.methods.isCreator = function(userId) {
+  return this.createdBy.toString() === userId.toString();
+};
+
 // Method to get member role
 groupSchema.methods.getMemberRole = function(userId) {
   if (this.createdBy.toString() === userId.toString()) {

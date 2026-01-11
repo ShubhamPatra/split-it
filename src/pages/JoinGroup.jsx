@@ -13,7 +13,7 @@ const JoinGroup = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { isAuthenticated, user, loading: authLoading } = useAuth();
-  const { joinGroupByInvite, loading: groupsLoading } = useGroups();
+  const { joinGroupByInvite } = useGroups();
   
   const [status, setStatus] = useState('loading'); // loading, preview, joining, success, error, auth-required
   const [message, setMessage] = useState('');
@@ -36,21 +36,9 @@ const JoinGroup = () => {
     setStatus('loading');
   }, [code, token]);
 
+  // Validate invite even for non-authenticated users to show group preview
   useEffect(() => {
     if (authLoading) return;
-
-    if (!isAuthenticated) {
-      setStatus('auth-required');
-      setMessage('You need to log in to join this group');
-      return;
-    }
-
-    // Wait for groups context to finish loading
-    if (groupsLoading) {
-      setStatus('loading');
-      setMessage('Loading...');
-      return;
-    }
 
     // Prevent multiple validation attempts
     if (validateAttemptedRef.current) return;
@@ -81,8 +69,15 @@ const JoinGroup = () => {
             invitedEmail: response.invite?.invitedEmail,
             legacy: response.legacy || false,
           });
-          setStatus('preview');
-          setMessage(`You've been invited to join ${response.group.name}`);
+          
+          // If authenticated, show preview. If not, show auth-required with preview.
+          if (isAuthenticated) {
+            setStatus('preview');
+            setMessage(`You've been invited to join ${response.group.name}`);
+          } else {
+            setStatus('auth-required');
+            setMessage(`You've been invited to join ${response.group.name}. Please log in to continue.`);
+          }
         } else {
           setStatus('error');
           setMessage(response.message || 'Invalid invite');
@@ -102,7 +97,15 @@ const JoinGroup = () => {
     };
 
     validateInvite();
-  }, [code, token, isAuthenticated, authLoading, groupsLoading]);
+  }, [code, token, isAuthenticated, authLoading]);
+
+  // Re-run validation check when auth state changes (e.g., after login redirect back)
+  useEffect(() => {
+    if (isAuthenticated && groupPreview && status === 'auth-required') {
+      setStatus('preview');
+      setMessage(`You've been invited to join ${groupPreview.name}`);
+    }
+  }, [isAuthenticated, groupPreview, status]);
 
   const handleJoinGroup = async () => {
     try {
@@ -180,7 +183,23 @@ const JoinGroup = () => {
         </CardHeader>
         <CardContent>
           {status === 'auth-required' && (
-            <div className="space-y-3">
+            <div className="space-y-4">
+              {/* Show group preview if available */}
+              {groupPreview && (
+                <div className="p-4 bg-muted/50 rounded-lg border border-border/50 mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
+                      <Users className="w-6 h-6 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-lg">{groupPreview.name}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {groupPreview.memberCount} member{groupPreview.memberCount !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
               <Button onClick={handleLogin} className="w-full">
                 Log In to Join
               </Button>

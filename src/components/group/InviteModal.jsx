@@ -36,7 +36,7 @@ const InviteModal = ({ groupId, groupName, isOpen, onClose }) => {
     const searchType = type === 'qr' ? 'link' : type;
     return invites.find(inv => 
       inv.type === searchType && 
-      inv.status === 'active' && 
+      inv.status === 'pending' && 
       new Date(inv.expiresAt) > new Date()
     );
   }, [invites]);

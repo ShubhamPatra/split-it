@@ -5,111 +5,131 @@
  * Handles welcome emails, notifications, password resets, etc.
  */
 
-import { emailQueue } from '../config/queue.js';
+import { emailQueue, setEmailProcessor } from '../config/queue.js';
 import { sendEmail, transporter } from '../config/email.js';
+
+/**
+ * Process a single email job
+ * Extracted to allow direct calls when Redis is unavailable
+ */
+const processEmailJob = async (job) => {
+  console.log(`[EmailWorker] Processing job ${job.id}:`, { 
+    template: job.data?.template, 
+    to: job.data?.to,
+    hasData: !!job.data 
+  });
+  
+  const { to, subject, html, text, from, template, data, attachments } = job.data;
+
+  // Handle template-based emails
+  let emailSubject = subject;
+  let emailHtml = html;
+
+  if (template && data) {
+    const templateFn = emailTemplates[template];
+    if (templateFn) {
+      const { inviterName, groupName, inviteUrl, expiresAt, memberName, recipientName, ...rest } = data;
+      let generatedEmail;
+      
+      switch (template) {
+        case 'groupInvite':
+          generatedEmail = templateFn(inviterName, groupName, inviteUrl, expiresAt);
+          break;
+        case 'memberJoined':
+          generatedEmail = templateFn(memberName, groupName);
+          break;
+        case 'newMemberJoined':
+          generatedEmail = templateFn(groupName, memberName, recipientName);
+          break;
+        case 'welcome':
+          generatedEmail = templateFn(data.userName || 'User');
+          break;
+        case 'settlementConfirmation':
+          generatedEmail = templateFn(
+            data.payerName, data.receiverName, data.amount, 
+            data.groupName, data.transactionRef, data.paymentMethod, 
+            data.isReceiver, data.currency
+          );
+          break;
+        case 'digest':
+          generatedEmail = templateFn(data.userName, data.period, data.summaryData);
+          break;
+        case 'recurringExpenseReminder':
+          generatedEmail = templateFn(data.userName, data.expenses);
+          break;
+        case 'budgetAlert':
+          generatedEmail = templateFn(data.userName, data.alertType, data.alertData);
+          break;
+        case 'exportReport':
+          generatedEmail = templateFn(data.userName, data.reportType, data.groupName, data.dateRange, data.downloadUrl);
+          break;
+        case 'paymentMethodReminder':
+          generatedEmail = templateFn(data.userName, data.pendingAmount);
+          break;
+        case 'expenseAdded':
+          generatedEmail = templateFn(data.groupName, data.payerName, data.description, data.amount, data.currency);
+          break;
+        case 'settlementReminder':
+          generatedEmail = templateFn(data.fromName, data.toName, data.amount, data.groupName, data.currency);
+          break;
+        default:
+          generatedEmail = templateFn(...Object.values(data));
+      }
+      
+      emailSubject = generatedEmail.subject;
+      emailHtml = generatedEmail.html;
+    }
+  }
+
+  if (!to || (!emailSubject && !subject)) {
+    throw new Error('Missing required email fields: to, subject');
+  }
+
+  // Skip sending if SMTP is not configured
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
+    console.log(`Email worker: SMTP not configured, skipping email to ${to}`);
+    return { skipped: true, reason: 'SMTP not configured' };
+  }
+
+  try {
+    // Use the sendEmail utility or send directly
+    const mailOptions = {
+      from: from || `"Split-It" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+      to,
+      subject: emailSubject,
+      html: emailHtml,
+      ...(text && { text }),
+      ...(attachments && { attachments }),
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    
+    console.log(`Email sent successfully to ${to}: ${emailSubject}`);
+    
+    return {
+      success: true,
+      messageId: result.messageId,
+      to,
+      subject: emailSubject,
+    };
+  } catch (error) {
+    console.error(`Email worker failed for ${to}:`, error.message);
+    throw error; // Rethrow to trigger Bull retry
+  }
+};
 
 /**
  * Initialize the email worker processor
  */
 export const initEmailWorker = () => {
-  emailQueue.process(async (job) => {
-    const { to, subject, html, text, from, template, data } = job.data;
-
-    // Handle template-based emails
-    let emailSubject = subject;
-    let emailHtml = html;
-
-    if (template && data) {
-      const templateFn = emailTemplates[template];
-      if (templateFn) {
-        const { inviterName, groupName, inviteUrl, expiresAt, memberName, recipientName, ...rest } = data;
-        let generatedEmail;
-        
-        switch (template) {
-          case 'groupInvite':
-            generatedEmail = templateFn(inviterName, groupName, inviteUrl, expiresAt);
-            break;
-          case 'memberJoined':
-            generatedEmail = templateFn(memberName, groupName);
-            break;
-          case 'newMemberJoined':
-            generatedEmail = templateFn(groupName, memberName, recipientName);
-            break;
-          case 'welcome':
-            generatedEmail = templateFn(data.userName || 'User');
-            break;
-          case 'settlementConfirmation':
-            generatedEmail = templateFn(
-              data.payerName, data.receiverName, data.amount, 
-              data.groupName, data.transactionRef, data.paymentMethod, 
-              data.isReceiver, data.currency
-            );
-            break;
-          case 'digest':
-            generatedEmail = templateFn(data.userName, data.period, data.summaryData);
-            break;
-          case 'recurringExpenseReminder':
-            generatedEmail = templateFn(data.userName, data.expenses);
-            break;
-          case 'budgetAlert':
-            generatedEmail = templateFn(data.userName, data.alertType, data.alertData);
-            break;
-          case 'exportReport':
-            generatedEmail = templateFn(data.userName, data.reportType, data.groupName, data.dateRange, data.downloadUrl);
-            break;
-          case 'paymentMethodReminder':
-            generatedEmail = templateFn(data.userName, data.pendingAmount);
-            break;
-          case 'expenseAdded':
-            generatedEmail = templateFn(data.groupName, data.payerName, data.description, data.amount, data.currency);
-            break;
-          case 'settlementReminder':
-            generatedEmail = templateFn(data.fromName, data.toName, data.amount, data.groupName, data.currency);
-            break;
-          default:
-            generatedEmail = templateFn(...Object.values(data));
-        }
-        
-        emailSubject = generatedEmail.subject;
-        emailHtml = generatedEmail.html;
-      }
-    }
-
-    if (!to || (!emailSubject && !subject)) {
-      throw new Error('Missing required email fields: to, subject');
-    }
-
-    // Skip sending if SMTP is not configured
-    if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
-      console.log(`Email worker: SMTP not configured, skipping email to ${to}`);
-      return { skipped: true, reason: 'SMTP not configured' };
-    }
-
-    try {
-      // Use the sendEmail utility or send directly
-      const mailOptions = {
-        from: from || `"Split-It" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
-        to,
-        subject: emailSubject,
-        html: emailHtml,
-        ...(text && { text }),
-      };
-
-      const result = await transporter.sendMail(mailOptions);
-      
-      console.log(`Email sent successfully to ${to}: ${emailSubject}`);
-      
-      return {
-        success: true,
-        messageId: result.messageId,
-        to,
-        subject: emailSubject,
-      };
-    } catch (error) {
-      console.error(`Email worker failed for ${to}:`, error.message);
-      throw error; // Rethrow to trigger Bull retry
-    }
-  });
+  // Register processor for direct sending when Redis is unavailable
+  setEmailProcessor(processEmailJob);
+  
+  // Set up Bull queue processor for unnamed jobs
+  emailQueue.process(processEmailJob);
+  
+  // Also process named 'sendEmail' jobs for backward compatibility
+  emailQueue.process('sendEmail', processEmailJob);
 
   console.log('Email worker initialized');
 };

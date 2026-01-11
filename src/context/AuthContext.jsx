@@ -18,7 +18,7 @@ export const AuthProvider = ({ children }) => {
   const createSession = (userData) => {
     const session = {
       user: { 
-        id: userData.id, 
+        id: userData.id?.toString() || userData.id, 
         name: userData.name, 
         email: userData.email,
         upiId: userData.upiId || ''
@@ -53,7 +53,7 @@ export const AuthProvider = ({ children }) => {
             try {
               const userData = await apiClient.get('/auth/me');
               setUser({ 
-                id: userData.id, 
+                id: userData.id?.toString() || userData.id, 
                 name: userData.name, 
                 email: userData.email,
                 upiId: userData.upiId || ''

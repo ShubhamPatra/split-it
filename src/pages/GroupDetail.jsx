@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, Smartphone, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Wallet, AlertTriangle, Mail } from 'lucide-react';
+import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, Smartphone, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Wallet, AlertTriangle, Mail, Calendar } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useChat } from '../context/ChatContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useGroupRoles } from '../hooks/useGroupRoles';
 import { getCategoryById } from '../data/categories';
+import { calculateOptimalSettlements } from '../utils/settlementOptimizer';
 import apiClient from '../lib/apiClient';
 import { 
   exportFullReportToCsv,
@@ -79,6 +80,7 @@ const GroupDetail = () => {
   
   const { 
     isAdmin, 
+    isCreator,
     canEditExpense, 
     canDeleteExpense, 
     getMemberRole,
@@ -192,10 +194,30 @@ const GroupDetail = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user?.id]);
 
+  // Calculate who the current user owes money to (must be before early returns)
+  const balancesForMemo = getGroupBalances(id || '');
+  
+  // All optimal settlements for the group (for admins/creators)
+  const allDebts = React.useMemo(() => {
+    if (!balancesForMemo || Object.keys(balancesForMemo).length === 0) return [];
+    return calculateOptimalSettlements(balancesForMemo);
+  }, [balancesForMemo]);
+  
+  // Just the current user's debts
+  const userDebts = React.useMemo(() => {
+    if (!user?.id) return [];
+    return allDebts.filter(s => s.from === user.id);
+  }, [allDebts, user?.id]);
+  
+  // Get debts for a specific payer (used in admin mode)
+  const getDebtsForPayer = (payerId) => {
+    return allDebts.filter(s => s.from === payerId);
+  };
+
   if (!isAuthenticated) return null;
 
   const expenses = getGroupExpenses(id || '');
-  const balances = getGroupBalances(id || '');
+  const balances = balancesForMemo;
   const totalExpenses = getTotalExpenses(id || '');
   const settlements = getGroupSettlements(id || '');
 
@@ -239,11 +261,17 @@ const GroupDetail = () => {
   }
 
   const handleSettle = () => {
-    if (!settlePaidBy || !settlePaidTo) {
-      toast({ title: "Select members", description: "Please select who paid and who received.", variant: "destructive" });
+    const payerId = (isAdmin(user?.id || '') || isCreator(user?.id || '')) ? settlePaidBy : user?.id;
+    
+    if (!payerId) {
+      toast({ title: "Select payer", description: "Please select who made the payment.", variant: "destructive" });
       return;
     }
-    if (settlePaidBy === settlePaidTo) {
+    if (!settlePaidTo) {
+      toast({ title: "Select recipient", description: "Please select who received the payment.", variant: "destructive" });
+      return;
+    }
+    if (payerId === settlePaidTo) {
       toast({ title: "Invalid selection", description: "Payer and receiver cannot be the same person.", variant: "destructive" });
       return;
     }
@@ -254,7 +282,7 @@ const GroupDetail = () => {
 
     addSettlement({
       groupId: group.id,
-      fromUserId: settlePaidBy,
+      fromUserId: payerId,
       toUserId: settlePaidTo,
       amount: parseFloat(settleAmount),
       currency: 'INR',
@@ -262,10 +290,11 @@ const GroupDetail = () => {
       paymentMethod: paymentMethod,
     });
 
-    toast({ title: "Settlement recorded!", description: `₹${parseFloat(settleAmount).toLocaleString()} settlement has been recorded.` });
+    const payerName = payerId === user?.id ? 'Your' : `${getUserProfile(payerId)?.name}'s`;
+    toast({ title: "Settlement recorded!", description: `${payerName} ₹${parseFloat(settleAmount).toLocaleString()} settlement has been recorded.` });
     
-    // If UPI payment and user is the payer, offer to pay now
-    if (paymentMethod === 'upi' && settlePaidBy === user?.id) {
+    // If UPI payment and current user is the payer, offer to pay now
+    if (paymentMethod === 'upi' && payerId === user?.id) {
       const receiver = getUserProfile(settlePaidTo);
       if (receiver?.upiId) {
         setPendingPayment({
@@ -279,19 +308,18 @@ const GroupDetail = () => {
     }
     
     setSettleAmount('');
+    setSettlePaidBy('');
     setSettlePaidTo('');
     setPaymentMethod('cash');
     setIsSettleDialogOpen(false);
   };
 
-  const suggestAmount = () => {
-    if (settlePaidBy && settlePaidTo) {
-      const payerBalance = balances[settlePaidBy] || 0;
-      const receiverBalance = balances[settlePaidTo] || 0;
-      if (payerBalance < 0 && receiverBalance > 0) {
-        const suggested = Math.min(Math.abs(payerBalance), receiverBalance);
-        setSettleAmount(suggested.toFixed(0));
-      }
+  const suggestAmount = (receiverId) => {
+    if (!receiverId) return;
+    // Find the debt amount for this receiver
+    const debt = userDebts.find(d => d.to === receiverId);
+    if (debt) {
+      setSettleAmount(debt.amount.toFixed(2));
     }
   };
 
@@ -485,20 +513,22 @@ const GroupDetail = () => {
                   const memberRole = getMemberRole(memberId);
                   const isCurrentUser = memberId === user?.id;
                   const isMemberAdmin = memberRole === 'admin';
+                  const isMemberCreator = memberId === group.createdBy;
                   return (
                     <DropdownMenu key={memberId}>
                       <DropdownMenuTrigger asChild>
                         <button className={`px-3 py-2.5 text-xs sm:text-sm rounded-xl flex items-center gap-1.5 transition-all min-h-[44px] ${isMemberAdmin ? 'bg-gradient-to-br from-primary/15 to-primary/5 text-primary border border-primary/20 hover:border-primary/40' : 'bg-secondary/50 text-secondary-foreground hover:bg-secondary/80 border border-transparent hover:border-border/50'}`}>
-                          {isMemberAdmin && <Crown size={12} />}
-                          {getUserProfile(memberId)?.name || 'User'}{isCurrentUser && ' (You)'}
+                          {isMemberCreator && <Crown size={12} />}
+                          {isMemberAdmin && !isMemberCreator && <Shield size={12} />}
+                          {getUserProfile(memberId)?.name || 'User'}{isCurrentUser && ' (You)'}{isMemberCreator && ' (Creator)'}
                         </button>
                       </DropdownMenuTrigger>
-                      {canManageRoles(user?.id || '') && !isCurrentUser && (
+                      {canManageRoles(user?.id || '') && !isCurrentUser && !isMemberCreator && (
                         <DropdownMenuContent align="start" className="bg-popover border-border/50">
                           <DropdownMenuLabel>Role Management</DropdownMenuLabel>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => { setMemberRole(memberId, isMemberAdmin ? 'member' : 'admin'); toast({ title: isMemberAdmin ? 'Admin removed' : 'Admin added', description: `${getUserProfile(memberId)?.name || 'User'} is now ${isMemberAdmin ? 'a member' : 'an admin'}` }); }} className="cursor-pointer">
-                            {isMemberAdmin ? <>Remove Admin</> : <><Crown size={14} className="mr-2" />Make Admin</>}
+                            {isMemberAdmin ? <>Remove Admin</> : <><Shield size={14} className="mr-2" />Make Admin</>}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       )}
@@ -574,10 +604,10 @@ const GroupDetail = () => {
         </Card>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="animate-fade-in">
-          <TabsList className="mb-4 sm:mb-6 w-full sm:w-auto grid grid-cols-3 sm:inline-grid bg-muted/50 p-1 rounded-xl">
-            <TabsTrigger value="expenses" className="gap-1 sm:gap-2 text-xs sm:text-sm min-h-[44px] rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"><Receipt size={14} />Expenses</TabsTrigger>
-            <TabsTrigger value="balances" className="gap-1 sm:gap-2 text-xs sm:text-sm min-h-[44px] rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"><Users size={14} />Balances</TabsTrigger>
-            <TabsTrigger value="settlements" className="gap-1 sm:gap-2 text-xs sm:text-sm min-h-[44px] rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"><History size={14} />Settlements</TabsTrigger>
+          <TabsList className="mb-4 sm:mb-6 w-full sm:w-auto grid grid-cols-3 sm:inline-grid bg-muted/50 p-1 rounded-xl h-12">
+            <TabsTrigger value="expenses" className="gap-1 sm:gap-2 text-xs sm:text-sm rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"><Receipt size={14} />Expenses</TabsTrigger>
+            <TabsTrigger value="balances" className="gap-1 sm:gap-2 text-xs sm:text-sm rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"><Users size={14} />Balances</TabsTrigger>
+            <TabsTrigger value="settlements" className="gap-1 sm:gap-2 text-xs sm:text-sm rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"><History size={14} />Settlements</TabsTrigger>
           </TabsList>
 
           <TabsContent value="expenses">
@@ -717,65 +747,160 @@ const GroupDetail = () => {
         <DialogContent className="w-[calc(100%-2rem)] sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-base sm:text-lg">Record Settlement</DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm">Record a payment between group members to settle up</DialogDescription>
+            <DialogDescription className="text-xs sm:text-sm">Record a payment you made to settle up</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 sm:space-y-6 py-4">
-            <div className="space-y-2">
-              <Label className="text-sm sm:text-base">Who paid?</Label>
-              <Select value={settlePaidBy} onValueChange={(val) => { setSettlePaidBy(val); suggestAmount(); }}>
-                <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select payer" /></SelectTrigger>
-                <SelectContent>
-                  {group.members.map(memberId => (
-                    <SelectItem key={memberId} value={memberId}>
-                      {getUserProfile(memberId)?.name || 'Unknown'}{memberId === user?.id && ' (You)'}{(balances[memberId] || 0) < -0.01 && <span className="text-destructive ml-2">(owes ₹{Math.abs(balances[memberId] || 0).toFixed(0)})</span>}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm sm:text-base">Who received?</Label>
-              <Select value={settlePaidTo} onValueChange={(val) => { setSettlePaidTo(val); suggestAmount(); }}>
-                <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select receiver" /></SelectTrigger>
-                <SelectContent>
-                  {group.members.filter(m => m !== settlePaidBy).map(memberId => (
-                    <SelectItem key={memberId} value={memberId}>
-                      {getUserProfile(memberId)?.name || 'Unknown'}{memberId === user?.id && ' (You)'}{(balances[memberId] || 0) > 0.01 && <span className="text-success ml-2">(gets ₹{(balances[memberId] || 0).toFixed(0)})</span>}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="settleAmount" className="text-sm sm:text-base">Amount</Label>
-              <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" className="min-h-[44px]" />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm sm:text-base">Payment Method</Label>
-              <div className="flex gap-2">
-                <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>✓ Paid</Button>
-                <Button 
-                  type="button" 
-                  variant={paymentMethod === 'upi' ? 'default' : 'outline'} 
-                  className="flex-1 min-h-[44px] h-auto text-sm" 
-                  onClick={() => setPaymentMethod('upi')}
-                  disabled={!settlePaidTo || !getUserProfile(settlePaidTo)?.upiId}
-                  title={!settlePaidTo ? 'Select receiver first' : !getUserProfile(settlePaidTo)?.upiId ? 'Receiver has not set up UPI ID' : 'Pay via UPI'}
-                >
-                  <Smartphone size={16} className="mr-1" />UPI
-                </Button>
+            {/* Admin/Creator mode - can record for anyone */}
+            {(isAdmin(user?.id || '') || isCreator(user?.id || '')) ? (
+              <>
+                {allDebts.length === 0 ? (
+                  <div className="text-center py-6">
+                    <CheckCircle className="mx-auto text-success mb-3" size={48} />
+                    <p className="text-lg font-medium text-foreground">All settled up!</p>
+                    <p className="text-sm text-muted-foreground">No pending settlements in this group.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label className="text-sm sm:text-base">Who paid?</Label>
+                      <Select value={settlePaidBy} onValueChange={(val) => { setSettlePaidBy(val); setSettlePaidTo(''); setSettleAmount(''); }}>
+                        <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select payer" /></SelectTrigger>
+                        <SelectContent>
+                          {[...new Set(allDebts.map(d => d.from))].map(memberId => (
+                            <SelectItem key={memberId} value={memberId}>
+                              {getUserProfile(memberId)?.name || 'Unknown'}{memberId === user?.id && ' (You)'}
+                              <span className="text-destructive ml-2">(owes ₹{Math.abs(balances[memberId] || 0).toFixed(0)})</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {settlePaidBy && (
+                      <div className="space-y-2">
+                        <Label className="text-sm sm:text-base">Paid to</Label>
+                        <Select value={settlePaidTo} onValueChange={(val) => { setSettlePaidTo(val); const debt = getDebtsForPayer(settlePaidBy).find(d => d.to === val); if (debt) setSettleAmount(debt.amount.toFixed(2)); }}>
+                          <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select receiver" /></SelectTrigger>
+                          <SelectContent>
+                            {getDebtsForPayer(settlePaidBy).map(debt => (
+                              <SelectItem key={debt.to} value={debt.to}>
+                                {getUserProfile(debt.to)?.name || 'Unknown'}
+                                <span className="text-success ml-2">(owed ₹{debt.amount.toFixed(0)})</span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {settlePaidBy && settlePaidTo && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="settleAmount" className="text-sm sm:text-base">Amount</Label>
+                          <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" className="min-h-[44px]" />
+                          <p className="text-xs text-muted-foreground">
+                            💡 {getUserProfile(settlePaidBy)?.name} owes ₹{getDebtsForPayer(settlePaidBy).find(d => d.to === settlePaidTo)?.amount.toFixed(2) || 0} to {getUserProfile(settlePaidTo)?.name}
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm sm:text-base">Payment Method</Label>
+                          <div className="flex gap-2">
+                            <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>✓ Paid</Button>
+                            <Button 
+                              type="button" 
+                              variant={paymentMethod === 'upi' ? 'default' : 'outline'} 
+                              className="flex-1 min-h-[44px] h-auto text-sm" 
+                              onClick={() => setPaymentMethod('upi')}
+                              disabled={!getUserProfile(settlePaidTo)?.upiId}
+                              title={!getUserProfile(settlePaidTo)?.upiId ? 'Receiver has not set up UPI ID' : 'Pay via UPI'}
+                            >
+                              <Smartphone size={16} className="mr-1" />UPI
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="settleDate" className="text-sm sm:text-base">Date</Label>
+                          <div className="relative">
+                            <Input id="settleDate" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} className="pr-10 min-h-[44px] cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer" />
+                            <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={18} />
+                          </div>
+                        </div>
+                        <Button onClick={handleSettle} className="w-full min-h-[44px] h-auto"><CheckCircle size={18} />Record Settlement</Button>
+                      </>
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              /* Regular member mode - can only record their own payments */
+              userDebts.length === 0 ? (
+              <div className="text-center py-6">
+                <CheckCircle className="mx-auto text-success mb-3" size={48} />
+                <p className="text-lg font-medium text-foreground">You're all settled up!</p>
+                <p className="text-sm text-muted-foreground">You don't owe anyone in this group.</p>
               </div>
-              {settlePaidTo && !getUserProfile(settlePaidTo)?.upiId && (
-                <p className="text-xs text-muted-foreground">
-                  💡 UPI payment unavailable - {getUserProfile(settlePaidTo)?.name} hasn't added their UPI ID yet
-                </p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="settleDate" className="text-sm sm:text-base">Date</Label>
-              <Input id="settleDate" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} className="min-h-[44px]" />
-            </div>
-            <Button onClick={handleSettle} className="w-full min-h-[44px] h-auto"><CheckCircle size={18} />Record Settlement</Button>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-sm sm:text-base">You are paying</Label>
+                  <div className="p-3 bg-muted/50 rounded-lg border border-border/50">
+                    <span className="font-medium">{getUserProfile(user?.id)?.name || 'You'}</span>
+                    <span className="text-destructive ml-2">(owes ₹{Math.abs(balances[user?.id] || 0).toFixed(0)})</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm sm:text-base">Pay to</Label>
+                  <Select value={settlePaidTo} onValueChange={(val) => { setSettlePaidTo(val); suggestAmount(val); }}>
+                    <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select who to pay" /></SelectTrigger>
+                    <SelectContent>
+                      {userDebts.map(debt => (
+                        <SelectItem key={debt.to} value={debt.to}>
+                          {getUserProfile(debt.to)?.name || 'Unknown'}
+                          <span className="text-success ml-2">(you owe ₹{debt.amount.toFixed(0)})</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="settleAmount" className="text-sm sm:text-base">Amount</Label>
+                  <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" className="min-h-[44px]" />
+                  {settlePaidTo && (
+                    <p className="text-xs text-muted-foreground">
+                      💡 You owe ₹{userDebts.find(d => d.to === settlePaidTo)?.amount.toFixed(2) || 0} to {getUserProfile(settlePaidTo)?.name}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm sm:text-base">Payment Method</Label>
+                  <div className="flex gap-2">
+                    <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>✓ Paid</Button>
+                    <Button 
+                      type="button" 
+                      variant={paymentMethod === 'upi' ? 'default' : 'outline'} 
+                      className="flex-1 min-h-[44px] h-auto text-sm" 
+                      onClick={() => setPaymentMethod('upi')}
+                      disabled={!settlePaidTo || !getUserProfile(settlePaidTo)?.upiId}
+                      title={!settlePaidTo ? 'Select receiver first' : !getUserProfile(settlePaidTo)?.upiId ? 'Receiver has not set up UPI ID' : 'Pay via UPI'}
+                    >
+                      <Smartphone size={16} className="mr-1" />UPI
+                    </Button>
+                  </div>
+                  {settlePaidTo && !getUserProfile(settlePaidTo)?.upiId && (
+                    <p className="text-xs text-muted-foreground">
+                      💡 UPI payment unavailable - {getUserProfile(settlePaidTo)?.name} hasn't added their UPI ID yet
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="settleDate" className="text-sm sm:text-base">Date</Label>
+                  <div className="relative">
+                    <Input id="settleDate" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} className="pr-10 min-h-[44px] cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer" />
+                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={18} />
+                  </div>
+                </div>
+                <Button onClick={handleSettle} className="w-full min-h-[44px] h-auto"><CheckCircle size={18} />Record Settlement</Button>
+              </>
+            )
+            )}
           </div>
         </DialogContent>
       </Dialog>

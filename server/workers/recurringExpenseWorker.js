@@ -138,12 +138,12 @@ async function processBatch(expenses, now, results) {
         notificationJobs.push({
           data: {
             userId: memberId.toString(),
-            type: 'expense',
+            type: 'info',
+            actionType: 'navigate',
             title: 'Recurring Expense Generated',
             message: `Recurring expense "${expense.description}" for ₹${expense.amount} has been added to ${groupName}`,
             data: { 
               groupId: expense.groupId._id.toString(),
-              actionType: 'recurring_expense',
             },
           },
         });

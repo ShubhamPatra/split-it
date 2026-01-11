@@ -12,9 +12,15 @@ let redis = null;
 const REDIS_ENABLED = process.env.REDIS_ENABLED !== 'false';
 const isDev = process.env.NODE_ENV !== 'production';
 
-if (REDIS_ENABLED) {
-  // Redis configuration from environment
-  const redisConfig = {
+/**
+ * Build Redis configuration with support for:
+ * - Local Redis (development)
+ * - Amazon ElastiCache (production)
+ * - Redis Cluster mode
+ * - TLS/SSL connections
+ */
+const buildRedisConfig = () => {
+  const config = {
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT, 10) || 6379,
     maxRetriesPerRequest: null, // Required for BullMQ compatibility
@@ -37,13 +43,69 @@ if (REDIS_ENABLED) {
     },
   };
 
-  // Add password if provided
-  if (process.env.REDIS_PASSWORD) {
-    redisConfig.password = process.env.REDIS_PASSWORD;
+  // Add password/auth token if provided (ElastiCache AUTH token or Redis password)
+  if (process.env.REDIS_PASSWORD || process.env.REDIS_AUTH_TOKEN) {
+    config.password = process.env.REDIS_AUTH_TOKEN || process.env.REDIS_PASSWORD;
   }
 
-  // Create Redis client
-  redis = new Redis(redisConfig);
+  // ElastiCache TLS configuration
+  if (process.env.REDIS_TLS === 'true' || process.env.ELASTICACHE_TLS === 'true') {
+    config.tls = {
+      rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
+    };
+    console.log('Redis: TLS enabled for ElastiCache connection');
+  }
+
+  // ElastiCache cluster mode
+  if (process.env.REDIS_CLUSTER_MODE === 'true') {
+    // For cluster mode, we return cluster-specific config
+    return { ...config, isCluster: true };
+  }
+
+  // Connection name for ElastiCache identification
+  if (process.env.REDIS_CONNECTION_NAME) {
+    config.connectionName = process.env.REDIS_CONNECTION_NAME;
+  }
+
+  // ElastiCache-specific timeouts
+  if (process.env.REDIS_CONNECT_TIMEOUT) {
+    config.connectTimeout = parseInt(process.env.REDIS_CONNECT_TIMEOUT, 10);
+  }
+  if (process.env.REDIS_COMMAND_TIMEOUT) {
+    config.commandTimeout = parseInt(process.env.REDIS_COMMAND_TIMEOUT, 10);
+  }
+
+  // Keep-alive for long-lived connections (important for ElastiCache)
+  config.keepAlive = parseInt(process.env.REDIS_KEEP_ALIVE, 10) || 30000;
+
+  return config;
+};
+
+// Export config builder for use in other modules
+export { buildRedisConfig };
+
+if (REDIS_ENABLED) {
+  const redisConfig = buildRedisConfig();
+
+  // Create Redis client (cluster or standalone)
+  if (redisConfig.isCluster) {
+    // ElastiCache Cluster Mode Enabled
+    const { isCluster, ...clusterNodeConfig } = redisConfig;
+    const clusterNodes = [{ host: clusterNodeConfig.host, port: clusterNodeConfig.port }];
+    
+    redis = new Redis.Cluster(clusterNodes, {
+      redisOptions: clusterNodeConfig,
+      clusterRetryStrategy: (times) => {
+        if (times > 10) return null;
+        return Math.min(times * 200, 2000);
+      },
+      enableReadyCheck: true,
+      scaleReads: 'slave', // Read from replicas for better performance
+    });
+    console.log('Redis: Using ElastiCache Cluster Mode');
+  } else {
+    redis = new Redis(redisConfig);
+  }
 
   // Connection event handlers
   redis.on('connect', () => {
@@ -85,6 +147,9 @@ if (REDIS_ENABLED) {
 
 // Helper to check if Redis is available
 export const isRedisAvailable = () => redisAvailable;
+
+// Export config for other modules that need Redis connection info
+export const getRedisConfig = () => buildRedisConfig();
 
 // Graceful shutdown helper
 export const closeRedis = async () => {

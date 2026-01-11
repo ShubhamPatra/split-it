@@ -196,15 +196,25 @@ export const createRedisAdapter = () => {
   }
   
   try {
-    // Create dedicated pub/sub clients for the adapter
-    const pubClient = new Redis({
+    // Build config with ElastiCache support
+    const redisOptions = {
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-      password: process.env.REDIS_PASSWORD || undefined,
+      password: process.env.REDIS_AUTH_TOKEN || process.env.REDIS_PASSWORD || undefined,
       maxRetriesPerRequest: null,
       lazyConnect: true,
-    });
-    
+      keepAlive: parseInt(process.env.REDIS_KEEP_ALIVE, 10) || 30000,
+    };
+
+    // ElastiCache TLS support
+    if (process.env.REDIS_TLS === 'true' || process.env.ELASTICACHE_TLS === 'true') {
+      redisOptions.tls = {
+        rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
+      };
+    }
+
+    // Create dedicated pub/sub clients for the adapter
+    const pubClient = new Redis(redisOptions);
     const subClient = pubClient.duplicate();
     
     return { pubClient, subClient, adapter: createAdapter(pubClient, subClient) };

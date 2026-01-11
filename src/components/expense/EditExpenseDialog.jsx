@@ -339,16 +339,16 @@ const EditExpenseDialog = ({ open, onOpenChange, expense, group }) => {
             <div className="space-y-2">
               <Label htmlFor="edit-date" className="text-sm sm:text-base">Date</Label>
               <div className="relative">
-                <Calendar
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                  size={18}
-                />
                 <Input
                   id="edit-date"
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
-                  className="pl-10 min-h-[44px] text-sm sm:text-base"
+                  className="pr-10 min-h-[44px] text-sm sm:text-base cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                />
+                <Calendar
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+                  size={18}
                 />
               </div>
             </div>

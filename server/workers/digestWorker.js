@@ -12,15 +12,29 @@ import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
 import { emailQueue } from '../config/queue.js';
 
-// Redis configuration
-const redisConfig = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+// Redis configuration with ElastiCache support
+const buildRedisConfig = () => {
+  const config = {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+  };
+
+  // Add password/auth token (ElastiCache AUTH token or Redis password)
+  if (process.env.REDIS_PASSWORD || process.env.REDIS_AUTH_TOKEN) {
+    config.password = process.env.REDIS_AUTH_TOKEN || process.env.REDIS_PASSWORD;
+  }
+
+  // ElastiCache TLS configuration
+  if (process.env.REDIS_TLS === 'true' || process.env.ELASTICACHE_TLS === 'true') {
+    config.tls = {
+      rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
+    };
+  }
+
+  return config;
 };
 
-if (process.env.REDIS_PASSWORD) {
-  redisConfig.password = process.env.REDIS_PASSWORD;
-}
+const redisConfig = buildRedisConfig();
 
 // Create digest queue
 export const digestQueue = new Bull('digest', {

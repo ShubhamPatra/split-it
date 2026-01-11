@@ -339,15 +339,6 @@ export const joinGroupByInvite = async (req, res) => {
       message: `${req.user.name} joined the group "${group.name}" via invite link`,
     });
 
-    // Enqueue email notification (Comment 2 & 12)
-    if (creator?.email) {
-      emailQueue.add({
-        to: creator.email,
-        subject: `New member joined ${group.name}`,
-        html: `<p>Hi ${creator.name},</p><p>${req.user.name} has joined your group "${group.name}" via invite link.</p>`,
-      }).catch(err => console.error('Email queue error:', err));
-    }
-
     res.json(updatedGroup);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -400,9 +391,9 @@ export const updateMemberRole = async (req, res) => {
       return res.status(404).json({ message: 'Group not found' });
     }
 
-    // Only admins can change roles
-    if (!requireAdmin(group, req.user._id)) {
-      return res.status(403).json({ message: 'Only admins can modify member roles' });
+    // Only the creator can change roles
+    if (group.createdBy.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the group creator can modify member roles' });
     }
 
     // Cannot change creator's role

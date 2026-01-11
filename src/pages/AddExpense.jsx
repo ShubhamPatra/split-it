@@ -539,8 +539,14 @@ const AddExpense = () => {
               <div className="space-y-2">
                 <Label htmlFor="date" className="text-sm font-medium">Date</Label>
                 <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-                  <Input id="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="pl-10 min-h-[48px] border-border/50" />
+                  <Input 
+                    id="date" 
+                    type="date" 
+                    value={date} 
+                    onChange={(e) => setDate(e.target.value)} 
+                    className="pr-10 min-h-[48px] border-border/50 cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer" 
+                  />
+                  <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={18} />
                 </div>
               </div>
 
@@ -618,14 +624,17 @@ const AddExpense = () => {
                       
                       <div className="space-y-2">
                         <Label className="text-xs">End Date (Optional)</Label>
-                        <Input
-                          type="date"
-                          value={recurrenceEndDate}
-                          onChange={(e) => setRecurrenceEndDate(e.target.value)}
-                          min={date}
-                          className="min-h-[44px] border-border/50"
-                          placeholder="No end date"
-                        />
+                        <div className="relative">
+                          <Input
+                            type="date"
+                            value={recurrenceEndDate}
+                            onChange={(e) => setRecurrenceEndDate(e.target.value)}
+                            min={date}
+                            className="pr-10 min-h-[44px] border-border/50 cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                            placeholder="No end date"
+                          />
+                          <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={16} />
+                        </div>
                         <p className="text-xs text-muted-foreground">Leave empty to repeat indefinitely</p>
                       </div>
                     </div>

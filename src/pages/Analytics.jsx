@@ -38,7 +38,7 @@ const Analytics = () => {
     } catch (error) {
       toast({
         title: 'Export Failed',
-        description: error.response?.data?.message || 'Failed to export expenses',
+        description: error.message || 'Failed to export expenses',
         variant: 'destructive',
       });
     } finally {

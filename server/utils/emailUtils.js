@@ -23,7 +23,16 @@ export async function checkEmailPreference(userId, preference) {
         'recurringExpenseReminder', 'memberJoined', 'groupInvite', 'budgetAlerts', 'exportReports'];
       return defaultEnabled.includes(preference);
     }
-    return user.emailPreferences[preference] === true;
+    
+    // If preference is explicitly set, use that value
+    // If not set (undefined), fall back to defaults
+    const value = user.emailPreferences[preference];
+    if (value === undefined) {
+      const defaultEnabled = ['expenseAdded', 'settlementConfirmation', 'paymentReminders', 
+        'recurringExpenseReminder', 'memberJoined', 'groupInvite', 'budgetAlerts', 'exportReports'];
+      return defaultEnabled.includes(preference);
+    }
+    return value === true;
   } catch (error) {
     console.error('Error checking email preference:', error);
     return false;

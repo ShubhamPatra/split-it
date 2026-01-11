@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, ArrowRight, Trash2, MessageSquare } from 'lucide-react';
 import { useGroups } from '../../context/GroupContext';
+import { useAuth } from '../../context/AuthContext';
 import { useChat } from '../../context/ChatContext';
 import { useToast } from '../../hooks/use-toast';
 import {
@@ -19,6 +20,7 @@ import { Button } from '../ui/button';
 
 const GroupCard = React.memo(({ group }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { getTotalExpenses, deleteGroup, getGroupSettlements, getUserProfile } = useGroups();
   const { getUnreadCount } = useChat();
   const { toast } = useToast();
@@ -29,6 +31,9 @@ const GroupCard = React.memo(({ group }) => {
   const settlementCount = useMemo(() => getGroupSettlements(group.id).length, [group.id, getGroupSettlements]);
   const formattedDate = useMemo(() => new Date(group.createdAt).toLocaleDateString(), [group.createdAt]);
   const unreadCount = getUnreadCount(group.id);
+  
+  // Only creator can delete the group
+  const isCreator = user?.id === group.createdBy;
 
   const handleDelete = (e) => {
     e.stopPropagation();
@@ -60,28 +65,30 @@ const GroupCard = React.memo(({ group }) => {
             <p className="text-xs sm:text-sm text-muted-foreground">Created on {formattedDate}</p>
           </div>
           <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10" 
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Trash2 size={18} />
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Group</AlertDialogTitle>
-                  <AlertDialogDescription>Are you sure you want to delete "{group.name}"? This will also delete all expenses and {settlementCount} settlement{settlementCount !== 1 ? 's' : ''}. This action cannot be undone.</AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel className="min-h-[44px]">Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90 min-h-[44px]">Delete Group</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            {isCreator && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10" 
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Trash2 size={18} />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete Group</AlertDialogTitle>
+                    <AlertDialogDescription>Are you sure you want to delete "{group.name}"? This will also delete all expenses and {settlementCount} settlement{settlementCount !== 1 ? 's' : ''}. This action cannot be undone.</AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="min-h-[44px]">Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90 min-h-[44px]">Delete Group</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
             <ArrowRight className="text-muted-foreground group-hover/card:text-primary group-hover/card:translate-x-1 transition-all duration-300 flex-shrink-0" size={20} />
           </div>
         </div>

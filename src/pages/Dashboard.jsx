@@ -12,7 +12,7 @@ import { Progress } from '../components/ui/progress';
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
-  const { groups, expenses, settlements } = useGroups();
+  const { groups, expenses, settlements, loadGroupExpenses, loading } = useGroups();
 
   // useEffect to redirect if not authenticated
   useEffect(() => {
@@ -20,6 +20,21 @@ const Dashboard = () => {
       navigate('/login');
     }
   }, [isAuthenticated, navigate]);
+
+  // Load expenses for all user groups when Dashboard mounts
+  useEffect(() => {
+    if (!user || loading || groups.length === 0) return;
+    
+    // Load expenses for all groups the user is a member of
+    const userGroupIds = groups
+      .filter(g => g.members.includes(user.id))
+      .map(g => g.id);
+    
+    // Load expenses for each group (they will be cached after first load)
+    userGroupIds.forEach(groupId => {
+      loadGroupExpenses(groupId);
+    });
+  }, [user, loading, groups, loadGroupExpenses]);
 
   // Memoize expensive calculations to prevent recalculation on every render
   const userGroups = useMemo(

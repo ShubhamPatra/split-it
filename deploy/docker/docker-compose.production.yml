@@ -1,23 +1,14 @@
 version: '3.8'
 
-# Production Docker Compose for AWS EC2 deployment
+# Production Docker Compose for AWS EC2 deployment with Amazon ElastiCache
 # Run from project root: docker-compose -f deploy/docker/docker-compose.production.yml --env-file deploy/env/.env.production up -d
+#
+# Required environment variables in .env.production:
+# - REDIS_HOST (ElastiCache endpoint, e.g., my-cluster.xxxxx.cache.amazonaws.com)
+# - REDIS_AUTH_TOKEN (if using AUTH)
+# - REDIS_TLS=true (recommended for production)
 
 services:
-  redis:
-    image: redis:7-alpine
-    restart: always
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly yes
-    volumes:
-      - redis-data:/data
-    networks:
-      - splitit
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   api:
     build:
       context: ../../server
@@ -25,14 +16,15 @@ services:
     restart: always
     ports:
       - "5000:5000"
-    depends_on:
-      redis:
-        condition: service_healthy
     environment:
       - NODE_ENV=production
       - PORT=5000
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      # ElastiCache settings (set in .env.production)
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_AUTH_TOKEN=${REDIS_AUTH_TOKEN:-}
+      - REDIS_TLS=${REDIS_TLS:-true}
+      - REDIS_CLUSTER_MODE=${REDIS_CLUSTER_MODE:-false}
     env_file:
       - ../env/.env.production
     volumes:
@@ -72,10 +64,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-volumes:
-  redis-data:
-    driver: local
 
 networks:
   splitit:

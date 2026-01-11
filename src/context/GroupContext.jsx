@@ -45,15 +45,15 @@ export const GroupProvider = ({ children }) => {
 
   const addExpenseLocally = useCallback((expense) => {
     const transformed = {
-      id: expense._id,
-      groupId: expense.groupId._id || expense.groupId,
+      id: (expense._id || expense.id)?.toString(),
+      groupId: (expense.groupId._id || expense.groupId)?.toString(),
       description: expense.description,
       amount: expense.amount,
       currency: expense.currency,
       category: expense.category,
-      paidBy: expense.paidBy._id || expense.paidBy,
+      paidBy: (expense.paidBy._id || expense.paidBy)?.toString(),
       date: expense.date,
-      splitAmong: expense.splitAmong.map(s => s._id || s),
+      splitAmong: expense.splitAmong.map(s => (s._id || s)?.toString()),
       splitConfig: expense.splitConfig,
       receipts: expense.receipts || [],
     };
@@ -70,10 +70,10 @@ export const GroupProvider = ({ children }) => {
 
   const addSettlementLocally = useCallback((settlement) => {
     const transformed = {
-      id: settlement._id,
-      groupId: settlement.groupId._id || settlement.groupId,
-      fromUserId: settlement.fromUserId._id || settlement.fromUserId,
-      toUserId: settlement.toUserId._id || settlement.toUserId,
+      id: (settlement._id || settlement.id)?.toString(),
+      groupId: (settlement.groupId._id || settlement.groupId)?.toString(),
+      fromUserId: (settlement.fromUserId._id || settlement.fromUserId)?.toString(),
+      toUserId: (settlement.toUserId._id || settlement.toUserId)?.toString(),
       amount: settlement.amount,
       currency: settlement.currency,
       settledAt: settlement.settledAt,
@@ -85,11 +85,11 @@ export const GroupProvider = ({ children }) => {
 
   const addGroupLocally = useCallback((group) => {
     const transformed = {
-      id: group._id,
+      id: (group._id || group.id)?.toString(),
       name: group.name,
-      createdBy: group.createdBy._id || group.createdBy,
+      createdBy: (group.createdBy._id || group.createdBy)?.toString(),
       createdAt: group.createdAt,
-      members: group.members.map(m => m._id || m),
+      members: group.members.map(m => (m._id || m)?.toString()),
       inviteCode: group.inviteCode,
     };
     setGroups(prev => [transformed, ...prev]);
@@ -123,19 +123,19 @@ export const GroupProvider = ({ children }) => {
 
       // Transform API data to match frontend format
       const transformedGroups = groupsData.map(g => ({
-        id: g._id,
+        id: g._id?.toString() || g._id,
         name: g.name,
-        createdBy: g.createdBy._id || g.createdBy,
+        createdBy: (g.createdBy._id || g.createdBy)?.toString(),
         createdAt: g.createdAt,
-        members: g.members.map(m => m._id || m),
+        members: g.members.map(m => (m._id || m)?.toString()),
         inviteCode: g.inviteCode,
       }));
 
       const transformedSettlements = settlementsData.map(s => ({
-        id: s._id,
-        groupId: s.groupId._id || s.groupId,
-        fromUserId: s.fromUserId._id || s.fromUserId,
-        toUserId: s.toUserId._id || s.toUserId,
+        id: s._id?.toString() || s._id,
+        groupId: (s.groupId._id || s.groupId)?.toString(),
+        fromUserId: (s.fromUserId._id || s.fromUserId)?.toString(),
+        toUserId: (s.toUserId._id || s.toUserId)?.toString(),
         amount: s.amount,
         currency: s.currency,
         settledAt: s.settledAt,
@@ -154,8 +154,9 @@ export const GroupProvider = ({ children }) => {
       const profilesMap = {};
       groupsData.forEach(g => {
         if (g.createdBy && typeof g.createdBy === 'object') {
-          profilesMap[g.createdBy._id] = { 
-            id: g.createdBy._id, 
+          const id = g.createdBy._id?.toString();
+          profilesMap[id] = { 
+            id, 
             name: g.createdBy.name, 
             email: g.createdBy.email,
             upiId: g.createdBy.upiId || ''
@@ -163,8 +164,9 @@ export const GroupProvider = ({ children }) => {
         }
         g.members.forEach(m => {
           if (m && typeof m === 'object') {
-            profilesMap[m._id] = { 
-              id: m._id, 
+            const id = m._id?.toString();
+            profilesMap[id] = { 
+              id, 
               name: m.name, 
               email: m.email,
               upiId: m.upiId || ''
@@ -204,15 +206,15 @@ export const GroupProvider = ({ children }) => {
       const expensesData = Array.isArray(response) ? response : (response.data || []);
       
       const transformedExpenses = expensesData.map(e => ({
-        id: e._id,
-        groupId: e.groupId?._id || e.groupId,
+        id: (e._id || e.id)?.toString(),
+        groupId: (e.groupId?._id || e.groupId)?.toString(),
         description: e.description,
         amount: e.amount,
         currency: e.currency,
         category: e.category,
-        paidBy: e.paidBy?._id || e.paidBy,
+        paidBy: (e.paidBy?._id || e.paidBy)?.toString(),
         date: e.date,
-        splitAmong: (e.splitAmong || []).map(s => s._id || s),
+        splitAmong: (e.splitAmong || []).map(s => (s._id || s)?.toString()),
         splitConfig: e.splitConfig,
         receipts: e.receipts || [],
       }));
@@ -416,14 +418,30 @@ export const GroupProvider = ({ children }) => {
       if (response.group) {
         addGroupLocally(response.group);
         
+        // Add profile for group creator
+        if (response.group.createdBy && typeof response.group.createdBy === 'object') {
+          const creator = response.group.createdBy;
+          const creatorId = creator._id?.toString();
+          setProfiles(prev => ({
+            ...prev,
+            [creatorId]: { 
+              id: creatorId, 
+              name: creator.name, 
+              email: creator.email,
+              upiId: creator.upiId || ''
+            }
+          }));
+        }
+        
         // Add profiles for new group members
         if (response.group.members) {
           response.group.members.forEach(m => {
             if (m && typeof m === 'object') {
+              const memberId = m._id?.toString();
               setProfiles(prev => ({
                 ...prev,
-                [m._id]: { 
-                  id: m._id, 
+                [memberId]: { 
+                  id: memberId, 
                   name: m.name, 
                   email: m.email,
                   upiId: m.upiId || ''
@@ -442,9 +460,12 @@ export const GroupProvider = ({ children }) => {
 
   // Add member to group locally (for socket updates)
   const addMemberToGroupLocally = useCallback((groupId, member) => {
+    // Ensure groupId is a string for comparison
+    const groupIdStr = groupId?.toString() || groupId;
+    
     setGroups(prev => prev.map(g => {
-      if (g.id === groupId) {
-        const memberId = member.id || member._id || member;
+      if (g.id === groupIdStr) {
+        const memberId = (member.id || member._id || member)?.toString();
         if (!g.members.includes(memberId)) {
           return { ...g, members: [...g.members, memberId] };
         }
@@ -454,7 +475,7 @@ export const GroupProvider = ({ children }) => {
     
     // Add profile for the new member
     if (member && typeof member === 'object') {
-      const memberId = member.id || member._id;
+      const memberId = (member.id || member._id)?.toString();
       setProfiles(prev => ({
         ...prev,
         [memberId]: { 

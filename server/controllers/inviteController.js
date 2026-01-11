@@ -17,7 +17,7 @@ const MAX_INVITE_EMAILS = parseInt(process.env.MAX_INVITE_EMAILS) || 50;
 export const createInvite = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { type, emails, expiryHours = DEFAULT_EXPIRY_HOURS } = req.body;
+    const { type, emails, expiryHours = DEFAULT_EXPIRY_HOURS, maxUses = 0 } = req.body;
 
     // Validate type
     if (!['link', 'email', 'code'].includes(type)) {
@@ -89,7 +89,7 @@ export const createInvite = async (req, res) => {
         const inviteUrl = `${CLIENT_URL}/join/${token}`;
 
         // Queue email
-        await emailQueue.add('sendEmail', {
+        await emailQueue.add({
           to: email,
           template: 'groupInvite',
           data: {
@@ -99,6 +99,35 @@ export const createInvite = async (req, res) => {
             expiresAt: expiresAt.toISOString(),
           },
         });
+
+        // If the invited user already has an account, send them an in-app notification
+        const invitedUser = existingUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+        if (invitedUser) {
+          try {
+            await Notification.create({
+              userId: invitedUser._id,
+              type: 'info',
+              title: 'Group Invitation',
+              message: `${req.user.name} invited you to join "${group.name}"`,
+              actionType: 'navigate',
+              actionUrl: `/join/${token}`,
+            });
+
+            // Send real-time notification via socket
+            const io = req.app.get('io');
+            if (io) {
+              emitToUser(io, invitedUser._id.toString(), 'notification:new', {
+                type: 'info',
+                title: 'Group Invitation',
+                message: `${req.user.name} invited you to join "${group.name}"`,
+                actionUrl: `/join/${token}`,
+              });
+            }
+          } catch (notifError) {
+            console.error('Failed to create invite notification:', notifError);
+            // Don't fail the invite for notification errors
+          }
+        }
 
         invites.push({
           id: invite._id,
@@ -110,7 +139,7 @@ export const createInvite = async (req, res) => {
         });
       }
     } else {
-      // Link or code invite
+      // Link or code invite (multi-use by default)
       const code = await Invite.generateUniqueCode();
       const invite = await Invite.create({
         groupId,
@@ -118,6 +147,7 @@ export const createInvite = async (req, res) => {
         code,
         type,
         expiresAt,
+        maxUses: Math.max(0, parseInt(maxUses) || 0), // 0 = unlimited
         metadata: {
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
@@ -134,6 +164,9 @@ export const createInvite = async (req, res) => {
         inviteUrl,
         expiresAt,
         status: 'pending',
+        maxUses: invite.maxUses,
+        usedCount: invite.usedCount,
+        unlimited: invite.maxUses === 0,
       });
     }
 
@@ -191,6 +224,9 @@ export const getGroupInvites = async (req, res) => {
       createdAt: invite.createdAt,
       inviter: invite.inviterId,
       status: invite.status,
+      maxUses: invite.maxUses,
+      usedCount: invite.usedCount,
+      unlimited: invite.maxUses === 0,
     }));
 
     res.json({ invites: formattedInvites });
@@ -329,21 +365,30 @@ export const joinViaInvite = async (req, res) => {
             .populate('members', 'name email')
             .populate('createdBy', 'name email');
 
-          // Create notification for group creator
-          await Notification.create({
-            userId: group.createdBy,
-            type: 'member_joined',
-            title: 'New Member Joined',
-            message: `${req.user.name} has joined ${group.name}`,
-            data: { groupId: group._id, memberId: req.user._id },
-          });
+          // Create notification for group creator (non-blocking)
+          try {
+            const creatorId = group.createdBy._id || group.createdBy;
+            await Notification.create({
+              userId: creatorId,
+              type: 'info',
+              title: 'New Member Joined',
+              message: `${req.user.name} has joined ${group.name}`,
+              data: { groupId: group._id.toString(), memberId: req.user._id.toString() },
+            });
+          } catch (notifError) {
+            console.error('Failed to create notification:', notifError);
+          }
 
           // Emit socket event
           const io = req.app.get('io');
           if (io) {
             emitToGroup(io, group._id.toString(), 'group:memberJoined', {
-              groupId: group._id,
-              member: { id: req.user._id, name: req.user.name, email: req.user.email },
+              groupId: group._id.toString(),
+              member: { 
+                id: req.user._id.toString(), 
+                name: req.user.name, 
+                email: req.user.email 
+              },
             });
           }
 
@@ -366,7 +411,7 @@ export const joinViaInvite = async (req, res) => {
     }
 
     if (!invite.isValid()) {
-      return res.status(400).json({ message: 'This invite has expired' });
+      return res.status(400).json({ message: 'This invite has expired or reached its usage limit' });
     }
 
     // For email invites, verify email matches
@@ -376,6 +421,11 @@ export const joinViaInvite = async (req, res) => {
           message: 'This invite was sent to a different email address. Please use the correct account.' 
         });
       }
+    }
+
+    // For link/code invites, check if this user already used this invite
+    if (invite.type !== 'email' && invite.usedBy?.some(u => u.userId?.toString() === req.user._id.toString())) {
+      return res.status(400).json({ message: 'You have already used this invite' });
     }
 
     // Get group
@@ -401,31 +451,32 @@ export const joinViaInvite = async (req, res) => {
       .populate('members', 'name email')
       .populate('createdBy', 'name email');
 
-    // Create notification for inviter
-    await Notification.create({
-      userId: invite.inviterId,
-      type: 'invite_accepted',
-      title: 'Invite Accepted',
-      message: `${req.user.name} has joined ${group.name}`,
-      data: { groupId: group._id, memberId: req.user._id },
-    });
-
-    // Queue notification email to group creator
-    await emailQueue.add('sendEmail', {
-      to: (await User.findById(group.createdBy)).email,
-      template: 'memberJoined',
-      data: {
-        memberName: req.user.name,
-        groupName: group.name,
-      },
-    });
+    // Create notification for inviter (non-blocking)
+    try {
+      if (invite.inviterId) {
+        await Notification.create({
+          userId: invite.inviterId,
+          type: 'info',
+          title: 'Invite Accepted',
+          message: `${req.user.name} has joined ${group.name}`,
+          data: { groupId: group._id.toString(), memberId: req.user._id.toString() },
+        });
+      }
+    } catch (notifError) {
+      console.error('Failed to create notification:', notifError);
+      // Don't fail the join operation for notification errors
+    }
 
     // Emit socket event
     const io = req.app.get('io');
     if (io) {
       emitToGroup(io, group._id.toString(), 'group:memberJoined', {
-        groupId: group._id,
-        member: { id: req.user._id, name: req.user.name, email: req.user.email },
+        groupId: group._id.toString(),
+        member: { 
+          id: req.user._id.toString(), 
+          name: req.user.name, 
+          email: req.user.email 
+        },
       });
     }
 

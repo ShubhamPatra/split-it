@@ -369,10 +369,11 @@ export const createExpense = async (req, res) => {
       const notificationJobs = notifyIds.map(memberId => ({
         data: {
           userId: memberId.toString(),
-          type: 'expense',
+          type: 'info',
+          actionType: 'navigate',
           title: 'New Expense Added',
           message: `${payerName} added "${description}" for ₹${amount}`,
-          data: { groupId, expenseId: expense._id.toString(), actionType: 'expense_added' },
+          data: { groupId, expenseId: expense._id.toString() },
         },
       }));
       await notificationQueue.addBulk(notificationJobs).catch(err => console.error('Notification queue error:', err));
@@ -729,8 +730,13 @@ export const exportExpensesReport = async (req, res) => {
         });
       }
       if (result.reason === 'no_groups') {
-        return res.status(400).json({ message: 'No groups found for export' });
+        return res.status(400).json({ 
+          message: 'You need to be a member of at least one group to export expenses. Create or join a group first.',
+          code: 'NO_GROUPS'
+        });
       }
+      // Catch any other failure reasons
+      return res.status(400).json({ message: result.reason || 'Failed to generate export' });
     }
 
     res.json({ 
@@ -740,6 +746,7 @@ export const exportExpensesReport = async (req, res) => {
       settlements: result.settlements,
     });
   } catch (error) {
+    console.error('Export error:', error);
     res.status(500).json({ message: error.message });
   }
 };

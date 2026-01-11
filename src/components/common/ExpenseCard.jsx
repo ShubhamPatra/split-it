@@ -310,8 +310,8 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
             <div className="space-y-2">
               <Label className="text-sm sm:text-base">Date</Label>
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-                <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} className="pl-10 min-h-[44px] text-sm sm:text-base" />
+                <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} className="pr-10 min-h-[44px] text-sm sm:text-base cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer" />
+                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={18} />
               </div>
             </div>
             <div className="flex gap-3 pt-2">

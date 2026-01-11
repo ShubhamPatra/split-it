@@ -2,7 +2,15 @@ import * as React from "react";
 
 import { cn } from "../../lib/utils";
 
-const Input = React.forwardRef(({ className, type, ...props }, ref) => {
+const Input = React.forwardRef(({ className, type, onWheel, ...props }, ref) => {
+  // Prevent scroll wheel from changing number input values
+  const handleWheel = (e) => {
+    if (type === "number") {
+      e.target.blur();
+    }
+    onWheel?.(e);
+  };
+
   return (
     <input
       type={type}
@@ -11,6 +19,7 @@ const Input = React.forwardRef(({ className, type, ...props }, ref) => {
         className,
       )}
       ref={ref}
+      onWheel={handleWheel}
       {...props}
     />
   );

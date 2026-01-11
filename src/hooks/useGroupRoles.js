@@ -49,6 +49,10 @@ export const useGroupRoles = (groupId, createdBy) => {
     return getMemberRole(memberId) === 'admin';
   }, [getMemberRole]);
 
+  const isCreator = useCallback((memberId) => {
+    return memberId === createdBy;
+  }, [createdBy]);
+
   const setMemberRole = useCallback(async (memberId, role) => {
     // Optimistically update local state
     setRoles(prev => {
@@ -88,8 +92,14 @@ export const useGroupRoles = (groupId, createdBy) => {
   }, [isAdmin]);
 
   const canManageRoles = useCallback((userId) => {
-    return isAdmin(userId);
-  }, [isAdmin]);
+    // Only creator can manage roles
+    return isCreator(userId);
+  }, [isCreator]);
+
+  const canDeleteGroup = useCallback((userId) => {
+    // Only creator can delete the group
+    return isCreator(userId);
+  }, [isCreator]);
 
   const adminCount = useMemo(() => {
     return Object.values(roles).filter(r => r === 'admin').length;
@@ -100,11 +110,13 @@ export const useGroupRoles = (groupId, createdBy) => {
     loading,
     getMemberRole,
     isAdmin,
+    isCreator,
     setMemberRole,
     canEditExpense,
     canDeleteExpense,
     canManageMembers,
     canManageRoles,
+    canDeleteGroup,
     adminCount,
   };
 };
