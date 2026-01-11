@@ -162,9 +162,9 @@ export const truncateText = (text, maxLength = 50) => {
  * @returns {string} Initials (max 2 characters)
  */
 export const getInitials = (name) => {
-  if (!name) return 'U';
+  if (!name || typeof name !== 'string') return 'U';
   const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0][0].toUpperCase();
+  if (parts.length === 1) return parts[0][0]?.toUpperCase() || 'U';
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 };
 

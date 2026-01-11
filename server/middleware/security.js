@@ -3,6 +3,11 @@ import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
 import redis from '../config/redis.js';
 
+// Check if request is from localhost (handles both IPv4 and IPv6)
+const isLocalhost = (ip) => {
+  return ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1' || ip?.includes('localhost');
+};
+
 // Rate limiting middleware with Redis
 export const rateLimiter = (options = {}) => {
   return rateLimit({
@@ -16,7 +21,7 @@ export const rateLimiter = (options = {}) => {
       sendCommand: (...args) => redis.call(...args),
       prefix: 'rl:',
     }),
-    skip: (req) => process.env.NODE_ENV === 'development' && req.ip === '::1',
+    skip: (req) => process.env.NODE_ENV === 'development' && isLocalhost(req.ip),
   });
 };
 
@@ -28,13 +33,13 @@ export const authRateLimit = rateLimiter({
 
 export const inviteJoinRateLimit = rateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 50,
   message: 'Too many join attempts. Please try again later.',
 });
 
 export const inviteValidateRateLimit = rateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 100,
   message: 'Too many validation attempts. Please try again later.',
 });
 

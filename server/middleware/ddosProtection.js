@@ -1,6 +1,16 @@
 import redis from '../config/redis.js';
 
+// Check if request is from localhost (handles both IPv4 and IPv6)
+const isLocalhost = (ip) => {
+  return ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1' || ip?.includes('localhost');
+};
+
 export const ddosProtection = async (req, res, next) => {
+  // Skip DDoS protection in development for localhost
+  if (process.env.NODE_ENV === 'development' && isLocalhost(req.ip)) {
+    return next();
+  }
+  
   const ip = req.ip;
   const key = `ddos:${ip}`;
   

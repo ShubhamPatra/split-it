@@ -305,7 +305,7 @@ export const joinViaInvite = async (req, res) => {
     let isLegacy = false;
 
     if (code) {
-      const normalizedCode = code.toUpperCase().replace('-', '');
+      const normalizedCode = code.toUpperCase().replace(/-/g, '');
       invite = await Invite.findOne({ code: normalizedCode, status: 'pending' });
       
       // Fallback to legacy invite code
