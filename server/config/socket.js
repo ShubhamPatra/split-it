@@ -190,8 +190,74 @@ startTypingCleanup();
 // Store io instance for exports
 let ioInstance = null;
 
+/**
+ * Test if Redis supports pub/sub by attempting a benign PSUBSCRIBE command
+ * Returns true if pub/sub is supported, false if the command is not available
+ * (e.g., ElastiCache serverless which doesn't support psubscribe)
+ */
+const testRedisPubSubCapability = async (client) => {
+  try {
+    // Attempt to subscribe to a pattern (benign test)
+    // This will fail immediately on ElastiCache serverless with "unknown command" error
+    const subClient = client.duplicate();
+    
+    // Set a short timeout for the test
+    const testPromise = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        subClient.unsubscribe().catch(() => {});
+        subClient.quit().catch(() => {});
+        reject(new Error('Pub/sub test timeout'));
+      }, 2000);
+      
+      subClient.once('error', (error) => {
+        clearTimeout(timeout);
+        subClient.unsubscribe().catch(() => {});
+        subClient.quit().catch(() => {});
+        reject(error);
+      });
+      
+      subClient.once('ready', () => {
+        clearTimeout(timeout);
+        // Try to subscribe to test pattern
+        subClient.psubscribe('socket-io-test-*', (err) => {
+          if (err) {
+            subClient.quit().catch(() => {});
+            reject(err);
+          } else {
+            subClient.punsubscribe().then(() => {
+              subClient.quit().catch(() => {});
+              resolve(true);
+            }).catch((err) => {
+              subClient.quit().catch(() => {});
+              reject(err);
+            });
+          }
+        });
+      });
+    });
+    
+    await testPromise;
+    return true;
+  } catch (error) {
+    // Check if it's an "unknown command" error (indicates pub/sub not supported)
+    if (error.message?.includes('unknown command') || error.code === 'ERR') {
+      console.warn('Socket.IO: Redis pub/sub not supported (ElastiCache serverless?), will run without adapter');
+      return false;
+    }
+    // For other errors, log but don't assume pub/sub is unavailable
+    console.warn('Socket.IO: Pub/sub capability test failed:', error.message);
+    return false;
+  }
+};
+
 // Create Redis adapter - exported for server.js to call before handlers
-export const createRedisAdapter = () => {
+export const createRedisAdapter = async () => {
+  // Check environment toggle to disable adapter
+  if (process.env.SOCKET_IO_REDIS_ADAPTER === 'false') {
+    console.log('Socket.IO: Redis adapter disabled via SOCKET_IO_REDIS_ADAPTER=false');
+    return null;
+  }
+  
   if (!isRedisAvailable()) {
     console.log('Socket.IO: Redis not available, running without adapter (single-node mode)');
     return null;
@@ -276,7 +342,42 @@ export const createRedisAdapter = () => {
       console.error('Socket.IO Redis subClient error:', error.message);
     });
     
-    return { pubClient, subClient, adapter: createAdapter(pubClient, subClient) };
+    // Test pub/sub capability before creating adapter
+    // This guards against ElastiCache serverless which doesn't support psubscribe
+    const pubSubSupported = await testRedisPubSubCapability(pubClient);
+    if (!pubSubSupported) {
+      console.log('Socket.IO: Pub/sub not supported, closing adapter clients and running without adapter');
+      try {
+        if (isCluster) {
+          await pubClient.quit();
+          await subClient.quit();
+        } else {
+          // For non-cluster, subClient is a duplicate of pubClient
+          await pubClient.quit();
+        }
+      } catch (closeErr) {
+        console.warn('Socket.IO: Error closing adapter clients:', closeErr.message);
+      }
+      return null;
+    }
+    
+    try {
+      return { pubClient, subClient, adapter: createAdapter(pubClient, subClient) };
+    } catch (adapterError) {
+      // Catch any ReplyError from adapter setup
+      console.warn('Socket.IO: Failed to create adapter:', adapterError.message);
+      try {
+        if (isCluster) {
+          await pubClient.quit();
+          await subClient.quit();
+        } else {
+          await pubClient.quit();
+        }
+      } catch (closeErr) {
+        console.warn('Socket.IO: Error closing adapter clients after setup failure:', closeErr.message);
+      }
+      return null;
+    }
   } catch (error) {
     console.warn('Socket.IO: Failed to create Redis adapter:', error.message);
     return null;

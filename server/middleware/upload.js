@@ -5,16 +5,27 @@ import fs from 'fs';
 import crypto from 'crypto';
 
 // Ensure uploads directory exists
+// Use UPLOAD_DIR env var if set, otherwise default to ./uploads/receipts
+// This allows flexibility: either use named Docker volume or tmp directory
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'receipts');
-try {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-} catch (error) {
-  // Directory might already exist or user doesn't have permissions
-  // This is fine - we'll handle it when actually writing files
-  if (error.code !== 'EEXIST') {
-    console.warn('Warning: Could not create uploads directory:', error.message);
+
+// Create directory if it doesn't exist
+const ensureUploadDir = () => {
+  try {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    return true;
+  } catch (error) {
+    // Directory might already exist or user doesn't have permissions
+    // This is fine - we'll handle it when actually writing files
+    if (error.code !== 'EEXIST') {
+      console.warn('Warning: Could not create uploads directory at', UPLOAD_DIR, ':', error.message);
+    }
+    return false;
   }
-}
+};
+
+// Attempt to create directory on module load
+ensureUploadDir();
 
 const storage = multer.memoryStorage();
 
@@ -59,13 +70,10 @@ export const saveReceiptFiles = async (files, expenseId) => {
   const savedReceipts = [];
   
   // Ensure directory exists before trying to write
-  try {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-  } catch (error) {
-    if (error.code !== 'EEXIST') {
-      console.error('Failed to create uploads directory:', error);
-      throw new Error('Unable to save receipts - directory creation failed');
-    }
+  // This is critical when using Docker volumes that may not exist yet
+  if (!ensureUploadDir()) {
+    // Log a warning but continue - error will be caught during file write
+    console.warn('Could not ensure upload directory exists, continuing with file operations');
   }
   
   for (const file of files) {
@@ -78,8 +86,18 @@ export const saveReceiptFiles = async (files, expenseId) => {
       const filename = `${expenseId}_${uniqueId}.jpg`;
       const filepath = path.join(UPLOAD_DIR, filename);
       
-      // Write file to disk
-      await fs.promises.writeFile(filepath, processedBuffer);
+      // Write file to disk with proper error handling
+      // This will fail with EACCES if directory is not writable
+      try {
+        await fs.promises.writeFile(filepath, processedBuffer);
+      } catch (writeError) {
+        if (writeError.code === 'EACCES') {
+          console.error(`EACCES: Permission denied writing to ${filepath}. Check that UPLOAD_DIR (${UPLOAD_DIR}) is writable by the container user.`);
+        } else if (writeError.code === 'ENOENT') {
+          console.error(`ENOENT: Upload directory does not exist: ${UPLOAD_DIR}. Check UPLOAD_DIR environment variable and Docker volume configuration.`);
+        }
+        throw writeError;
+      }
       
       // Generate URL path (relative to server)
       const url = `/uploads/receipts/${filename}`;
@@ -111,7 +129,9 @@ export const deleteReceiptFiles = async (receipts) => {
       await fs.promises.unlink(filepath);
     } catch (error) {
       // File may not exist, ignore errors
-      console.error('Error deleting receipt file:', error.message);
+      if (error.code !== 'ENOENT') {
+        console.error('Error deleting receipt file:', error.message);
+      }
     }
   }
 };

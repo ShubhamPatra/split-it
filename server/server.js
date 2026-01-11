@@ -170,7 +170,8 @@ const initializeServer = async () => {
   await initRedis();
   
   // Create Redis adapter for Socket.IO horizontal scaling (optional in dev)
-  const redisAdapterResult = createRedisAdapter();
+  // This is now async to test pub/sub capability and guard against ElastiCache serverless
+  const redisAdapterResult = await createRedisAdapter();
   pubClient = redisAdapterResult?.pubClient;
   subClient = redisAdapterResult?.subClient;
   const redisAdapter = redisAdapterResult?.adapter;

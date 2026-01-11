@@ -15,7 +15,7 @@ import bullmq from 'bullmq';
 import Redis from 'ioredis';
 import dotenv from 'dotenv';
 
-const { Queue, Worker, QueueEvents, QueueScheduler } = bullmq;
+const { Queue, Worker, QueueEvents } = bullmq;
 
 // Load environment variables
 dotenv.config();
@@ -30,22 +30,16 @@ let queuesAvailable = false;
 const queues = {};
 const workers = {};
 const queueEvents = {};
-const queueSchedulers = {};
 
-// Shared Redis connections (instantiated once at module load)
-// Using shared connections reduces connection count and slot refresh churn in cluster mode
-let sharedConnection = null;
-let sharedBlockingConnection = null; // For Workers that need blocking commands (BRPOPLPUSH)
-
-// Queue names with hash tags for Redis Cluster compatibility
+// Simple queue names without colons - Hash tags for Redis Cluster compatibility
 // Hash tags {...} ensure all queue-related keys hash to the same slot
 export const QUEUE_NAMES = {
-  EMAIL: '{splitit}:email',
-  NOTIFICATION: '{splitit}:notification',
-  BALANCE: '{splitit}:balance',
-  RECURRING: '{splitit}:recurring',
-  DIGEST: '{splitit}:digest',
-  DUE_REMINDER: '{splitit}:dueReminder',
+  EMAIL: '{splitit}email',
+  NOTIFICATION: '{splitit}notification',
+  BALANCE: '{splitit}balance',
+  RECURRING: '{splitit}recurring',
+  DIGEST: '{splitit}digest',
+  DUE_REMINDER: '{splitit}dueReminder',
 };
 
 /**
@@ -190,7 +184,7 @@ export const defaultJobOptions = {
 };
 
 /**
- * Create a BullMQ Queue instance
+ * Create a BullMQ Queue instance with shared prefix
  * Uses shared connection to reduce connection count
  */
 const createQueue = (name, options = {}) => {
@@ -201,6 +195,7 @@ const createQueue = (name, options = {}) => {
   try {
     const queue = new Queue(name, {
       connection: sharedConnection,
+      prefix: 'splitit', // Shared prefix for all queues in this app
       defaultJobOptions: {
         ...defaultJobOptions,
         ...options.defaultJobOptions,
@@ -232,6 +227,7 @@ export const createWorker = (name, processor, options = {}) => {
   try {
     const worker = new Worker(name, processor, {
       connection: sharedBlockingConnection,
+      prefix: 'splitit', // Must match queue prefix
       concurrency: options.concurrency || 5,
       limiter: options.limiter,
       ...options,
@@ -270,6 +266,7 @@ export const createQueueEvents = (name) => {
   try {
     const events = new QueueEvents(name, {
       connection: sharedConnection,
+      prefix: 'splitit', // Must match queue prefix
     });
     queueEvents[name] = events;
     return events;
@@ -280,16 +277,26 @@ export const createQueueEvents = (name) => {
 };
 
 /**
- * Create QueueScheduler for handling delayed and repeatable jobs
- * The scheduler is required for delayed jobs and cron/repeatable jobs to work properly.
- * Uses shared connection to reduce connection count
+ * Feature-detect QueueScheduler availability and create if supported
+ * Newer BullMQ versions removed QueueScheduler in favor of built-in delayed/repeatable support
+ * This function gracefully handles both old and new versions
  */
-const createQueueScheduler = (name) => {
+const createQueueSchedulerIfAvailable = (name) => {
+  // Check if QueueScheduler is available in bullmq exports
+  if (!bullmq.QueueScheduler) {
+    if (isDev) {
+      console.log(`QueueScheduler not available in BullMQ for ${name} - using built-in delayed/repeatable support`);
+    }
+    return null;
+  }
+  
   if (!REDIS_ENABLED || !sharedConnection) return null;
   
   try {
+    const { QueueScheduler } = bullmq;
     const scheduler = new QueueScheduler(name, {
       connection: sharedConnection,
+      prefix: 'splitit', // Must match queue prefix
     });
     
     scheduler.on('error', (error) => {
@@ -297,13 +304,17 @@ const createQueueScheduler = (name) => {
       console.error(`QueueScheduler ${name} error:`, error.message);
     });
     
-    queueSchedulers[name] = scheduler;
     return scheduler;
   } catch (error) {
     console.error(`Failed to create QueueScheduler for ${name}:`, error.message);
     return null;
   }
 };
+
+/**
+ * Store queue schedulers if created
+ */
+const queueSchedulers = {};
 
 /**
  * Mock Queue for development when Redis is unavailable
@@ -451,14 +462,26 @@ const initializeQueues = async () => {
     
     queues.dueReminder = createQueue(QUEUE_NAMES.DUE_REMINDER);
     
-    // Create QueueSchedulers for delayed and repeatable jobs
-    // These must stay alive for the process lifetime to handle delayed/repeatable jobs
-    createQueueScheduler(QUEUE_NAMES.EMAIL);
-    createQueueScheduler(QUEUE_NAMES.NOTIFICATION);
-    createQueueScheduler(QUEUE_NAMES.BALANCE);
-    createQueueScheduler(QUEUE_NAMES.RECURRING);
-    createQueueScheduler(QUEUE_NAMES.DIGEST);
-    createQueueScheduler(QUEUE_NAMES.DUE_REMINDER);
+    // Create QueueSchedulers if available (feature-detect for BullMQ version compatibility)
+    // Newer versions have built-in delayed/repeatable job support without QueueScheduler
+    // Store returned schedulers for graceful shutdown
+    const emailScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.EMAIL);
+    if (emailScheduler) queueSchedulers[QUEUE_NAMES.EMAIL] = emailScheduler;
+    
+    const notificationScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.NOTIFICATION);
+    if (notificationScheduler) queueSchedulers[QUEUE_NAMES.NOTIFICATION] = notificationScheduler;
+    
+    const balanceScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.BALANCE);
+    if (balanceScheduler) queueSchedulers[QUEUE_NAMES.BALANCE] = balanceScheduler;
+    
+    const recurringScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.RECURRING);
+    if (recurringScheduler) queueSchedulers[QUEUE_NAMES.RECURRING] = recurringScheduler;
+    
+    const digestScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.DIGEST);
+    if (digestScheduler) queueSchedulers[QUEUE_NAMES.DIGEST] = digestScheduler;
+    
+    const dueReminderScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.DUE_REMINDER);
+    if (dueReminderScheduler) queueSchedulers[QUEUE_NAMES.DUE_REMINDER] = dueReminderScheduler;
     
     queuesAvailable = true;
     console.log('BullMQ: All queues initialized successfully');

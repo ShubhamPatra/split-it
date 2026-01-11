@@ -28,6 +28,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --chown=nodejs:nodejs . .
 
 # Create logs and uploads directories with proper permissions
+# Use absolute permissions (777) initially, will be restricted on host mount if needed
 RUN mkdir -p logs uploads/receipts && \
     chmod -R 777 logs uploads && \
     chown -R nodejs:nodejs logs uploads

@@ -54,11 +54,16 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5000
+      # Upload directory - use container-managed volume for proper permissions
+      # Alternative: set to /tmp/uploads/receipts if bind mount is required
+      - UPLOAD_DIR=/app/uploads/receipts
     env_file:
       - ../env/.env.production
     volumes:
-      - ../../server/uploads:/app/uploads
-      - ../../server/logs:/app/logs
+      # Use named volume for uploads to ensure proper ownership and permissions
+      - uploads:/app/uploads
+      # Use named volume for logs
+      - logs:/app/logs
     networks:
       - splitit
     deploy:
@@ -97,3 +102,9 @@ services:
 networks:
   splitit:
     driver: bridge
+
+volumes:
+  uploads:
+    driver: local
+  logs:
+    driver: local
