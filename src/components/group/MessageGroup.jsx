@@ -16,14 +16,14 @@ const avatarColors = [
 
 // Hash userId to get consistent color
 export const getAvatarColor = (userId) => {
-  if (!userId) return avatarColors[0];
+  if (!userId || typeof userId !== 'string') return avatarColors[0];
   const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   return avatarColors[hash % avatarColors.length];
 };
 
 // Get sender name color that matches avatar
 const getSenderNameColor = (userId) => {
-  if (!userId) return 'text-muted-foreground';
+  if (!userId || typeof userId !== 'string') return 'text-muted-foreground';
   const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const colors = [
     'text-blue-600 dark:text-blue-400',

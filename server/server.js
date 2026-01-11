@@ -109,8 +109,14 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Input sanitization
 app.use(sanitizeInput);
 
-// Global rate limiting (100 requests per 15 minutes)
-app.use(rateLimiter());
+// Global rate limiting (1000 requests per 15 minutes per IP)
+// Auth routes have their own stricter rate limiting
+app.use(rateLimiter({
+  max: 1000,
+  windowMs: 15 * 60 * 1000,
+  message: 'Too many requests from this IP. Please try again later.',
+  skip: (req) => req.path.startsWith('/api/auth/'), // Auth routes have their own rate limit
+}));
 
 // Request logging middleware (only in development)
 if (process.env.NODE_ENV !== 'production') {

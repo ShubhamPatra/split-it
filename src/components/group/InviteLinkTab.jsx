@@ -5,13 +5,20 @@ import { toast } from '../../hooks/use-toast';
 import apiClient from '../../lib/apiClient';
 import { Copy, Check, RefreshCw, Link as LinkIcon } from 'lucide-react';
 
-const InviteLinkTab = ({ groupId, expiryHours, onInviteCreated }) => {
+const InviteLinkTab = ({ groupId, expiryHours, existingInvite, onInviteCreated }) => {
   const [invite, setInvite] = useState(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState('');
 
-  // Generate or fetch link invite
+  // Use existing invite if available
+  useEffect(() => {
+    if (existingInvite && !invite) {
+      setInvite(existingInvite);
+    }
+  }, [existingInvite, invite]);
+
+  // Generate new link invite (only when explicitly requested)
   const generateInvite = async () => {
     try {
       setLoading(true);
@@ -89,14 +96,6 @@ const InviteLinkTab = ({ groupId, expiryHours, onInviteCreated }) => {
 
     return () => clearInterval(interval);
   }, [invite?.expiresAt]);
-
-  // Generate invite on mount if none exists
-  useEffect(() => {
-    if (groupId && !invite) {
-      generateInvite();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId]);
 
   return (
     <div className="space-y-4">

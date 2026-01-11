@@ -2,7 +2,9 @@ import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs) {
-  return twMerge(clsx(inputs));
+  const result = clsx(inputs);
+  // Ensure we always pass a string to twMerge
+  return twMerge(typeof result === 'string' ? result : '');
 }
 // Sanitize user input to prevent XSS
 export function sanitizeInput(input) {

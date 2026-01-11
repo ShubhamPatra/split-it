@@ -27,8 +27,8 @@ export const rateLimiter = (options = {}) => {
 
 export const authRateLimit = rateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 50,
-  message: 'Too many login attempts',
+  max: 100,
+  message: 'Too many login attempts. Please try again in a few minutes.',
 });
 
 export const inviteJoinRateLimit = rateLimiter({
@@ -39,7 +39,7 @@ export const inviteJoinRateLimit = rateLimiter({
 
 export const inviteValidateRateLimit = rateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 200,
   message: 'Too many validation attempts. Please try again later.',
 });
 

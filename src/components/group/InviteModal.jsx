@@ -30,6 +30,17 @@ const InviteModal = ({ groupId, groupName, isOpen, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [expiryHours, setExpiryHours] = useState(168); // Default 7 days
 
+  // Get existing active invite by type (link or code)
+  const getExistingInvite = useCallback((type) => {
+    // Link and QR share the same 'link' type invite
+    const searchType = type === 'qr' ? 'link' : type;
+    return invites.find(inv => 
+      inv.type === searchType && 
+      inv.status === 'active' && 
+      new Date(inv.expiresAt) > new Date()
+    );
+  }, [invites]);
+
   // Fetch active invites
   const fetchInvites = useCallback(async () => {
     if (!groupId) return;
@@ -152,6 +163,7 @@ const InviteModal = ({ groupId, groupName, isOpen, onClose }) => {
             <InviteLinkTab
               groupId={groupId}
               expiryHours={expiryHours}
+              existingInvite={getExistingInvite('link')}
               onInviteCreated={handleInviteCreated}
             />
           </TabsContent>
@@ -168,6 +180,7 @@ const InviteModal = ({ groupId, groupName, isOpen, onClose }) => {
             <InviteCodeTab
               groupId={groupId}
               expiryHours={expiryHours}
+              existingInvite={getExistingInvite('code')}
               onInviteCreated={handleInviteCreated}
             />
           </TabsContent>
@@ -176,6 +189,7 @@ const InviteModal = ({ groupId, groupName, isOpen, onClose }) => {
             <InviteQRTab
               groupId={groupId}
               expiryHours={expiryHours}
+              existingInvite={getExistingInvite('qr')}
               onInviteCreated={handleInviteCreated}
             />
           </TabsContent>

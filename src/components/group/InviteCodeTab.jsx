@@ -4,13 +4,20 @@ import { toast } from '../../hooks/use-toast';
 import apiClient from '../../lib/apiClient';
 import { Copy, Check, RefreshCw, Hash } from 'lucide-react';
 
-const InviteCodeTab = ({ groupId, expiryHours, onInviteCreated }) => {
+const InviteCodeTab = ({ groupId, expiryHours, existingInvite, onInviteCreated }) => {
   const [invite, setInvite] = useState(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState('');
 
-  // Generate code invite
+  // Use existing invite if available
+  useEffect(() => {
+    if (existingInvite && !invite) {
+      setInvite(existingInvite);
+    }
+  }, [existingInvite, invite]);
+
+  // Generate new code invite (only when explicitly requested)
   const generateInvite = async () => {
     try {
       setLoading(true);
@@ -88,14 +95,6 @@ const InviteCodeTab = ({ groupId, expiryHours, onInviteCreated }) => {
 
     return () => clearInterval(interval);
   }, [invite?.expiresAt]);
-
-  // Generate invite on mount
-  useEffect(() => {
-    if (groupId && !invite) {
-      generateInvite();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId]);
 
   return (
     <div className="space-y-4">

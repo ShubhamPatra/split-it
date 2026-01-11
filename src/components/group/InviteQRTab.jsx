@@ -5,7 +5,7 @@ import apiClient from '../../lib/apiClient';
 import { Copy, Check, RefreshCw, QrCode, Download } from 'lucide-react';
 import QRCode from 'qrcode';
 
-const InviteQRTab = ({ groupId, expiryHours, onInviteCreated }) => {
+const InviteQRTab = ({ groupId, expiryHours, existingInvite, onInviteCreated }) => {
   const [invite, setInvite] = useState(null);
   const [qrDataUrl, setQrDataUrl] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -135,13 +135,15 @@ const InviteQRTab = ({ groupId, expiryHours, onInviteCreated }) => {
     return () => clearInterval(interval);
   }, [invite?.expiresAt]);
 
-  // Generate invite on mount
+  // Use existing invite if available
   useEffect(() => {
-    if (groupId && !invite) {
-      generateInvite();
+    if (existingInvite && !invite) {
+      setInvite(existingInvite);
+      if (existingInvite.inviteUrl) {
+        generateQRCode(existingInvite.inviteUrl);
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId]);
+  }, [existingInvite, invite, generateQRCode]);
 
   return (
     <div className="space-y-4">
