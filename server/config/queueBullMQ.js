@@ -92,27 +92,65 @@ const buildConnectionOptions = () => {
  */
 const createNewConnection = () => {
   const options = buildConnectionOptions();
-  
+
   if (process.env.REDIS_CLUSTER_MODE === 'true') {
-    // ElastiCache Cluster Mode
+    // ElastiCache Cluster Mode with enhanced configuration
     const clusterNodes = [{ host: options.host, port: options.port }];
-    
-    return new Redis.Cluster(clusterNodes, {
+
+    const clusterClient = new Redis.Cluster(clusterNodes, {
+      // DNS resolution callback for ElastiCache
       dnsLookup: (address, callback) => callback(null, address),
       enableReadyCheck: true,
-      slotsRefreshTimeout: 10000,
-      slotsRefreshInterval: 5000,
-      redisOptions: options,
+      // Increased timeout for ElastiCache Serverless slot refresh
+      slotsRefreshTimeout: parseInt(process.env.REDIS_CLUSTER_SLOTS_REFRESH_TIMEOUT, 10) || 15000,
+      slotsRefreshInterval: parseInt(process.env.REDIS_CLUSTER_SLOTS_REFRESH_INTERVAL, 10) || 5000,
+      // Enable auto pipelining for better cluster performance
+      enableAutoPipelining: true,
+      // Redis options for each node
+      redisOptions: {
+        ...options,
+        // Show friendly error stack in development
+        showFriendlyErrorStack: isDev,
+      },
       clusterRetryStrategy: (times) => {
-        if (times > 20) return 30000;
-        return Math.min(times * 1000, 30000);
+        if (times > (parseInt(process.env.REDIS_MAX_RECONNECT_ATTEMPTS, 10) || 20)) {
+          console.error(`BullMQ Redis Cluster: Max retries (${times}). Continuing with 30s delay.`);
+          return 30000;
+        }
+        const delay = Math.min(times * 1000, 30000);
+        if (times > 1) {
+          console.log(`BullMQ Redis Cluster: Retrying in ${delay}ms (attempt ${times})`);
+        }
+        return delay;
       },
       scaleReads: 'slave',
     });
+
+    // Add cluster-specific error handling for CLUSTERDOWN, MOVED, ASK errors
+    clusterClient.on('error', (err) => {
+      if (err.message?.includes('CLUSTERDOWN')) {
+        console.error('BullMQ Redis Cluster: Cluster is down, waiting for recovery...');
+      } else if (err.message?.includes('MOVED') || err.message?.includes('ASK')) {
+        // These are typically handled automatically by ioredis, log for visibility
+        if (isDev) {
+          console.log('BullMQ Redis Cluster: Slot redirect detected, handled automatically');
+        }
+      }
+    });
+
+    clusterClient.on('node error', (err, address) => {
+      console.error(`BullMQ Redis Cluster: Node ${address} error:`, err.message);
+    });
+
+    return clusterClient;
   }
-  
+
   return new Redis(options);
 };
+
+// Shared Redis connections (declared at module scope for ES module compatibility)
+let sharedConnection = null;
+let sharedBlockingConnection = null;
 
 /**
  * Initialize shared Redis connections at module load
@@ -121,28 +159,176 @@ const createNewConnection = () => {
  */
 const initializeSharedConnections = () => {
   if (!REDIS_ENABLED) return;
-  
+
   try {
     // Main shared connection for Queue, QueueScheduler, QueueEvents
     sharedConnection = createNewConnection();
-    sharedConnection.on('error', (error) => {
-      if (isDev && error.code === 'ECONNREFUSED') return;
-      console.error('BullMQ shared connection error:', error.message);
-    });
-    
+    setupConnectionEventListeners(sharedConnection, 'shared');
+
     // Separate blocking connection for Workers (they use blocking commands like BRPOPLPUSH)
     sharedBlockingConnection = createNewConnection();
-    sharedBlockingConnection.on('error', (error) => {
-      if (isDev && error.code === 'ECONNREFUSED') return;
-      console.error('BullMQ shared blocking connection error:', error.message);
-    });
-    
+    setupConnectionEventListeners(sharedBlockingConnection, 'shared-blocking');
+
     console.log('BullMQ: Shared Redis connections initialized');
   } catch (error) {
     console.error('BullMQ: Failed to create shared connections:', error.message);
     sharedConnection = null;
     sharedBlockingConnection = null;
   }
+};
+
+/**
+ * Set up event listeners for connection monitoring and reconnection
+ */
+const setupConnectionEventListeners = (connection, name) => {
+  if (!connection) return;
+
+  connection.on('error', (error) => {
+    if (isDev && error.code === 'ECONNREFUSED') return;
+    console.error(`BullMQ ${name} connection error:`, error.message);
+  });
+
+  connection.on('close', () => {
+    console.warn(`BullMQ ${name} connection: Closed, attempting reconnection...`);
+    // ioredis handles reconnection automatically via retryStrategy
+  });
+
+  connection.on('reconnecting', (delay) => {
+    console.log(`BullMQ ${name} connection: Reconnecting in ${delay}ms...`);
+  });
+
+  connection.on('end', () => {
+    console.error(`BullMQ ${name} connection: Permanently disconnected (end event)`);
+    // Trigger reconnection attempt if circuit breaker allows
+    if (canAttemptReconnection()) {
+      scheduleReconnection();
+    }
+  });
+
+  connection.on('ready', () => {
+    console.log(`BullMQ ${name} connection: Ready`);
+    recordReconnectionSuccess();
+  });
+};
+
+// Circuit breaker state for reconnection attempts
+let reconnectionScheduled = false;
+const circuitBreaker = {
+  failures: [],
+  maxFailures: 10,
+  windowMs: 60000, // 60 second window
+};
+
+/**
+ * Check if circuit breaker allows a reconnection attempt
+ */
+const canAttemptReconnection = () => {
+  const now = Date.now();
+  // Clean up old failures
+  circuitBreaker.failures = circuitBreaker.failures.filter(
+    (time) => now - time < circuitBreaker.windowMs
+  );
+  return circuitBreaker.failures.length < circuitBreaker.maxFailures;
+};
+
+/**
+ * Record a reconnection failure
+ */
+const recordReconnectionFailure = () => {
+  circuitBreaker.failures.push(Date.now());
+  if (circuitBreaker.failures.length >= circuitBreaker.maxFailures) {
+    console.error(`BullMQ: Circuit breaker OPEN - Too many reconnection failures (${circuitBreaker.failures.length})`);
+  }
+};
+
+/**
+ * Record a successful reconnection
+ */
+const recordReconnectionSuccess = () => {
+  circuitBreaker.failures = [];
+};
+
+/**
+ * Schedule a reconnection attempt with delay
+ */
+const scheduleReconnection = () => {
+  if (reconnectionScheduled) return;
+  reconnectionScheduled = true;
+
+  const delay = Math.min(circuitBreaker.failures.length * 5000, 30000);
+  console.log(`BullMQ: Scheduling reconnection attempt in ${delay}ms...`);
+
+  setTimeout(async () => {
+    reconnectionScheduled = false;
+    await reconnectSharedConnections();
+  }, delay);
+};
+
+/**
+ * Attempt to recreate shared connections after permanent disconnection
+ */
+const reconnectSharedConnections = async () => {
+  if (!canAttemptReconnection()) {
+    console.error('BullMQ: Circuit breaker preventing reconnection attempt');
+    return false;
+  }
+
+  console.log('BullMQ: Attempting to reconnect shared connections...');
+
+  try {
+    // Close existing connections gracefully
+    if (sharedConnection) {
+      await sharedConnection.quit().catch(() => { });
+    }
+    if (sharedBlockingConnection) {
+      await sharedBlockingConnection.quit().catch(() => { });
+    }
+
+    // Reinitialize connections
+    initializeSharedConnections();
+
+    // Wait for connections to be ready
+    if (sharedConnection && sharedBlockingConnection) {
+      await Promise.all([
+        waitForConnectionReady(sharedConnection, 10000),
+        waitForConnectionReady(sharedBlockingConnection, 10000),
+      ]);
+      console.log('BullMQ: Shared connections reconnected successfully');
+      recordReconnectionSuccess();
+      return true;
+    }
+  } catch (error) {
+    console.error('BullMQ: Reconnection failed:', error.message);
+    recordReconnectionFailure();
+  }
+
+  return false;
+};
+
+/**
+ * Wait for a connection to be ready
+ */
+const waitForConnectionReady = (connection, timeout = 10000) => {
+  return new Promise((resolve, reject) => {
+    if (connection.status === 'ready') {
+      resolve();
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      reject(new Error('Connection timeout'));
+    }, timeout);
+
+    connection.once('ready', () => {
+      clearTimeout(timeoutId);
+      resolve();
+    });
+
+    connection.once('error', (err) => {
+      clearTimeout(timeoutId);
+      reject(err);
+    });
+  });
 };
 
 // Initialize shared connections immediately
@@ -191,7 +377,7 @@ const createQueue = (name, options = {}) => {
   if (!REDIS_ENABLED || !sharedConnection) {
     return createMockQueue(name);
   }
-  
+
   try {
     const queue = new Queue(name, {
       connection: sharedConnection,
@@ -201,12 +387,12 @@ const createQueue = (name, options = {}) => {
         ...options.defaultJobOptions,
       },
     });
-    
+
     queue.on('error', (error) => {
       if (isDev && error.code === 'ECONNREFUSED') return;
       console.error(`Queue ${name} error:`, error.message);
     });
-    
+
     return queue;
   } catch (error) {
     console.error(`Failed to create queue ${name}:`, error.message);
@@ -223,7 +409,7 @@ export const createWorker = (name, processor, options = {}) => {
     console.log(`Worker ${name}: Redis disabled, using mock worker`);
     return createMockWorker(name);
   }
-  
+
   try {
     const worker = new Worker(name, processor, {
       connection: sharedBlockingConnection,
@@ -232,22 +418,22 @@ export const createWorker = (name, processor, options = {}) => {
       limiter: options.limiter,
       ...options,
     });
-    
+
     worker.on('completed', (job) => {
       if (isDev) {
         console.log(`Worker ${name}: Job ${job.id} completed`);
       }
     });
-    
+
     worker.on('failed', (job, error) => {
       console.error(`Worker ${name}: Job ${job?.id} failed:`, error.message);
     });
-    
+
     worker.on('error', (error) => {
       if (isDev && error.code === 'ECONNREFUSED') return;
       console.error(`Worker ${name} error:`, error.message);
     });
-    
+
     workers[name] = worker;
     return worker;
   } catch (error) {
@@ -262,7 +448,7 @@ export const createWorker = (name, processor, options = {}) => {
  */
 export const createQueueEvents = (name) => {
   if (!REDIS_ENABLED || !sharedConnection) return null;
-  
+
   try {
     const events = new QueueEvents(name, {
       connection: sharedConnection,
@@ -289,21 +475,21 @@ const createQueueSchedulerIfAvailable = (name) => {
     }
     return null;
   }
-  
+
   if (!REDIS_ENABLED || !sharedConnection) return null;
-  
+
   try {
     const { QueueScheduler } = bullmq;
     const scheduler = new QueueScheduler(name, {
       connection: sharedConnection,
       prefix: 'splitit', // Must match queue prefix
     });
-    
+
     scheduler.on('error', (error) => {
       if (isDev && error.code === 'ECONNREFUSED') return;
       console.error(`QueueScheduler ${name} error:`, error.message);
     });
-    
+
     return scheduler;
   } catch (error) {
     console.error(`Failed to create QueueScheduler for ${name}:`, error.message);
@@ -323,28 +509,28 @@ class MockQueue {
   constructor(name) {
     this.name = name;
   }
-  
+
   async add(jobName, data, opts) {
     if (isDev) {
       console.log(`[MockQueue:${this.name}] Job skipped:`, jobName);
     }
     return { id: 'mock-' + Date.now(), name: jobName, data };
   }
-  
+
   async addBulk(jobs) {
-    return jobs.map((j, i) => ({ 
-      id: 'mock-' + Date.now() + '-' + i, 
+    return jobs.map((j, i) => ({
+      id: 'mock-' + Date.now() + '-' + i,
       name: j.name,
-      data: j.data 
+      data: j.data
     }));
   }
-  
+
   async getJobCounts() {
     return { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 };
   }
-  
-  async close() {}
-  on() {}
+
+  async close() { }
+  on() { }
 }
 
 /**
@@ -354,26 +540,22 @@ class MockWorker {
   constructor(name) {
     this.name = name;
   }
-  async close() {}
-  on() {}
+  async close() { }
+  on() { }
 }
 
 const createMockQueue = (name) => new MockQueue(name);
 const createMockWorker = (name) => new MockWorker(name);
 
 /**
- * Initialize all queues
+ * Initialize all queues with retry logic
+ * @param {number} attempt - Current attempt number (1-based)
+ * @param {number} maxAttempts - Maximum number of attempts
  */
-const initializeQueues = async () => {
+const initializeQueuesWithRetry = async (attempt = 1, maxAttempts = 3) => {
   if (!REDIS_ENABLED) {
     console.log('BullMQ: Disabled via REDIS_ENABLED=false');
-    queues.email = createMockQueue(QUEUE_NAMES.EMAIL);
-    queues.notification = createMockQueue(QUEUE_NAMES.NOTIFICATION);
-    queues.balance = createMockQueue(QUEUE_NAMES.BALANCE);
-    queues.recurring = createMockQueue(QUEUE_NAMES.RECURRING);
-    queues.digest = createMockQueue(QUEUE_NAMES.DIGEST);
-    queues.dueReminder = createMockQueue(QUEUE_NAMES.DUE_REMINDER);
-    // queuesAvailable stays false when using mocks
+    setupMockQueues();
     return;
   }
 
@@ -385,121 +567,122 @@ const initializeQueues = async () => {
       throw new Error(errorMsg + ' - Redis is required in production.');
     }
     console.warn(errorMsg + ' - Using mock queues in development.');
-    queues.email = createMockQueue(QUEUE_NAMES.EMAIL);
-    queues.notification = createMockQueue(QUEUE_NAMES.NOTIFICATION);
-    queues.balance = createMockQueue(QUEUE_NAMES.BALANCE);
-    queues.recurring = createMockQueue(QUEUE_NAMES.RECURRING);
-    queues.digest = createMockQueue(QUEUE_NAMES.DIGEST);
-    queues.dueReminder = createMockQueue(QUEUE_NAMES.DUE_REMINDER);
-    // queuesAvailable stays false when using mocks
+    setupMockQueues();
     return;
   }
 
   try {
-    // Verify shared connection is ready before creating queues
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Connection timeout waiting for Redis'));
-      }, 10000);
-      
-      // Check if already connected
-      if (sharedConnection.status === 'ready') {
-        clearTimeout(timeout);
-        resolve();
-        return;
-      }
-      
-      sharedConnection.once('ready', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-      
-      sharedConnection.once('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    console.log(`BullMQ: Initializing queues (attempt ${attempt}/${maxAttempts})...`);
 
-    // Also verify blocking connection is ready
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Connection timeout waiting for Redis blocking connection'));
-      }, 10000);
-      
-      if (sharedBlockingConnection.status === 'ready') {
-        clearTimeout(timeout);
-        resolve();
-        return;
+    // Verify shared connection is ready before creating queues
+    await waitForConnectionReady(sharedConnection, 10000);
+    await waitForConnectionReady(sharedBlockingConnection, 10000);
+
+    // Log cluster topology if in cluster mode
+    if (process.env.REDIS_CLUSTER_MODE === 'true') {
+      try {
+        const nodes = sharedConnection.nodes?.('all') || [];
+        console.log(`BullMQ: Connected to Redis Cluster with ${nodes.length} node(s)`);
+
+        // Try to get cluster info
+        const clusterInfo = await sharedConnection.cluster('INFO').catch(() => null);
+        if (clusterInfo) {
+          const stateMatch = clusterInfo.match(/cluster_state:(\w+)/);
+          const slotsMatch = clusterInfo.match(/cluster_slots_assigned:(\d+)/);
+          if (stateMatch) {
+            console.log(`BullMQ: Cluster state: ${stateMatch[1]}`);
+          }
+          if (slotsMatch) {
+            console.log(`BullMQ: Slot coverage: ${slotsMatch[1]}/16384`);
+          }
+        }
+      } catch (clusterErr) {
+        // Cluster info may not be available, continue anyway
+        if (isDev) {
+          console.log('BullMQ: Could not retrieve cluster topology info');
+        }
       }
-      
-      sharedBlockingConnection.once('ready', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-      
-      sharedBlockingConnection.once('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    }
 
     // Create queue instances
     queues.email = createQueue(QUEUE_NAMES.EMAIL, {
       defaultJobOptions: { ...defaultJobOptions, attempts: 5 },
     });
-    
+
     queues.notification = createQueue(QUEUE_NAMES.NOTIFICATION);
-    
+
     queues.balance = createQueue(QUEUE_NAMES.BALANCE, {
       defaultJobOptions: { ...defaultJobOptions, timeout: 30000 },
     });
-    
+
     queues.recurring = createQueue(QUEUE_NAMES.RECURRING, {
       defaultJobOptions: { ...defaultJobOptions, attempts: 1 },
     });
-    
+
     queues.digest = createQueue(QUEUE_NAMES.DIGEST);
-    
+
     queues.dueReminder = createQueue(QUEUE_NAMES.DUE_REMINDER);
-    
+
     // Create QueueSchedulers if available (feature-detect for BullMQ version compatibility)
     // Newer versions have built-in delayed/repeatable job support without QueueScheduler
     // Store returned schedulers for graceful shutdown
     const emailScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.EMAIL);
     if (emailScheduler) queueSchedulers[QUEUE_NAMES.EMAIL] = emailScheduler;
-    
+
     const notificationScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.NOTIFICATION);
     if (notificationScheduler) queueSchedulers[QUEUE_NAMES.NOTIFICATION] = notificationScheduler;
-    
+
     const balanceScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.BALANCE);
     if (balanceScheduler) queueSchedulers[QUEUE_NAMES.BALANCE] = balanceScheduler;
-    
+
     const recurringScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.RECURRING);
     if (recurringScheduler) queueSchedulers[QUEUE_NAMES.RECURRING] = recurringScheduler;
-    
+
     const digestScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.DIGEST);
     if (digestScheduler) queueSchedulers[QUEUE_NAMES.DIGEST] = digestScheduler;
-    
+
     const dueReminderScheduler = createQueueSchedulerIfAvailable(QUEUE_NAMES.DUE_REMINDER);
     if (dueReminderScheduler) queueSchedulers[QUEUE_NAMES.DUE_REMINDER] = dueReminderScheduler;
-    
+
     queuesAvailable = true;
     console.log('BullMQ: All queues initialized successfully');
   } catch (err) {
+    console.error(`BullMQ: Queue initialization attempt ${attempt} failed:`, err.message);
+
+    if (attempt < maxAttempts) {
+      // Exponential backoff: 2s, 4s, 8s
+      const delay = Math.pow(2, attempt) * 1000;
+      console.log(`BullMQ: Retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return initializeQueuesWithRetry(attempt + 1, maxAttempts);
+    }
+
     if (isDev) {
-      console.warn('BullMQ: Redis not available, using mock queues:', err.message);
-      queues.email = createMockQueue(QUEUE_NAMES.EMAIL);
-      queues.notification = createMockQueue(QUEUE_NAMES.NOTIFICATION);
-      queues.balance = createMockQueue(QUEUE_NAMES.BALANCE);
-      queues.recurring = createMockQueue(QUEUE_NAMES.RECURRING);
-      queues.digest = createMockQueue(QUEUE_NAMES.DIGEST);
-      queues.dueReminder = createMockQueue(QUEUE_NAMES.DUE_REMINDER);
+      console.warn('BullMQ: All retry attempts failed, using mock queues:', err.message);
+      setupMockQueues();
       // queuesAvailable stays false when using mocks
     } else {
       throw new Error('Redis is required in production: ' + err.message);
     }
   }
 };
+
+/**
+ * Set up mock queues for development when Redis is unavailable
+ */
+const setupMockQueues = () => {
+  queues.email = createMockQueue(QUEUE_NAMES.EMAIL);
+  queues.notification = createMockQueue(QUEUE_NAMES.NOTIFICATION);
+  queues.balance = createMockQueue(QUEUE_NAMES.BALANCE);
+  queues.recurring = createMockQueue(QUEUE_NAMES.RECURRING);
+  queues.digest = createMockQueue(QUEUE_NAMES.DIGEST);
+  queues.dueReminder = createMockQueue(QUEUE_NAMES.DUE_REMINDER);
+};
+
+/**
+ * Initialize all queues (wrapper for backward compatibility)
+ */
+const initializeQueues = () => initializeQueuesWithRetry(1, 3);
 
 // Initialize queues immediately
 // In production, errors are propagated so server startup fails
@@ -540,51 +723,51 @@ export const getDueReminderQueue = () => queues.dueReminder;
  */
 export const closeAllQueues = async () => {
   console.log('Closing BullMQ queues and workers...');
-  
+
   const closePromises = [];
-  
+
   // Close workers first
   for (const [name, worker] of Object.entries(workers)) {
     closePromises.push(
       worker.close().catch(err => console.error(`Error closing worker ${name}:`, err.message))
     );
   }
-  
+
   // Close queue events
   for (const [name, events] of Object.entries(queueEvents)) {
     closePromises.push(
       events.close().catch(err => console.error(`Error closing events ${name}:`, err.message))
     );
   }
-  
+
   // Close queue schedulers before closing queues
   for (const [name, scheduler] of Object.entries(queueSchedulers)) {
     closePromises.push(
       scheduler.close().catch(err => console.error(`Error closing scheduler ${name}:`, err.message))
     );
   }
-  
+
   // Close queues
   for (const [name, queue] of Object.entries(queues)) {
     closePromises.push(
       queue.close().catch(err => console.error(`Error closing queue ${name}:`, err.message))
     );
   }
-  
+
   await Promise.all(closePromises);
-  
+
   // Close shared Redis connections last
   if (sharedBlockingConnection) {
-    await sharedBlockingConnection.quit().catch(err => 
+    await sharedBlockingConnection.quit().catch(err =>
       console.error('Error closing shared blocking connection:', err.message)
     );
   }
   if (sharedConnection) {
-    await sharedConnection.quit().catch(err => 
+    await sharedConnection.quit().catch(err =>
       console.error('Error closing shared connection:', err.message)
     );
   }
-  
+
   console.log('BullMQ: All queues, workers, and connections closed');
 };
 

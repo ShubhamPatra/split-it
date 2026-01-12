@@ -8,7 +8,8 @@
  * Uses the modern Split-It email template system for consistent branding.
  */
 
-import { createWorker, emailQueue, QUEUE_NAMES } from '../config/queueBullMQ.js';
+import { createWorker, emailQueue, BULLMQ_QUEUE_NAMES, getQueueBackend } from '../config/queue.js';
+import { recordJobCompleted, recordJobFailed } from '../utils/queueMonitor.js';
 import { sendEmail, transporter } from '../config/email.js';
 import {
   brand,
@@ -38,12 +39,12 @@ import {
  * Extracted to allow direct calls when Redis is unavailable
  */
 const processEmailJob = async (job) => {
-  console.log(`[EmailWorker] Processing job ${job.id}:`, { 
-    template: job.data?.template, 
+  console.log(`[EmailWorker] Processing job ${job.id}:`, {
+    template: job.data?.template,
     to: job.data?.to,
-    hasData: !!job.data 
+    hasData: !!job.data
   });
-  
+
   const { to, subject, html, text, from, template, data, attachments } = job.data;
 
   // Handle template-based emails
@@ -55,7 +56,7 @@ const processEmailJob = async (job) => {
     if (templateFn) {
       const { inviterName, groupName, inviteUrl, expiresAt, memberName, recipientName, ...rest } = data;
       let generatedEmail;
-      
+
       switch (template) {
         case 'groupInvite':
           generatedEmail = templateFn(inviterName, groupName, inviteUrl, expiresAt);
@@ -71,8 +72,8 @@ const processEmailJob = async (job) => {
           break;
         case 'settlementConfirmation':
           generatedEmail = templateFn(
-            data.payerName, data.receiverName, data.amount, 
-            data.groupName, data.transactionRef, data.paymentMethod, 
+            data.payerName, data.receiverName, data.amount,
+            data.groupName, data.transactionRef, data.paymentMethod,
             data.isReceiver, data.currency
           );
           break;
@@ -100,7 +101,7 @@ const processEmailJob = async (job) => {
         default:
           generatedEmail = templateFn(...Object.values(data));
       }
-      
+
       emailSubject = generatedEmail.subject;
       emailHtml = generatedEmail.html;
     }
@@ -128,9 +129,9 @@ const processEmailJob = async (job) => {
     };
 
     const result = await transporter.sendMail(mailOptions);
-    
+
     console.log(`Email sent successfully to ${to}: ${emailSubject}`);
-    
+
     return {
       success: true,
       messageId: result.messageId,
@@ -147,13 +148,26 @@ const processEmailJob = async (job) => {
  * Initialize the email worker processor
  * Returns the worker instance for graceful shutdown
  */
-export const initEmailWorker = () => {
-  // Create BullMQ Worker
-  const worker = createWorker(QUEUE_NAMES.EMAIL, processEmailJob, {
+export const initEmailWorker = async () => {
+  const backend = getQueueBackend();
+  console.log(`Email worker initializing with ${backend || 'auto'} queue backend...`);
+
+  // Create worker using unified queue interface (works with both Redis and MongoDB)
+  const worker = await createWorker('email', async (job) => {
+    const startTime = Date.now();
+    try {
+      const result = await processEmailJob(job);
+      recordJobCompleted('email', Date.now() - startTime);
+      return result;
+    } catch (error) {
+      recordJobFailed('email');
+      throw error;
+    }
+  }, {
     concurrency: 5,
   });
-  
-  console.log('Email worker initialized (BullMQ, concurrency: 5)');
+
+  console.log(`Email worker initialized (backend: ${getQueueBackend()}, concurrency: 5)`);
   return worker;
 };
 
@@ -351,23 +365,23 @@ export const emailTemplates = {
   // SETTLEMENT CONFIRMATION
   // ============================================
   settlementConfirmation: (payerName, receiverName, amount, groupName, transactionRef, paymentMethod, isReceiver = false, currency = 'INR') => ({
-    subject: isReceiver 
+    subject: isReceiver
       ? `✅ Payment received: ${formatCurrency(amount, currency)} from ${payerName}`
       : `✅ Payment sent: ${formatCurrency(amount, currency)} to ${receiverName}`,
     html: buildEmail(
-      { 
-        title: isReceiver ? 'Payment Received' : 'Payment Sent', 
-        subtitle: isReceiver ? 'You got paid!' : 'Settlement complete', 
-        icon: isReceiver ? '💰' : '✅', 
-        variant: 'success' 
+      {
+        title: isReceiver ? 'Payment Received' : 'Payment Sent',
+        subtitle: isReceiver ? 'You got paid!' : 'Settlement complete',
+        icon: isReceiver ? '💰' : '✅',
+        variant: 'success'
       },
       `
-        ${amountDisplayComponent(amount, { 
-          currency, 
-          variant: 'success', 
-          label: isReceiver ? 'Amount Received' : 'Amount Sent',
-          sublabel: isReceiver ? `From ${payerName}` : `To ${receiverName}`
-        })}
+        ${amountDisplayComponent(amount, {
+        currency,
+        variant: 'success',
+        label: isReceiver ? 'Amount Received' : 'Amount Sent',
+        sublabel: isReceiver ? `From ${payerName}` : `To ${receiverName}`
+      })}
         
         ${cardComponent(`
           <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
@@ -395,12 +409,12 @@ export const emailTemplates = {
   digest: (userName, period, summaryData) => {
     const { totalExpenses = 0, totalSettled = 0, youOwe = 0, youAreOwed = 0, topGroups = [], topCategories = [] } = summaryData;
     const periodLabel = period === 'weekly' ? 'Weekly' : 'Monthly';
-    
-    const groupRows = topGroups.length 
+
+    const groupRows = topGroups.length
       ? topGroups.map(g => [g.name, `<strong>${formatCurrency(g.total)}</strong>`])
       : [['No activity this period', '-']];
-    
-    const categoriesHtml = topCategories.length 
+
+    const categoriesHtml = topCategories.length
       ? topCategories.map(c => badgeComponent(`${c.name}: ${formatCurrency(c.total)}`, { variant: 'primary' })).join(' ')
       : `<span style="color: ${brand.colors.textMuted};">No expenses this period</span>`;
 
@@ -410,9 +424,9 @@ export const emailTemplates = {
         { title: `${periodLabel} Summary`, subtitle: `Here's your expense overview, ${userName}`, icon: '📊', variant: 'gradient' },
         `
           ${statsRowComponent([
-            { label: "You're Owed", value: formatCurrency(youAreOwed), bg: brand.colors.successLight, valueColor: brand.colors.success },
-            { label: 'You Owe', value: formatCurrency(youOwe), bg: brand.colors.dangerLight, valueColor: brand.colors.danger },
-          ])}
+          { label: "You're Owed", value: formatCurrency(youAreOwed), bg: brand.colors.successLight, valueColor: brand.colors.success },
+          { label: 'You Owe', value: formatCurrency(youOwe), bg: brand.colors.dangerLight, valueColor: brand.colors.danger },
+        ])}
           
           ${cardComponent(`
             <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
@@ -469,9 +483,9 @@ export const emailTemplates = {
           ${textComponent(`You have <strong>${expenses.length} recurring expense${expenses.length > 1 ? 's' : ''}</strong> coming up soon:`)}
           
           ${tableComponent(
-            ['Description', 'Group', 'Amount', 'Due'],
-            expenseRows
-          )}
+          ['Description', 'Group', 'Amount', 'Due'],
+          expenseRows
+        )}
           
           ${alertComponent('Review these expenses to ensure they still apply to your group.', { variant: 'info' })}
           
@@ -491,23 +505,23 @@ export const emailTemplates = {
   budgetAlert: (userName, alertType, data) => {
     const { currentSpend = 0, limit = 0, percentage = 0, category = 'Monthly' } = data;
     const isOverBudget = percentage >= 100;
-    
+
     return {
-      subject: isOverBudget 
+      subject: isOverBudget
         ? `🚨 Budget exceeded: ${category} spending is over limit`
         : `⚠️ Budget alert: ${percentage}% of ${category} limit reached`,
       html: buildEmail(
-        { 
-          title: isOverBudget ? 'Budget Exceeded!' : 'Budget Alert', 
-          icon: isOverBudget ? '🚨' : '⚠️', 
-          variant: isOverBudget ? 'danger' : 'warning' 
+        {
+          title: isOverBudget ? 'Budget Exceeded!' : 'Budget Alert',
+          icon: isOverBudget ? '🚨' : '⚠️',
+          variant: isOverBudget ? 'danger' : 'warning'
         },
         `
           ${greetingComponent(userName)}
-          ${textComponent(isOverBudget 
-            ? `You've <strong>exceeded</strong> your ${category} budget limit.`
-            : `You've reached <strong>${percentage}%</strong> of your ${category} budget limit.`
-          )}
+          ${textComponent(isOverBudget
+          ? `You've <strong>exceeded</strong> your ${category} budget limit.`
+          : `You've reached <strong>${percentage}%</strong> of your ${category} budget limit.`
+        )}
           
           ${cardComponent(`
             <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
@@ -523,11 +537,11 @@ export const emailTemplates = {
           `, { variant: isOverBudget ? 'danger' : 'warning', padding: 'large' })}
           
           ${alertComponent(
-            isOverBudget 
-              ? "Consider reviewing your spending habits and adjusting your budget if needed."
-              : "You're approaching your budget limit. Keep an eye on your spending!",
-            { variant: isOverBudget ? 'danger' : 'warning' }
-          )}
+          isOverBudget
+            ? "Consider reviewing your spending habits and adjusting your budget if needed."
+            : "You're approaching your budget limit. Keep an eye on your spending!",
+          { variant: isOverBudget ? 'danger' : 'warning' }
+        )}
           
           <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
             <tr><td align="center">

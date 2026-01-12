@@ -7,7 +7,7 @@
  * Uses BullMQ for production-grade Redis Cluster compatibility.
  */
 
-import { createWorker, notificationQueue, QUEUE_NAMES } from '../config/queueBullMQ.js';
+import { createWorker, notificationQueue, QUEUE_NAMES } from '../config/queue.js';
 import Notification from '../models/Notification.js';
 
 // Reference to Socket.IO instance (set during initialization)
@@ -26,7 +26,7 @@ let metricsInterval = null;
  * @param {Object} io - Socket.IO server instance
  * @returns {Object} Worker instance for graceful shutdown
  */
-export const initNotificationWorker = (io) => {
+export const initNotificationWorker = async (io) => {
   ioInstance = io;
 
   // Process notification job handler
@@ -170,8 +170,8 @@ export const initNotificationWorker = (io) => {
     }
   };
 
-  // Create BullMQ Worker with concurrency 8
-  const worker = createWorker(QUEUE_NAMES.NOTIFICATION, processNotificationJob, {
+  // Create worker with concurrency 8 (uses BullMQ or MongoDB based on queue backend)
+  const worker = await createWorker(QUEUE_NAMES.NOTIFICATION, processNotificationJob, {
     concurrency: 8,
     limiter: {
       max: 100,
@@ -189,11 +189,11 @@ export const initNotificationWorker = (io) => {
   metricsInterval = setInterval(async () => {
     try {
       const counts = await notificationQueue.getJobCounts();
-      
-      const avgProcessingTime = processedCount > 0 
-        ? Math.round(totalProcessingTime / processedCount) 
+
+      const avgProcessingTime = processedCount > 0
+        ? Math.round(totalProcessingTime / processedCount)
         : 0;
-      
+
       console.log(
         `[NotificationQueue] Depth: waiting=${counts.waiting}, active=${counts.active}, ` +
         `completed=${counts.completed}, failed=${counts.failed}, ` +
@@ -220,7 +220,7 @@ export const initNotificationWorker = (io) => {
     console.log('Notification worker: Queue drained');
   });
 
-  console.log('Notification worker initialized (BullMQ, concurrency: 8)');
+  console.log('Notification worker initialized (concurrency: 8)');
   return worker;
 };
 
@@ -240,7 +240,7 @@ export const queueNotification = async (notificationData, options = {}) => {
  */
 export const sendInstantNotification = async (notificationData) => {
   const { userId, type, title, message, data } = notificationData;
-  
+
   // Emit immediately via socket (before queue processing)
   if (ioInstance) {
     ioInstance.to(`user:${userId}`).emit('notification:new', {
@@ -255,7 +255,7 @@ export const sendInstantNotification = async (notificationData) => {
       _pending: true, // Frontend can use this to show "syncing" state
     });
   }
-  
+
   // Queue for persistence and push notification
   return notificationQueue.add(notificationData);
 };
@@ -266,7 +266,7 @@ export const sendInstantNotification = async (notificationData) => {
  * @param {Object} notificationData - Notification data (type, title, message, data)
  */
 export const notifyUsers = async (userIds, notificationData) => {
-  const jobs = userIds.map(userId => 
+  const jobs = userIds.map(userId =>
     notificationQueue.add({ userId, ...notificationData })
   );
   return Promise.all(jobs);
@@ -282,7 +282,7 @@ export const notifyGroupMembers = async (group, notificationData, excludeUserId 
   const memberIds = group.members
     .map(m => m._id?.toString() || m.toString())
     .filter(id => id !== excludeUserId);
-  
+
   return notifyUsers(memberIds, notificationData);
 };
 

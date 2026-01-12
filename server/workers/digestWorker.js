@@ -2,16 +2,21 @@
  * Digest Worker
  * 
  * Sends weekly and monthly expense digest emails to subscribed users.
- * Runs on a schedule via BullMQ queue.
+ * Runs on a schedule via queue (BullMQ or MongoDB).
  * 
- * Uses BullMQ for production-grade Redis Cluster compatibility.
+ * Uses unified queue system for Redis Cluster compatibility with MongoDB fallback.
  */
 
-import { createWorker, emailQueue, digestQueue, QUEUE_NAMES, getDigestQueue } from '../config/queueBullMQ.js';
+import { createWorker, emailQueue, digestQueue, QUEUE_NAMES, getQueueBackend } from '../config/queue.js';
+import cron from 'node-cron';
 import User from '../models/User.js';
 import Group from '../models/Group.js';
 import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
+
+// Store cron jobs for cleanup
+let cronJobs = [];
+
 
 /**
  * Calculate user's expense summary for a given period
@@ -42,11 +47,11 @@ async function calculateUserSummary(userId, startDate, endDate) {
 
   expenses.forEach(expense => {
     totalExpenses += expense.amount;
-    
+
     // Track by group
     const groupName = expense.groupId?.name || 'Unknown';
     groupTotals[groupName] = (groupTotals[groupName] || 0) + expense.amount;
-    
+
     // Track by category
     const category = expense.category || 'Other';
     categoryTotals[category] = (categoryTotals[category] || 0) + expense.amount;
@@ -107,7 +112,7 @@ async function calculateUserSummary(userId, startDate, endDate) {
  */
 async function processWeeklyDigest() {
   console.log('Processing weekly digest...');
-  
+
   const now = new Date();
   const startDate = new Date(now);
   startDate.setDate(startDate.getDate() - 7);
@@ -132,7 +137,7 @@ async function processWeeklyDigest() {
   for (const user of users) {
     try {
       const summary = await calculateUserSummary(user._id, startDate, now);
-      
+
       // Skip if no activity
       if (summary.totalExpenses === 0 && summary.totalSettled === 0) {
         continue;
@@ -170,7 +175,7 @@ async function processWeeklyDigest() {
  */
 async function processMonthlyDigest() {
   console.log('Processing monthly digest...');
-  
+
   const now = new Date();
   const startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); // First day of last month
   const endDate = new Date(now.getFullYear(), now.getMonth(), 0); // Last day of last month
@@ -196,7 +201,7 @@ async function processMonthlyDigest() {
   for (const user of users) {
     try {
       const summary = await calculateUserSummary(user._id, startDate, endDate);
-      
+
       // Skip if no activity
       if (summary.totalExpenses === 0 && summary.totalSettled === 0) {
         continue;
@@ -237,67 +242,106 @@ export const initDigestWorker = async () => {
   // Process digest job handler
   const processDigestJob = async (job) => {
     const { type } = job.data;
-    
+
     if (type === 'weekly') {
       return processWeeklyDigest();
     } else if (type === 'monthly') {
       return processMonthlyDigest();
     }
-    
+
     throw new Error(`Unknown digest type: ${type}`);
   };
 
-  // Create BullMQ Worker with concurrency 1 (scheduled jobs)
-  const worker = createWorker(QUEUE_NAMES.DIGEST, processDigestJob, {
+  // Create worker with concurrency 1 (scheduled jobs)
+  const worker = await createWorker(QUEUE_NAMES.DIGEST, processDigestJob, {
     concurrency: 1,
   });
 
-  // Schedule weekly digest - Every Monday at 9 AM
-  const queue = getDigestQueue();
-  
-  try {
-    await queue.add(
-      'weekly',
-      { type: 'weekly' },
-      {
-        repeat: {
-          pattern: '0 9 * * 1', // Monday at 9:00 AM
-        },
-        jobId: 'weekly-digest-scheduler',
+  // Check which backend is active
+  const backend = getQueueBackend();
+
+  if (backend === 'redis') {
+    // BullMQ repeat scheduling (Redis backend)
+    try {
+      await digestQueue.add(
+        'weekly',
+        { type: 'weekly' },
+        {
+          repeat: {
+            pattern: '0 9 * * 1', // Monday at 9:00 AM
+          },
+          jobId: 'weekly-digest-scheduler',
+        }
+      );
+      console.log('Digest: Weekly digest scheduled via BullMQ (Monday 9AM)');
+    } catch (err) {
+      console.error('Failed to schedule weekly digest:', err.message);
+    }
+
+    try {
+      await digestQueue.add(
+        'monthly',
+        { type: 'monthly' },
+        {
+          repeat: {
+            pattern: '0 9 1 * *', // 1st of month at 9:00 AM
+          },
+          jobId: 'monthly-digest-scheduler',
+        }
+      );
+      console.log('Digest: Monthly digest scheduled via BullMQ (1st 9AM)');
+    } catch (err) {
+      console.error('Failed to schedule monthly digest:', err.message);
+    }
+  } else {
+    // MongoDB backend - use node-cron for scheduling
+    console.log('Digest: Using node-cron for scheduling (MongoDB backend)');
+
+    // Weekly digest - Every Monday at 9 AM
+    const weeklyJob = cron.schedule('0 9 * * 1', async () => {
+      console.log('Digest: Triggering weekly digest via cron');
+      try {
+        await digestQueue.add('weekly', { type: 'weekly' });
+      } catch (err) {
+        console.error('Failed to queue weekly digest:', err.message);
       }
-    );
-    console.log('Digest: Weekly digest scheduled (Monday 9AM)');
-  } catch (err) {
-    console.error('Failed to schedule weekly digest:', err.message);
+    }, { scheduled: true });
+    cronJobs.push(weeklyJob);
+    console.log('Digest: Weekly digest scheduled via node-cron (Monday 9AM)');
+
+    // Monthly digest - First day of month at 9 AM
+    const monthlyJob = cron.schedule('0 9 1 * *', async () => {
+      console.log('Digest: Triggering monthly digest via cron');
+      try {
+        await digestQueue.add('monthly', { type: 'monthly' });
+      } catch (err) {
+        console.error('Failed to queue monthly digest:', err.message);
+      }
+    }, { scheduled: true });
+    cronJobs.push(monthlyJob);
+    console.log('Digest: Monthly digest scheduled via node-cron (1st 9AM)');
   }
 
-  // Schedule monthly digest - First day of month at 9 AM
-  try {
-    await queue.add(
-      'monthly',
-      { type: 'monthly' },
-      {
-        repeat: {
-          pattern: '0 9 1 * *', // 1st of month at 9:00 AM
-        },
-        jobId: 'monthly-digest-scheduler',
-      }
-    );
-    console.log('Digest: Monthly digest scheduled (1st 9AM)');
-  } catch (err) {
-    console.error('Failed to schedule monthly digest:', err.message);
-  }
-
-  console.log('Digest worker initialized (BullMQ, concurrency: 1)');
+  console.log(`Digest worker initialized (concurrency: 1, backend: ${backend || 'auto'})`);
   return worker;
+};
+
+/**
+ * Stop all cron jobs (for graceful shutdown)
+ */
+export const stopDigestCronJobs = () => {
+  for (const job of cronJobs) {
+    job.stop();
+  }
+  cronJobs = [];
+  console.log('Digest: All cron jobs stopped');
 };
 
 /**
  * Manually trigger digest processing (for testing)
  */
 export const triggerDigest = async (type = 'weekly') => {
-  const queue = getDigestQueue();
-  return queue.add(type, { type }, { priority: 1 });
+  return digestQueue.add(type, { type }, { priority: 1 });
 };
 
 export default initDigestWorker;

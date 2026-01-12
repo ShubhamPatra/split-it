@@ -27,7 +27,8 @@ import { initBalanceWorker } from './workers/balanceWorker.js';
 import { initRecurringExpenseWorker } from './workers/recurringExpenseWorker.js';
 import { initDigestWorker } from './workers/digestWorker.js';
 import { initDueReminderWorker } from './workers/dueReminderWorker.js';
-import { closeAllQueues, waitForQueues, areQueuesAvailable } from './config/queueBullMQ.js';
+import { closeAllQueues, waitForQueues, areQueuesAvailable, getQueueBackend } from './config/queue.js';
+import { checkQueueHealth, getQueueDiagnostics } from './utils/queueMonitor.js';
 
 // Load environment variables
 dotenv.config();
@@ -85,7 +86,7 @@ const initRedis = async () => {
     console.warn('Redis: Client not initialized, skipping connection verification');
     return false;
   }
-  
+
   try {
     // Wait for Redis to be ready (with timeout)
     const waitForReady = (timeout = 5000) => {
@@ -95,42 +96,42 @@ const initRedis = async () => {
           resolve(true);
           return;
         }
-        
+
         const timeoutId = setTimeout(() => {
           resolve(false);
         }, timeout);
-        
+
         redis.once('ready', () => {
           clearTimeout(timeoutId);
           resolve(true);
         });
-        
+
         redis.once('error', () => {
           clearTimeout(timeoutId);
           resolve(false);
         });
       });
     };
-    
+
     // Wait for ready state
     const isReady = await waitForReady(5000);
     if (!isReady) {
       console.warn('Redis: Not ready within timeout, rate limiting will use in-memory store');
       return false;
     }
-    
+
     // Verify connection with ping
     const pong = await Promise.race([
       redis.ping(),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Ping timeout')), 3000))
     ]);
-    
+
     if (pong === 'PONG') {
       console.log('Redis: Connection verified and ready');
       redisReady = true;
       return true;
     }
-    
+
     console.warn('Redis: Ping failed, rate limiting will use in-memory store');
     return false;
   } catch (err) {
@@ -168,7 +169,7 @@ let io = null;
 const initializeServer = async () => {
   // Wait for Redis to be ready before setting up middleware
   await initRedis();
-  
+
   // Create Redis adapter for Socket.IO horizontal scaling (optional in dev)
   // This is now async to test pub/sub capability and guard against ElastiCache serverless
   const redisAdapterResult = await createRedisAdapter();
@@ -193,18 +194,22 @@ const initializeServer = async () => {
   // Wait for BullMQ queues to be ready
   try {
     await waitForQueues();
+    console.log(`Queue system initialized with backend: ${getQueueBackend() || 'pending'}`);
   } catch (err) {
     console.error('BullMQ queue initialization failed:', err.message);
-    if (process.env.NODE_ENV === 'production') {
-      console.error('Exiting: Redis/BullMQ is required in production.');
+    // In auto or mongodb mode, we continue with MongoDB fallback
+    // Only exit if explicitly configured for Redis and it fails
+    if (process.env.QUEUE_BACKEND === 'redis' && process.env.NODE_ENV === 'production') {
+      console.error('Exiting: Redis/BullMQ is required when QUEUE_BACKEND=redis.');
       process.exit(1);
     }
+    console.warn('Queue: Continuing with available backend (MongoDB fallback may be active)');
   }
 
-  // Validate queues are actually available (not just mock queues)
-  if (process.env.NODE_ENV === 'production' && !areQueuesAvailable()) {
-    console.error('Exiting: BullMQ queues are not available in production. Check Redis connection.');
-    process.exit(1);
+  // Log queue availability status
+  const queueBackend = getQueueBackend();
+  if (queueBackend === 'mongodb') {
+    console.warn('WARNING: Running with MongoDB queue fallback. Redis is recommended for production.');
   }
 
   // Initialize BullMQ workers (store for graceful shutdown)
@@ -215,7 +220,7 @@ const initializeServer = async () => {
   const recurringWorker = await initRecurringExpenseWorker();
   const digestWorker = await initDigestWorker();
   const dueReminderWorker = await initDueReminderWorker();
-  
+
   // Store workers for graceful shutdown
   app.set('workers', {
     emailWorker,
@@ -259,7 +264,7 @@ const initializeServer = async () => {
     message: 'Too many requests from this IP. Please try again later.',
     skip: (req) => req.path.startsWith('/api/auth/'), // Auth routes have their own rate limit
   };
-  
+
   app.use((req, res, next) => {
     // Lazy-initialize rate limiter on first request (allows Redis to connect)
     // The rateLimiter function handles dynamic store selection per-request
@@ -290,19 +295,44 @@ const initializeServer = async () => {
   app.use('/api/ocr', ocrRoutes);
   app.use('/api/invites', inviteRoutes);
 
-  // Health check route with Redis status
+  // Health check route with Redis and Queue status
   app.get('/api/health', async (req, res) => {
     const redisStatus = redis && redis.status === 'ready' ? 'connected' : 'disconnected';
     const rateLimitStore = redisReady ? 'redis' : 'in-memory';
-    
-    res.json({ 
-      status: 'ok', 
+    const queueBackend = getQueueBackend();
+
+    // Get queue health if available
+    let queueHealth = { status: 'not_initialized' };
+    try {
+      queueHealth = await checkQueueHealth();
+    } catch (err) {
+      queueHealth = { status: 'error', error: err.message };
+    }
+
+    res.json({
+      status: 'ok',
       timestamp: new Date().toISOString(),
       redis: {
         status: redisStatus,
         rateLimitStore: rateLimitStore
+      },
+      queue: {
+        backend: queueBackend || 'not_initialized',
+        health: queueHealth.status,
+        healthy: queueHealth.healthy,
       }
     });
+  });
+
+  // Queue diagnostics endpoint (protected, for admin use)
+  app.get('/api/admin/queue-metrics', async (req, res) => {
+    // TODO: Add authentication check for admin access
+    try {
+      const diagnostics = await getQueueDiagnostics();
+      res.json(diagnostics);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Error handling middleware
@@ -323,7 +353,7 @@ const initializeServer = async () => {
 
     // Don't leak error details in production
     const isDev = process.env.NODE_ENV === 'development';
-    
+
     res.status(err.status || 500).json({
       message: err.status === 500 && !isDev ? 'Internal Server Error' : err.message,
       ...(isDev && { stack: err.stack })
@@ -351,7 +381,7 @@ initializeServer().catch((err) => {
 // Graceful shutdown handler
 const gracefulShutdown = async (signal) => {
   console.log(`\n${signal} received. Shutting down gracefully...`);
-  
+
   try {
     // Close HTTP server
     httpServer.close(() => {
@@ -375,18 +405,18 @@ const gracefulShutdown = async (signal) => {
 
     // Close BullMQ queues
     await closeAllQueues();
-    
+
     // Close Socket.IO Redis adapter pub/sub clients (if they exist)
-    if (pubClient) await pubClient.quit().catch(() => {});
-    if (subClient) await subClient.quit().catch(() => {});
+    if (pubClient) await pubClient.quit().catch(() => { });
+    if (subClient) await subClient.quit().catch(() => { });
     if (pubClient || subClient) {
       console.log('Socket.IO Redis adapter connections closed');
     }
-    
+
     // Close Redis connection
     await closeRedis();
     console.log('Redis connection closed');
-    
+
     process.exit(0);
   } catch (err) {
     console.error('Error during shutdown:', err);

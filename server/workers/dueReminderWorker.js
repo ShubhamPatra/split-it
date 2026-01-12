@@ -2,20 +2,21 @@
  * Due Reminder Worker
  * 
  * Sends daily reminders to users with uncleared dues older than 24 hours.
- * Runs on a schedule via BullMQ queue.
+ * Runs on a schedule via queue (BullMQ or MongoDB).
  * 
- * Uses BullMQ for production-grade Redis Cluster compatibility.
+ * Uses unified queue system for Redis Cluster compatibility with MongoDB fallback.
  * Uses the modern Split-It email template system for consistent branding.
  */
 
-import { 
-  createWorker, 
-  emailQueue, 
-  notificationQueue, 
+import {
+  createWorker,
+  emailQueue,
+  notificationQueue,
   dueReminderQueue,
-  QUEUE_NAMES, 
-  getDueReminderQueue 
-} from '../config/queueBullMQ.js';
+  QUEUE_NAMES,
+  getQueueBackend
+} from '../config/queue.js';
+import cron from 'node-cron';
 import User from '../models/User.js';
 import Group from '../models/Group.js';
 import Expense from '../models/Expense.js';
@@ -36,6 +37,10 @@ import {
   greetingComponent,
 } from '../utils/emailTemplates.js';
 
+// Store cron jobs for cleanup
+let cronJobs = [];
+
+
 /**
  * Calculate user's outstanding dues across all groups
  * Only considers dues older than 24 hours
@@ -44,11 +49,11 @@ import {
  */
 async function calculateUserDues(userId) {
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  
+
   // Get user's groups
   const groups = await Group.find({ members: userId }).populate('members', 'name email').lean();
   const groupIds = groups.map(g => g._id);
-  
+
   if (groupIds.length === 0) {
     return { totalOwed: 0, totalOwedToUser: 0, duesByGroup: [], receivablesByGroup: [] };
   }
@@ -75,14 +80,14 @@ async function calculateUserDues(userId) {
     const groupName = expense.groupId.name;
     const paidById = expense.paidBy._id.toString();
     const paidByName = expense.paidBy.name;
-    
+
     if (!groupBalances[groupId]) {
       groupBalances[groupId] = {
         groupName,
         owedTo: {}, // userId -> { amount, name }
       };
     }
-    
+
     if (!groupReceivables[groupId]) {
       groupReceivables[groupId] = {
         groupName,
@@ -98,7 +103,7 @@ async function calculateUserDues(userId) {
     if (paidById === userId.toString()) {
       for (const memberId of splitAmong) {
         if (memberId === userId.toString()) continue; // Skip self
-        
+
         let memberShare = 0;
         if (splitType === 'equal') {
           memberShare = expense.amount / splitAmong.length;
@@ -108,12 +113,12 @@ async function calculateUserDues(userId) {
           const percentage = shares[memberId] || 0;
           memberShare = (percentage / 100) * expense.amount;
         }
-        
+
         if (memberShare > 0) {
           // Find member name from group
           const member = groups.find(g => g._id.toString() === groupId)?.members.find(m => m._id.toString() === memberId);
           const memberName = member?.name || 'Unknown';
-          
+
           if (!groupReceivables[groupId].owedBy[memberId]) {
             groupReceivables[groupId].owedBy[memberId] = { amount: 0, name: memberName };
           }
@@ -128,7 +133,7 @@ async function calculateUserDues(userId) {
 
     // Check if user is part of this expense
     const isInSplit = splitAmong.includes(userId.toString()) || shares[userId.toString()] !== undefined;
-    
+
     if (!isInSplit) {
       continue;
     }
@@ -162,7 +167,7 @@ async function calculateUserDues(userId) {
         groupBalances[groupId].owedTo[toUserId].amount -= settlement.amount;
       }
     }
-    
+
     // If someone paid the user (toUserId is the user) - reduce what is owed to user
     if (toUserId === userId.toString()) {
       if (groupReceivables[groupId]?.owedBy[fromUserId]) {
@@ -177,7 +182,7 @@ async function calculateUserDues(userId) {
 
   for (const [groupId, data] of Object.entries(groupBalances)) {
     const groupDues = [];
-    
+
     for (const [creditorId, creditorData] of Object.entries(data.owedTo)) {
       const roundedAmount = Math.round(creditorData.amount * 100) / 100;
       if (roundedAmount > 0.01) {
@@ -206,7 +211,7 @@ async function calculateUserDues(userId) {
 
   for (const [groupId, data] of Object.entries(groupReceivables)) {
     const groupReceivablesList = [];
-    
+
     for (const [debtorId, debtorData] of Object.entries(data.owedBy)) {
       const roundedAmount = Math.round(debtorData.amount * 100) / 100;
       if (roundedAmount > 0.01) {
@@ -249,7 +254,7 @@ async function calculateUserDues(userId) {
  */
 function generateDueReminderEmailHtml(data) {
   const { userName, totalOwed, duesByGroup, currency = 'INR' } = data;
-  
+
   // Build group tables
   let groupsContent = '';
   for (const group of duesByGroup) {
@@ -257,7 +262,7 @@ function generateDueReminderEmailHtml(data) {
       due.creditorName,
       `<span style="color: ${brand.colors.danger}; font-weight: 600;">${formatCurrency(due.amount, currency)}</span>`
     ]);
-    
+
     groupsContent += `
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 20px;">
         <tr>
@@ -294,21 +299,21 @@ function generateDueReminderEmailHtml(data) {
   }
 
   return buildEmail(
-    { 
-      title: 'Payment Reminder', 
-      subtitle: 'You have pending dues to settle', 
-      icon: '💸', 
-      variant: 'danger' 
+    {
+      title: 'Payment Reminder',
+      subtitle: 'You have pending dues to settle',
+      icon: '💸',
+      variant: 'danger'
     },
     `
       ${greetingComponent(userName)}
       ${textComponent("You have outstanding dues that haven't been cleared yet. Here's a summary of what you owe:")}
       
-      ${amountDisplayComponent(totalOwed, { 
-        currency, 
-        variant: 'danger', 
-        label: 'Total Outstanding' 
-      })}
+      ${amountDisplayComponent(totalOwed, {
+      currency,
+      variant: 'danger',
+      label: 'Total Outstanding'
+    })}
       
       ${groupsContent}
       
@@ -332,7 +337,7 @@ function generateDueReminderEmailHtml(data) {
  */
 function generateUpiReminderEmailHtml(data) {
   const { userName, totalOwedToUser, receivablesByGroup, currency = 'INR' } = data;
-  
+
   // Build group tables for receivables
   let groupsContent = '';
   for (const group of receivablesByGroup) {
@@ -372,21 +377,21 @@ function generateUpiReminderEmailHtml(data) {
   }
 
   return buildEmail(
-    { 
-      title: 'Add Your UPI ID', 
-      subtitle: 'Money is waiting for you!', 
-      icon: '💳', 
-      variant: 'success' 
+    {
+      title: 'Add Your UPI ID',
+      subtitle: 'Money is waiting for you!',
+      icon: '💳',
+      variant: 'success'
     },
     `
       ${greetingComponent(userName)}
       ${textComponent("You have money waiting to be collected! Add your UPI ID to make it easy for others to pay you.")}
       
-      ${amountDisplayComponent(totalOwedToUser, { 
-        currency, 
-        variant: 'success', 
-        label: 'Total Owed to You' 
-      })}
+      ${amountDisplayComponent(totalOwedToUser, {
+      currency,
+      variant: 'success',
+      label: 'Total Owed to You'
+    })}
       
       ${groupsContent}
       
@@ -421,9 +426,9 @@ function generateUpiReminderEmailHtml(data) {
  */
 async function processDueReminders() {
   console.log('Processing due reminders...');
-  
+
   const now = new Date();
-  
+
   // Get all users who have payment reminders enabled
   const users = await User.find({
     $or: [
@@ -529,48 +534,76 @@ export const initDueReminderWorker = async () => {
   // Process due reminder job handler
   const processDueReminderJob = async (job) => {
     const { type } = job.data;
-    
+
     if (type === 'daily') {
       return processDueReminders();
     }
-    
+
     throw new Error(`Unknown due reminder type: ${type}`);
   };
 
-  // Create BullMQ Worker with concurrency 1
-  const worker = createWorker(QUEUE_NAMES.DUE_REMINDER, processDueReminderJob, {
+  // Create worker with concurrency 1
+  const worker = await createWorker(QUEUE_NAMES.DUE_REMINDER, processDueReminderJob, {
     concurrency: 1,
   });
 
-  // Schedule daily due reminder - Every day at 10 AM
-  const queue = getDueReminderQueue();
-  
-  try {
-    await queue.add(
-      'daily',
-      { type: 'daily' },
-      {
-        repeat: {
-          pattern: '0 10 * * *', // Every day at 10:00 AM
-        },
-        jobId: 'daily-due-reminder-scheduler',
+  // Check which backend is active
+  const backend = getQueueBackend();
+
+  if (backend === 'redis') {
+    // BullMQ repeat scheduling (Redis backend)
+    try {
+      await dueReminderQueue.add(
+        'daily',
+        { type: 'daily' },
+        {
+          repeat: {
+            pattern: '0 10 * * *', // Every day at 10:00 AM
+          },
+          jobId: 'daily-due-reminder-scheduler',
+        }
+      );
+      console.log('Due reminder: Daily reminder scheduled via BullMQ (10 AM)');
+    } catch (err) {
+      console.error('Failed to schedule daily due reminder:', err.message);
+    }
+  } else {
+    // MongoDB backend - use node-cron for scheduling
+    console.log('Due reminder: Using node-cron for scheduling (MongoDB backend)');
+
+    // Daily due reminder - Every day at 10 AM
+    const dailyJob = cron.schedule('0 10 * * *', async () => {
+      console.log('Due reminder: Triggering daily reminder via cron');
+      try {
+        await dueReminderQueue.add('daily', { type: 'daily' });
+      } catch (err) {
+        console.error('Failed to queue daily due reminder:', err.message);
       }
-    );
-    console.log('Due reminder: Daily reminder scheduled (10 AM)');
-  } catch (err) {
-    console.error('Failed to schedule daily due reminder:', err.message);
+    }, { scheduled: true });
+    cronJobs.push(dailyJob);
+    console.log('Due reminder: Daily reminder scheduled via node-cron (10 AM)');
   }
 
-  console.log('Due reminder worker initialized (BullMQ, concurrency: 1)');
+  console.log(`Due reminder worker initialized (concurrency: 1, backend: ${backend || 'auto'})`);
   return worker;
+};
+
+/**
+ * Stop all cron jobs (for graceful shutdown)
+ */
+export const stopDueReminderCronJobs = () => {
+  for (const job of cronJobs) {
+    job.stop();
+  }
+  cronJobs = [];
+  console.log('Due reminder: All cron jobs stopped');
 };
 
 /**
  * Manually trigger due reminder processing (for testing)
  */
 export const triggerDueReminder = async () => {
-  const queue = getDueReminderQueue();
-  return queue.add('daily', { type: 'daily' }, { priority: 1 });
+  return dueReminderQueue.add('daily', { type: 'daily' }, { priority: 1 });
 };
 
 /**
