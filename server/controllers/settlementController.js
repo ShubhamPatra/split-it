@@ -5,6 +5,7 @@ import User from '../models/User.js';
 import Message from '../models/Message.js';
 import { validateUpiId, validatePaymentAmount, generateTransactionRef } from '../utils/upiValidation.js';
 import { sendPreferenceEmail } from '../utils/emailUtils.js';
+import { invalidateBalanceCache } from '../jobs/balanceService.js';
 
 // @desc    Get all settlements for user's groups
 // @route   GET /api/settlements
@@ -108,9 +109,9 @@ export const createSettlement = async (req, res) => {
 
       const upiValidation = validateUpiId(receiver.upiId);
       if (!upiValidation.isValid) {
-        return res.status(400).json({ 
-          message: 'Receiver has invalid UPI ID', 
-          error: upiValidation.error 
+        return res.status(400).json({
+          message: 'Receiver has invalid UPI ID',
+          error: upiValidation.error
         });
       }
     }
@@ -150,7 +151,7 @@ export const createSettlement = async (req, res) => {
 
     // Send settlement confirmation emails to both parties
     const receiver = await User.findById(toUserId);
-    
+
     // Email to payer
     await sendPreferenceEmail(fromUserId, 'settlementConfirmation', {
       to: payer.email,
@@ -188,7 +189,7 @@ export const createSettlement = async (req, res) => {
     if (io) {
       const { emitToGroup } = await import('../utils/socketEmitter.js');
       emitToGroup(io, groupId, 'settlement:created', populatedSettlement);
-      
+
       // Create system message for chat
       try {
         const systemMessage = await Message.create({
@@ -202,17 +203,20 @@ export const createSettlement = async (req, res) => {
           },
           readBy: [fromUserId, toUserId],
         });
-        
+
         const populatedSystemMessage = await Message.findById(systemMessage._id)
           .populate('senderId', 'name email')
           .lean();
-        
+
         emitToGroup(io, groupId, 'chat:new', populatedSystemMessage);
       } catch (msgError) {
         console.error('Error creating system message for settlement:', msgError);
         // Don't fail the request if message creation fails
       }
     }
+
+    // Invalidate balance cache for this group
+    invalidateBalanceCache(groupId);
 
     res.status(201).json(populatedSettlement);
   } catch (error) {
@@ -266,6 +270,9 @@ export const updateSettlement = async (req, res) => {
       emitToGroup(io, settlement.groupId._id.toString(), 'settlement:updated', updatedSettlement);
     }
 
+    // Invalidate balance cache for this group
+    invalidateBalanceCache(settlement.groupId._id.toString());
+
     res.json(updatedSettlement);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -305,6 +312,9 @@ export const deleteSettlement = async (req, res) => {
       const { emitToGroup } = await import('../utils/socketEmitter.js');
       emitToGroup(io, groupId, 'settlement:deleted', { settlementId: req.params.id });
     }
+
+    // Invalidate balance cache for this group
+    invalidateBalanceCache(groupId);
 
     res.json({ message: 'Settlement deleted successfully', success: true });
   } catch (error) {
@@ -381,6 +391,9 @@ export const confirmPaymentReceipt = async (req, res) => {
       console.error('Push notification failed:', pushError);
       // Don't fail the request if push fails
     }
+
+    // Invalidate balance cache for this group
+    invalidateBalanceCache(settlement.groupId._id.toString());
 
     res.json(updatedSettlement);
   } catch (error) {

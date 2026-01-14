@@ -2,7 +2,7 @@ import User from '../models/User.js';
 import Notification from '../models/Notification.js';
 import { generateToken, generateRefreshToken } from '../middleware/authMiddleware.js';
 import crypto from 'crypto';
-import { sendEmail } from '../config/email.js';
+
 import {
   brand,
   buildEmail,
@@ -23,7 +23,7 @@ const createUpiReminderIfNeeded = async (user) => {
       title: 'Add Your UPI ID',
       createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
     });
-    
+
     if (!existingReminder) {
       await Notification.create({
         userId: user._id,
@@ -37,7 +37,7 @@ const createUpiReminderIfNeeded = async (user) => {
   }
 };
 import { OAuth2Client } from 'google-auth-library';
-import { emailQueue } from '../config/queueBullMQ.js';
+import { sendEmailWithRetry } from '../jobs/emailService.js';
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -64,7 +64,7 @@ export const register = async (req, res) => {
     if (user) {
       const token = generateToken(user._id);
       const refreshToken = await generateRefreshToken(user._id);
-      
+
       // Set HttpOnly cookies
       res.cookie('auth_token', token, {
         httpOnly: true,
@@ -72,7 +72,7 @@ export const register = async (req, res) => {
         sameSite: 'strict',
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       });
-      
+
       res.cookie('refresh_token', refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -81,13 +81,13 @@ export const register = async (req, res) => {
       });
 
       // Send welcome email using template
-      emailQueue.add({
+      sendEmailWithRetry({
         template: 'welcome',
         to: user.email,
         data: {
           userName: user.name,
         },
-      }).catch(err => console.error('Welcome email queue error:', err));
+      }).catch(err => console.error('Welcome email error:', err));
 
       // Create UPI reminder notification for new users
       createUpiReminderIfNeeded(user).catch(err => console.error('UPI reminder error:', err));
@@ -135,7 +135,7 @@ export const login = async (req, res) => {
 
     const token = generateToken(user._id);
     const refreshToken = await generateRefreshToken(user._id);
-    
+
     // Set HttpOnly cookies
     res.cookie('auth_token', token, {
       httpOnly: true,
@@ -143,7 +143,7 @@ export const login = async (req, res) => {
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
-    
+
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -193,14 +193,54 @@ export const getMe = async (req, res) => {
 // @access  Private
 export const logout = async (req, res) => {
   try {
-    // Clear the HttpOnly cookie
+    // Import token stores from authMiddleware for revocation
+    const { tokenBlacklist, refreshTokens } = await import('../middleware/authMiddleware.js');
+
+    // Get the current auth token
+    const token = req.cookies?.auth_token || req.headers.authorization?.split(' ')[1];
+
+    if (token) {
+      // Blacklist token until its expiry
+      try {
+        const jwt = await import('jsonwebtoken');
+        const decoded = jwt.default.decode(token);
+        if (decoded?.exp) {
+          const expiryTime = decoded.exp * 1000; // Convert to ms
+          if (expiryTime > Date.now()) {
+            tokenBlacklist.set(token, expiryTime);
+          }
+        }
+      } catch (e) {
+        console.error('Token blacklist error:', e.message);
+      }
+    }
+
+    // Delete refresh token from store
+    const refreshToken = req.cookies?.refresh_token;
+    if (refreshToken) {
+      refreshTokens.delete(refreshToken);
+    }
+
+    // Clear both cookies
     res.cookie('auth_token', '', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       expires: new Date(0),
     });
-    res.json({ message: 'Logged out successfully' });
+
+    res.cookie('refresh_token', '', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      expires: new Date(0),
+    });
+
+    // Response instructs client to disconnect sockets
+    res.json({
+      message: 'Logged out successfully',
+      socketDisconnect: true,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Error logging out' });
   }
@@ -276,14 +316,14 @@ export const googleAuth = async (req, res) => {
     // Generate token and set as HttpOnly cookie
     const token = generateToken(user._id);
     const refreshToken = await generateRefreshToken(user._id);
-    
+
     res.cookie('auth_token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
-    
+
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -293,13 +333,13 @@ export const googleAuth = async (req, res) => {
 
     // Send welcome email for new Google users
     if (isNewUser) {
-      emailQueue.add({
+      sendEmailWithRetry({
         template: 'welcome',
         to: user.email,
         data: {
           userName: user.name,
         },
-      }).catch(err => console.error('Welcome email queue error:', err));
+      }).catch(err => console.error('Welcome email error:', err));
     }
 
     // Send UPI reminder notification if not set
@@ -338,17 +378,17 @@ export const forgotPassword = async (req, res) => {
 
     if (!user) {
       // For security, don't reveal if email exists or not
-      return res.status(200).json({ 
-        message: 'If an account with that email exists, you will receive a password reset email shortly.' 
+      return res.status(200).json({
+        message: 'If an account with that email exists, you will receive a password reset email shortly.'
       });
     }
 
     // Generate reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
-    
+
     // Hash the token for storage
     const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    
+
     // Save hashed token and expiry to user (valid for 1 hour)
     user.resetPasswordToken = hashedToken;
     user.resetPasswordExpire = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
@@ -383,15 +423,15 @@ export const forgotPassword = async (req, res) => {
     );
 
     // Send email
-    await sendEmail({
+    await sendEmailWithRetry({
       to: user.email,
       subject: '🔐 Password Reset Request - Split-It',
       html,
     });
 
     // Return success message (don't reveal if email was sent successfully for security)
-    res.status(200).json({ 
-      message: 'If an account with that email exists, you will receive a password reset email shortly.' 
+    res.status(200).json({
+      message: 'If an account with that email exists, you will receive a password reset email shortly.'
     });
   } catch (error) {
     console.error('Forgot password error:', error);
@@ -457,14 +497,14 @@ export const resetPassword = async (req, res) => {
       { showPreferences: false, showSupport: true }
     );
 
-    await sendEmail({
+    await sendEmailWithRetry({
       to: user.email,
       subject: '✅ Password Reset Confirmation - Split-It',
       html,
     });
 
-    res.status(200).json({ 
-      message: 'Password reset successfully. You can now login with your new password.' 
+    res.status(200).json({
+      message: 'Password reset successfully. You can now login with your new password.'
     });
   } catch (error) {
     console.error('Reset password error:', error);

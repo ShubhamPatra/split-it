@@ -3,7 +3,8 @@ import Group from '../models/Group.js';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
 import { emitToGroup, emitToUser } from '../utils/socketEmitter.js';
-import { emailQueue } from '../config/queueBullMQ.js';
+import { sendEmailWithRetry } from '../jobs/emailService.js';
+import { invalidateGroupMembershipCache } from '../config/socket.js';
 
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 const DEFAULT_EXPIRY_HOURS = parseInt(process.env.INVITE_EXPIRY_HOURS) || 168; // 7 days
@@ -65,8 +66,8 @@ export const createInvite = async (req, res) => {
         .map(user => user.email);
 
       if (existingMemberEmails.length > 0) {
-        return res.status(400).json({ 
-          message: `These users are already members: ${existingMemberEmails.join(', ')}` 
+        return res.status(400).json({
+          message: `These users are already members: ${existingMemberEmails.join(', ')}`
         });
       }
 
@@ -88,8 +89,8 @@ export const createInvite = async (req, res) => {
 
         const inviteUrl = `${CLIENT_URL}/join/${token}`;
 
-        // Queue email
-        await emailQueue.add({
+        // Send email (non-blocking)
+        sendEmailWithRetry({
           to: email,
           template: 'groupInvite',
           data: {
@@ -98,7 +99,7 @@ export const createInvite = async (req, res) => {
             inviteUrl,
             expiresAt: expiresAt.toISOString(),
           },
-        });
+        }).catch(err => console.error('Invite email error:', err));
 
         // If the invited user already has an account, send them an in-app notification
         const invitedUser = existingUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
@@ -217,7 +218,7 @@ export const getGroupInvites = async (req, res) => {
       code: invite.code,
       formattedCode: invite.formattedCode,
       invitedEmail: invite.invitedEmail,
-      inviteUrl: invite.code 
+      inviteUrl: invite.code
         ? `${CLIENT_URL}/join/${invite.code}`
         : `${CLIENT_URL}/join/${invite.token}`,
       expiresAt: invite.expiresAt,
@@ -343,14 +344,14 @@ export const joinViaInvite = async (req, res) => {
     if (code) {
       const normalizedCode = code.toUpperCase().replace(/-/g, '');
       invite = await Invite.findOne({ code: normalizedCode, status: 'pending' });
-      
+
       // Fallback to legacy invite code
       if (!invite) {
         const group = await Group.findOne({ inviteCode: normalizedCode });
         if (group) {
           isLegacy = true;
           console.warn('DEPRECATED: Using legacy invite code system. Please regenerate invite.');
-          
+
           // Check if already a member
           if (group.members.some(m => m.toString() === req.user._id.toString())) {
             return res.status(400).json({ message: 'You are already a member of this group' });
@@ -384,16 +385,19 @@ export const joinViaInvite = async (req, res) => {
           if (io) {
             emitToGroup(io, group._id.toString(), 'group:memberJoined', {
               groupId: group._id.toString(),
-              member: { 
-                id: req.user._id.toString(), 
-                name: req.user.name, 
-                email: req.user.email 
+              member: {
+                id: req.user._id.toString(),
+                name: req.user.name,
+                email: req.user.email
               },
             });
           }
 
           res.setHeader('X-Deprecated', 'true');
           res.setHeader('X-Deprecation-Info', 'Use /api/invites endpoints');
+
+          // Invalidate socket group membership cache
+          invalidateGroupMembershipCache(group._id.toString());
 
           return res.json({
             success: true,
@@ -417,8 +421,8 @@ export const joinViaInvite = async (req, res) => {
     // For email invites, verify email matches
     if (invite.type === 'email' && invite.invitedEmail) {
       if (req.user.email.toLowerCase() !== invite.invitedEmail.toLowerCase()) {
-        return res.status(403).json({ 
-          message: 'This invite was sent to a different email address. Please use the correct account.' 
+        return res.status(403).json({
+          message: 'This invite was sent to a different email address. Please use the correct account.'
         });
       }
     }
@@ -472,13 +476,16 @@ export const joinViaInvite = async (req, res) => {
     if (io) {
       emitToGroup(io, group._id.toString(), 'group:memberJoined', {
         groupId: group._id.toString(),
-        member: { 
-          id: req.user._id.toString(), 
-          name: req.user.name, 
-          email: req.user.email 
+        member: {
+          id: req.user._id.toString(),
+          name: req.user.name,
+          email: req.user.email
         },
       });
     }
+
+    // Invalidate socket group membership cache
+    invalidateGroupMembershipCache(group._id.toString());
 
     res.json({
       success: true,
@@ -513,7 +520,7 @@ export const revokeInvite = async (req, res) => {
     const memberRole = group.memberRoles?.get(req.user._id.toString());
     const isCreator = group.createdBy.toString() === req.user._id.toString();
     const isAdmin = isCreator || memberRole === 'admin';
-    
+
     if (!isInviteCreator && !isAdmin) {
       return res.status(403).json({ message: 'Only the invite creator or group admins can revoke invites' });
     }
@@ -558,7 +565,7 @@ export const regenerateInvite = async (req, res) => {
     const memberRole = group.memberRoles?.get(req.user._id.toString());
     const isGroupCreator = group.createdBy.toString() === req.user._id.toString();
     const isAdmin = isGroupCreator || memberRole === 'admin';
-    
+
     if (!isInviteCreator && !isAdmin) {
       return res.status(403).json({ message: 'Only the invite creator or group admins can regenerate invites' });
     }
@@ -577,7 +584,7 @@ export const regenerateInvite = async (req, res) => {
 
     await invite.save();
 
-    const inviteUrl = invite.code 
+    const inviteUrl = invite.code
       ? `${CLIENT_URL}/join/${invite.code}`
       : `${CLIENT_URL}/join/${invite.token}`;
 

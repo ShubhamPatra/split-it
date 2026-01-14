@@ -1,47 +1,10 @@
 version: '3.8'
 
-# Production Docker Compose for AWS EC2 deployment with Amazon ElastiCache for Redis OSS
+# Production Docker Compose for AWS EC2 deployment
 # Run from project root: docker-compose -f deploy/docker/docker-compose.production.yml --env-file deploy/env/.env.production up -d
 #
-# =================================
-# AWS ELASTICACHE FOR REDIS OSS CONFIGURATION
-# =================================
-# Required environment variables in .env.production:
-# - REDIS_HOST (ElastiCache endpoint, e.g., my-cluster.xxxxx.cache.amazonaws.com)
-# - REDIS_PORT=6379 (default Redis port)
-# - REDIS_AUTH_TOKEN (if using AUTH - format may differ from Valkey)
-# - REDIS_TLS=true (recommended for production)
-# - REDIS_TLS_REJECT_UNAUTHORIZED=true (verify SSL certificates)
-#
-# Optional for ElastiCache Redis OSS:
-# - REDIS_CONNECTION_NAME=splitit-api (for identification in Redis CLIENT LIST)
-# - REDIS_CONNECT_TIMEOUT=10000 (increase for Redis OSS if experiencing timeouts)
-# - REDIS_COMMAND_TIMEOUT=5000 (command execution timeout)
-# - REDIS_KEEP_ALIVE=30000 (keep-alive interval for long connections)
-# - REDIS_CLUSTER_MODE=true (if using ElastiCache Cluster Mode Enabled)
-#
-# =================================
-# VALKEY TO REDIS OSS MIGRATION NOTES
-# =================================
-# When migrating from Valkey to Redis OSS:
-# 1. Update REDIS_HOST to new Redis OSS endpoint
-# 2. Verify REDIS_AUTH_TOKEN format (Redis OSS uses different auth mechanism)
-# 3. Test TLS connections - certificates may differ between Valkey and Redis OSS
-# 4. Increase connection timeouts if experiencing issues (Redis OSS may have different latency)
-# 5. Monitor logs for any Redis OSS-specific errors during initial deployment
-# 6. Verify rate limiting, Bull queues, and Socket.IO work correctly
-#
-# Connection timeout recommendations for Redis OSS:
-# - REDIS_CONNECT_TIMEOUT=10000 (10 seconds for initial TLS handshake)
-# - Retry strategy: exponential backoff up to 5 seconds between retries
-#
-# =================================
-# LOCAL TLS TESTING
-# =================================
-# To test TLS-enabled Redis OSS locally:
-# 1. Generate self-signed certificates for local testing
-# 2. Run Redis with --tls-port 6379 --tls-cert-file --tls-key-file flags
-# 3. Set REDIS_TLS=true and REDIS_TLS_REJECT_UNAUTHORIZED=false (dev only)
+# This configuration uses in-process job scheduling (node-cron) instead of Redis/BullMQ.
+# No external Redis dependency is required.
 
 services:
   api:
@@ -54,10 +17,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5000
-      # Queue backend: 'auto' for graceful degradation, 'redis' to require Redis
-      - QUEUE_BACKEND=auto
       # Upload directory - use container-managed volume for proper permissions
-      # Alternative: set to /tmp/uploads/receipts if bind mount is required
       - UPLOAD_DIR=/app/uploads/receipts
     env_file:
       - ../env/.env.production
@@ -69,7 +29,7 @@ services:
     networks:
       - splitit
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      test: [ "CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" ]
       interval: 30s
       timeout: 10s
       start_period: 40s

@@ -13,13 +13,6 @@ services:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
 
-  redis:
-    image: redis:7-alpine
-    restart: always
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis-data:/data
-
   api:
     build:
       context: ../../server
@@ -29,12 +22,9 @@ services:
       - "5000:5000"
     depends_on:
       - mongodb
-      - redis
     environment:
       NODE_ENV: production
       MONGODB_URI: mongodb://admin:${MONGO_PASSWORD}@mongodb:27017/splitit?authSource=admin
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
 
   nginx:
     image: nginx:alpine
@@ -49,4 +39,3 @@ services:
 
 volumes:
   mongo-data:
-  redis-data:

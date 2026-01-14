@@ -3,11 +3,13 @@ import { createServer } from 'http';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
+import helmet from 'helmet';
+import hpp from 'hpp';
 import connectDB from './config/db.js';
-import redis, { closeRedis, isRedisAvailable } from './config/redis.js';
-import { initializeSocket, createRedisAdapter } from './config/socket.js';
+import { initializeSocket, getSocketIO, stopTypingCleanup } from './config/socket.js';
 import { createIndexes } from './utils/dbIndexes.js';
-import { securityHeaders, sanitizeInput, rateLimiter, waitForRedis } from './middleware/security.js';
+import { securityHeaders, sanitizeInput, rateLimiter } from './middleware/security.js';
 import authRoutes from './routes/authRoutes.js';
 import groupRoutes from './routes/groupRoutes.js';
 import expenseRoutes from './routes/expenseRoutes.js';
@@ -20,15 +22,10 @@ import inviteRoutes from './routes/inviteRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import { initializeVapid } from './config/vapid.js';
 
-// Worker imports
-import { initEmailWorker } from './workers/emailWorker.js';
-import { initNotificationWorker } from './workers/notificationWorker.js';
-import { initBalanceWorker } from './workers/balanceWorker.js';
-import { initRecurringExpenseWorker } from './workers/recurringExpenseWorker.js';
-import { initDigestWorker } from './workers/digestWorker.js';
-import { initDueReminderWorker } from './workers/dueReminderWorker.js';
-import { closeAllQueues, waitForQueues, areQueuesAvailable, getQueueBackend } from './config/queue.js';
-import { checkQueueHealth, getQueueDiagnostics } from './utils/queueMonitor.js';
+// Job system imports
+import { initializeScheduler, stopScheduler } from './jobs/scheduler.js';
+import { setSocketIO } from './jobs/notificationService.js';
+import { initializeBalanceService, stopBalanceService } from './jobs/balanceService.js';
 
 // Load environment variables
 dotenv.config();
@@ -41,105 +38,6 @@ if (vapidInitialized) {
   console.warn('VAPID: Push notifications disabled (keys not configured)');
 }
 
-// Connect to MongoDB and create indexes
-connectDB().then(() => {
-  createIndexes();
-});
-
-// Track Redis readiness state for use in health checks
-let redisReady = false;
-
-// Set up Redis event listeners to track connection state
-if (redis) {
-  redis.on('ready', async () => {
-    // Re-verify connection on ready event
-    try {
-      const pong = await redis.ping();
-      if (pong === 'PONG') {
-        redisReady = true;
-        console.log('Redis: Connection ready (event)');
-      }
-    } catch (err) {
-      redisReady = false;
-      console.warn('Redis: Ready event fired but ping failed:', err.message);
-    }
-  });
-
-  redis.on('error', (err) => {
-    redisReady = false;
-    // Avoid verbose logging for expected connection refused in dev
-    if (!(process.env.NODE_ENV !== 'production' && err.code === 'ECONNREFUSED')) {
-      console.error('Redis: Connection error (event):', err.message);
-    }
-  });
-
-  redis.on('close', () => {
-    redisReady = false;
-    console.log('Redis: Connection closed (event)');
-  });
-}
-
-// Verify Redis connection on startup and wait for readiness
-const initRedis = async () => {
-  // If Redis is disabled or not initialized, skip
-  if (!redis) {
-    console.warn('Redis: Client not initialized, skipping connection verification');
-    return false;
-  }
-
-  try {
-    // Wait for Redis to be ready (with timeout)
-    const waitForReady = (timeout = 5000) => {
-      return new Promise((resolve) => {
-        // If already ready, resolve immediately
-        if (redis.status === 'ready') {
-          resolve(true);
-          return;
-        }
-
-        const timeoutId = setTimeout(() => {
-          resolve(false);
-        }, timeout);
-
-        redis.once('ready', () => {
-          clearTimeout(timeoutId);
-          resolve(true);
-        });
-
-        redis.once('error', () => {
-          clearTimeout(timeoutId);
-          resolve(false);
-        });
-      });
-    };
-
-    // Wait for ready state
-    const isReady = await waitForReady(5000);
-    if (!isReady) {
-      console.warn('Redis: Not ready within timeout, rate limiting will use in-memory store');
-      return false;
-    }
-
-    // Verify connection with ping
-    const pong = await Promise.race([
-      redis.ping(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Ping timeout')), 3000))
-    ]);
-
-    if (pong === 'PONG') {
-      console.log('Redis: Connection verified and ready');
-      redisReady = true;
-      return true;
-    }
-
-    console.warn('Redis: Ping failed, rate limiting will use in-memory store');
-    return false;
-  } catch (err) {
-    console.error('Redis: Failed to verify connection:', err.message);
-    return false;
-  }
-};
-
 // Initialize Express app
 const app = express();
 
@@ -151,93 +49,77 @@ if (process.env.NODE_ENV === 'production') {
 // Create HTTP server
 const httpServer = createServer(app);
 
-// Variables for Redis adapter (will be set during async initialization)
-let pubClient = null;
-let subClient = null;
+// Socket.IO instance
 let io = null;
 
 /**
  * Async initialization function that ensures proper startup order:
  * 1. Connect to MongoDB
- * 2. Wait for Redis to be ready (with timeout)
- * 3. Create Redis adapter for Socket.IO
- * 4. Initialize Socket.IO
- * 5. Set up middleware (including rate limiters)
- * 6. Register routes
- * 7. Start HTTP server
+ * 2. Initialize Socket.IO
+ * 3. Set up middleware
+ * 4. Register routes
+ * 5. Initialize scheduled jobs
+ * 6. Start HTTP server
  */
 const initializeServer = async () => {
-  // Wait for Redis to be ready before setting up middleware
-  await initRedis();
+  // Connect to MongoDB
+  await connectDB();
+  await createIndexes();
 
-  // Create Redis adapter for Socket.IO horizontal scaling (optional in dev)
-  // This is now async to test pub/sub capability and guard against ElastiCache serverless
-  const redisAdapterResult = await createRedisAdapter();
-  pubClient = redisAdapterResult?.pubClient;
-  subClient = redisAdapterResult?.subClient;
-  const redisAdapter = redisAdapterResult?.adapter;
-
-  if (redisAdapter) {
-    console.log('Socket.IO: Redis adapter created for horizontal scaling');
-  }
-
-  // Initialize Socket.IO with Redis adapter (if available)
-  io = initializeSocket(httpServer, redisAdapter);
+  // Initialize Socket.IO (no Redis adapter - single instance mode)
+  io = initializeSocket(httpServer);
 
   // Store io instance on app for use in controllers
   app.set('io', io);
+
+  // Pass io to notification service for real-time notifications
+  setSocketIO(io);
 
   // Pass io to notification controller
   const { setIo } = await import('./controllers/notificationController.js');
   setIo(io);
 
-  // Wait for BullMQ queues to be ready
-  try {
-    await waitForQueues();
-    console.log(`Queue system initialized with backend: ${getQueueBackend() || 'pending'}`);
-  } catch (err) {
-    console.error('BullMQ queue initialization failed:', err.message);
-    // In auto or mongodb mode, we continue with MongoDB fallback
-    // Only exit if explicitly configured for Redis and it fails
-    if (process.env.QUEUE_BACKEND === 'redis' && process.env.NODE_ENV === 'production') {
-      console.error('Exiting: Redis/BullMQ is required when QUEUE_BACKEND=redis.');
-      process.exit(1);
-    }
-    console.warn('Queue: Continuing with available backend (MongoDB fallback may be active)');
-  }
-
-  // Log queue availability status
-  const queueBackend = getQueueBackend();
-  if (queueBackend === 'mongodb') {
-    console.warn('WARNING: Running with MongoDB queue fallback. Redis is recommended for production.');
-  }
-
-  // Initialize BullMQ workers (store for graceful shutdown)
-  console.log('Initializing background workers...');
-  const emailWorker = initEmailWorker();
-  const notificationWorker = initNotificationWorker(io);
-  const balanceWorker = initBalanceWorker();
-  const recurringWorker = await initRecurringExpenseWorker();
-  const digestWorker = await initDigestWorker();
-  const dueReminderWorker = await initDueReminderWorker();
-
-  // Store workers for graceful shutdown
-  app.set('workers', {
-    emailWorker,
-    notificationWorker,
-    balanceWorker,
-    recurringWorker,
-    digestWorker,
-    dueReminderWorker,
-  });
-  console.log('Background workers initialized (BullMQ)');
+  // Initialize balance service (cache cleanup intervals)
+  initializeBalanceService();
 
   // Security middleware (should be first)
+  // Helmet sets various HTTP security headers
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'", process.env.CLIENT_URL || 'http://localhost:3000'],
+      },
+    },
+    crossOriginEmbedderPolicy: false, // Disable for compatibility
+  }));
+
+  // HPP prevents HTTP Parameter Pollution attacks
+  app.use(hpp());
+
+  // Custom security headers (supplement helmet)
   app.use(securityHeaders);
 
-  // CORS configuration
+  // Parse allowed origins from environment for CORS
+  const parseAllowedOrigins = () => {
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const allowedOrigins = process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+      : [];
+    const origins = [clientUrl, ...allowedOrigins];
+    // In development, also allow common dev ports
+    if (process.env.NODE_ENV !== 'production') {
+      origins.push('http://localhost:3000', 'http://localhost:5173');
+    }
+    return [...new Set(origins)]; // Deduplicate
+  };
+
+  // CORS configuration with origin allowlist
   const corsOptions = {
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: parseAllowedOrigins(),
     credentials: true,
     optionsSuccessStatus: 200
   };
@@ -255,24 +137,14 @@ const initializeServer = async () => {
 
   // Global rate limiting (1000 requests per 15 minutes per IP)
   // Auth routes have their own stricter rate limiting
-  // Chat message routes have their own rate limiting (100 req/min)
-  // Lazy-initialized: starts with in-memory and auto-upgrades to Redis when available
-  let _globalRateLimiter = null;
-  const globalRateLimitOptions = {
+  const globalRateLimiter = rateLimiter({
     max: 1000,
     windowMs: 15 * 60 * 1000,
     message: 'Too many requests from this IP. Please try again later.',
     skip: (req) => req.path.startsWith('/api/auth/'), // Auth routes have their own rate limit
-  };
-
-  app.use((req, res, next) => {
-    // Lazy-initialize rate limiter on first request (allows Redis to connect)
-    // The rateLimiter function handles dynamic store selection per-request
-    if (!_globalRateLimiter) {
-      _globalRateLimiter = rateLimiter(globalRateLimitOptions);
-    }
-    return _globalRateLimiter(req, res, next);
   });
+
+  app.use(globalRateLimiter);
 
   // Request logging middleware (only in development)
   if (process.env.NODE_ENV !== 'production') {
@@ -295,44 +167,14 @@ const initializeServer = async () => {
   app.use('/api/ocr', ocrRoutes);
   app.use('/api/invites', inviteRoutes);
 
-  // Health check route with Redis and Queue status
-  app.get('/api/health', async (req, res) => {
-    const redisStatus = redis && redis.status === 'ready' ? 'connected' : 'disconnected';
-    const rateLimitStore = redisReady ? 'redis' : 'in-memory';
-    const queueBackend = getQueueBackend();
-
-    // Get queue health if available
-    let queueHealth = { status: 'not_initialized' };
-    try {
-      queueHealth = await checkQueueHealth();
-    } catch (err) {
-      queueHealth = { status: 'error', error: err.message };
-    }
-
+  // Health check route
+  app.get('/api/health', (req, res) => {
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
-      redis: {
-        status: redisStatus,
-        rateLimitStore: rateLimitStore
-      },
-      queue: {
-        backend: queueBackend || 'not_initialized',
-        health: queueHealth.status,
-        healthy: queueHealth.healthy,
-      }
+      mode: 'in-process',
+      scheduler: 'node-cron',
     });
-  });
-
-  // Queue diagnostics endpoint (protected, for admin use)
-  app.get('/api/admin/queue-metrics', async (req, res) => {
-    // TODO: Add authentication check for admin access
-    try {
-      const diagnostics = await getQueueDiagnostics();
-      res.json(diagnostics);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
   });
 
   // Error handling middleware
@@ -365,10 +207,15 @@ const initializeServer = async () => {
     res.status(404).json({ message: 'Route not found' });
   });
 
+  // Initialize scheduled jobs (cron scheduler)
+  initializeScheduler();
+  console.log('Scheduled jobs initialized (node-cron)');
+
   // Start server
   const PORT = process.env.PORT || 5000;
   httpServer.listen(PORT, () => {
     console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+    console.log('Background job system: In-process (no Redis required)');
   });
 };
 
@@ -382,43 +229,63 @@ initializeServer().catch((err) => {
 const gracefulShutdown = async (signal) => {
   console.log(`\n${signal} received. Shutting down gracefully...`);
 
+  // Overall shutdown timeout - force exit if cleanup takes too long
+  const shutdownTimeout = setTimeout(() => {
+    console.error('Shutdown timeout exceeded (30s), forcing exit...');
+    process.exit(1);
+  }, 30000);
+
   try {
-    // Close HTTP server
-    httpServer.close(() => {
-      console.log('HTTP server closed');
+    // Stop scheduled jobs first (prevent new job starts)
+    stopScheduler();
+    console.log('Scheduler stopped');
+
+    // Stop balance service (cache cleanup intervals)
+    stopBalanceService();
+    console.log('Balance service stopped');
+
+    // Stop socket typing cleanup
+    stopTypingCleanup();
+    console.log('Socket cleanup stopped');
+
+    // Close Socket.IO connections
+    const socketIO = getSocketIO();
+    if (socketIO) {
+      await new Promise((resolve) => {
+        socketIO.close(() => {
+          console.log('Socket.IO closed');
+          resolve();
+        });
+        // Timeout for Socket.IO close
+        setTimeout(resolve, 5000);
+      });
+    }
+
+    // Close HTTP server with timeout
+    await new Promise((resolve) => {
+      const serverCloseTimeout = setTimeout(() => {
+        console.log('HTTP server close timeout (10s), proceeding...');
+        resolve();
+      }, 10000);
+
+      httpServer.close(() => {
+        clearTimeout(serverCloseTimeout);
+        console.log('HTTP server closed');
+        resolve();
+      });
     });
 
-    // Close BullMQ workers first
-    const workers = app.get('workers');
-    if (workers) {
-      console.log('Closing BullMQ workers...');
-      const workerClosePromises = Object.entries(workers).map(async ([name, worker]) => {
-        try {
-          await worker?.close?.();
-          console.log(`Worker ${name} closed`);
-        } catch (err) {
-          console.error(`Error closing worker ${name}:`, err.message);
-        }
-      });
-      await Promise.all(workerClosePromises);
+    // Close MongoDB connection
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.close();
+      console.log('MongoDB connection closed');
     }
 
-    // Close BullMQ queues
-    await closeAllQueues();
-
-    // Close Socket.IO Redis adapter pub/sub clients (if they exist)
-    if (pubClient) await pubClient.quit().catch(() => { });
-    if (subClient) await subClient.quit().catch(() => { });
-    if (pubClient || subClient) {
-      console.log('Socket.IO Redis adapter connections closed');
-    }
-
-    // Close Redis connection
-    await closeRedis();
-    console.log('Redis connection closed');
-
+    clearTimeout(shutdownTimeout);
+    console.log('Graceful shutdown complete');
     process.exit(0);
   } catch (err) {
+    clearTimeout(shutdownTimeout);
     console.error('Error during shutdown:', err);
     process.exit(1);
   }

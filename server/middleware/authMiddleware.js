@@ -1,11 +1,47 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
-import redis from '../config/redis.js';
 import crypto from 'crypto';
 
 // Refresh token settings
-const REFRESH_TOKEN_EXPIRY = 30 * 24 * 60 * 60; // 30 days in seconds
+const REFRESH_TOKEN_EXPIRY = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
 const ACCESS_TOKEN_EXPIRY = '7d';
+
+// In-memory token stores (single instance deployment)
+// Exported for use in authController logout and socket auth
+export const tokenBlacklist = new Map(); // token -> expiry timestamp
+export const refreshTokens = new Map(); // refreshToken -> { userId, jti, createdAt, expiry }
+
+/**
+ * Verify a token and check if it's blacklisted
+ * Shared helper for HTTP auth and WebSocket auth
+ * @param {string} token - JWT token to verify
+ * @returns {Object} Decoded token payload if valid
+ * @throws {Error} If token is blacklisted, invalid, or expired
+ */
+export const verifyTokenWithBlacklist = (token) => {
+  // Check if token is blacklisted
+  const blacklistExpiry = tokenBlacklist.get(token);
+  if (blacklistExpiry && blacklistExpiry > Date.now()) {
+    const error = new Error('Token revoked');
+    error.code = 'TOKEN_REVOKED';
+    throw error;
+  }
+
+  // Verify JWT signature and expiry
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  return decoded;
+};
+
+// Cleanup expired tokens every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, expiry] of tokenBlacklist.entries()) {
+    if (expiry < now) tokenBlacklist.delete(token);
+  }
+  for (const [token, data] of refreshTokens.entries()) {
+    if (data.expiry < now) refreshTokens.delete(token);
+  }
+}, 5 * 60 * 1000);
 
 export const protect = async (req, res, next) => {
   let token;
@@ -24,15 +60,9 @@ export const protect = async (req, res, next) => {
   }
 
   try {
-    // Check if token is blacklisted
-    const blacklisted = await redis.get(`blacklist:${token}`);
-    if (blacklisted) {
-      return res.status(401).json({ message: 'Token revoked' });
-    }
+    // Use shared verification helper (checks blacklist + verifies JWT)
+    const decoded = verifyTokenWithBlacklist(token);
 
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
     // Get user from token
     req.user = await User.findById(decoded.id).select('-password');
 
@@ -42,6 +72,9 @@ export const protect = async (req, res, next) => {
 
     next();
   } catch (error) {
+    if (error.code === 'TOKEN_REVOKED') {
+      return res.status(401).json({ message: 'Token revoked' });
+    }
     console.error(error);
     return res.status(401).json({ message: 'Not authorized, token failed' });
   }
@@ -56,30 +89,26 @@ export const logout = async (req, res) => {
     try {
       const decoded = jwt.decode(token);
       if (decoded?.exp) {
-        const ttl = decoded.exp - Math.floor(Date.now() / 1000);
-        if (ttl > 0) {
-          await redis.setex(`blacklist:${token}`, ttl, '1');
+        const expiryTime = decoded.exp * 1000; // Convert to ms
+        if (expiryTime > Date.now()) {
+          tokenBlacklist.set(token, expiryTime);
         }
       }
     } catch (e) {
       console.error('Token blacklist error:', e);
     }
   }
-  
+
   // Clear refresh token
   const refreshToken = req.cookies?.refresh_token;
   if (refreshToken) {
-    try {
-      await redis.del(`refresh:${refreshToken}`);
-    } catch (e) {
-      console.error('Refresh token cleanup error:', e);
-    }
+    refreshTokens.delete(refreshToken);
   }
-  
+
   // Clear cookies
   res.cookie('auth_token', '', { httpOnly: true, expires: new Date(0) });
   res.cookie('refresh_token', '', { httpOnly: true, expires: new Date(0) });
-  
+
   res.json({ success: true });
 };
 
@@ -90,52 +119,54 @@ export const generateToken = (id) => {
   });
 };
 
-// Generate Refresh Token (Comment 11)
+// Generate Refresh Token
 export const generateRefreshToken = async (userId) => {
   const refreshToken = crypto.randomBytes(64).toString('hex');
   const jti = crypto.randomBytes(16).toString('hex');
-  
-  // Store in Redis with user ID and expiry
-  await redis.setex(`refresh:${refreshToken}`, REFRESH_TOKEN_EXPIRY, JSON.stringify({
+
+  // Store in memory with user ID and expiry
+  refreshTokens.set(refreshToken, {
     userId: userId.toString(),
     jti,
     createdAt: Date.now(),
-  }));
-  
+    expiry: Date.now() + REFRESH_TOKEN_EXPIRY,
+  });
+
   return refreshToken;
 };
 
-// Refresh access token (Comment 11)
+// Refresh access token
 export const refreshAccessToken = async (req, res) => {
   try {
     const refreshToken = req.cookies?.refresh_token || req.body?.refreshToken;
-    
+
     if (!refreshToken) {
       return res.status(401).json({ message: 'No refresh token provided' });
     }
-    
-    // Get refresh token data from Redis
-    const tokenData = await redis.get(`refresh:${refreshToken}`);
-    if (!tokenData) {
+
+    // Get refresh token data from memory
+    const tokenData = refreshTokens.get(refreshToken);
+    if (!tokenData || tokenData.expiry < Date.now()) {
+      refreshTokens.delete(refreshToken);
       return res.status(401).json({ message: 'Invalid or expired refresh token' });
     }
-    
-    const { userId, jti } = JSON.parse(tokenData);
-    
+
+    const { userId } = tokenData;
+
     // Verify user still exists
     const user = await User.findById(userId).select('-password');
     if (!user) {
-      await redis.del(`refresh:${refreshToken}`);
+      refreshTokens.delete(refreshToken);
       return res.status(401).json({ message: 'User not found' });
     }
-    
+
     // Rotate refresh token (delete old, create new)
-    await redis.del(`refresh:${refreshToken}`);
+    refreshTokens.delete(refreshToken);
     const newRefreshToken = await generateRefreshToken(userId);
-    
+
     // Generate new access token
     const accessToken = generateToken(userId);
-    
+
     // Set new cookies
     res.cookie('auth_token', accessToken, {
       httpOnly: true,
@@ -143,14 +174,14 @@ export const refreshAccessToken = async (req, res) => {
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
-    
+
     res.cookie('refresh_token', newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
-    
+
     res.json({
       success: true,
       user: {

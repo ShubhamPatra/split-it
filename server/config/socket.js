@@ -1,139 +1,125 @@
 import { Server } from 'socket.io';
-import { createAdapter } from '@socket.io/redis-adapter';
-import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
 import cookie from 'cookie';
-import redis, { isRedisAvailable } from './redis.js';
-import { notificationQueue } from './queueBullMQ.js';
-import { scanKeys, isClusterMode } from '../utils/redisClusterHelper.js';
+import { notifyUsers } from '../jobs/notificationService.js';
+import { verifyTokenWithBlacklist } from '../middleware/authMiddleware.js';
 
 const isDev = process.env.NODE_ENV !== 'production';
 
-// Redis keys for presence and typing state (shared across nodes)
-const PRESENCE_KEY_PREFIX = 'socket:presence:';
-const TYPING_KEY_PREFIX = 'socket:typing:';
-const GROUP_MEMBERS_PREFIX = 'group:members:';
-const PRESENCE_TTL = 120; // 2 minutes TTL for presence
-const TYPING_TTL = 10; // 10 seconds TTL for typing indicators
-const GROUP_MEMBERS_TTL = 300; // 5 minutes TTL for group membership cache
+// Parse allowed origins from environment
+const parseAllowedOrigins = () => {
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+    : [];
 
-// In-memory fallback for when Redis is not available
-const memoryPresence = new Map(); // groupId -> Set of userIds
-const memoryTyping = new Map(); // groupId -> Map of userId -> data
-const memoryGroupCache = new Map(); // groupId -> membership data
+  // Combine CLIENT_URL with any additional allowed origins
+  const origins = new Set([clientUrl, ...allowedOrigins]);
 
-// Helper functions for Redis-based presence management
-const getPresenceKey = (groupId) => `${PRESENCE_KEY_PREFIX}${groupId}`;
-const getTypingKey = (groupId) => `${TYPING_KEY_PREFIX}${groupId}`;
-const getGroupMembersKey = (groupId) => `${GROUP_MEMBERS_PREFIX}${groupId}`;
-
-// Safe Redis operation wrapper
-const safeRedisOp = async (operation, fallback = null) => {
-  if (!isRedisAvailable() || !redis) {
-    return typeof fallback === 'function' ? fallback() : fallback;
+  // In development, also allow common dev ports
+  if (isDev) {
+    origins.add('http://localhost:3000');
+    origins.add('http://localhost:5173');
+    origins.add('http://127.0.0.1:3000');
+    origins.add('http://127.0.0.1:5173');
   }
-  try {
-    return await operation();
-  } catch (error) {
-    if (isDev) {
-      // Silently fall back in dev
-      return typeof fallback === 'function' ? fallback() : fallback;
-    }
-    throw error;
-  }
+
+  return origins;
 };
 
-// Get or cache group membership for fast authorization checks
+const allowedOrigins = parseAllowedOrigins();
+
+// In-memory state management (single instance, no Redis needed)
+const onlineUsers = new Map(); // groupId -> Set<userId>
+const typingUsers = new Map(); // groupId -> Map<userId, {userName, timestamp}>
+const groupMembershipCache = new Map(); // groupId -> {name, memberIds, expiry}
+
+// Cache TTL
+const GROUP_CACHE_TTL = 300000; // 5 minutes
+
+// Store io instance for exports
+let ioInstance = null;
+
+/**
+ * Get or cache group membership for fast authorization checks
+ */
 const getGroupMembership = async (groupId) => {
-  // Try Redis cache first
-  const cached = await safeRedisOp(async () => {
-    const cacheKey = getGroupMembersKey(groupId);
-    const data = await redis.get(cacheKey);
-    return data ? JSON.parse(data) : null;
-  }, () => memoryGroupCache.get(groupId));
-  
-  if (cached) return cached;
-  
-  // Fetch from DB with lean projection (only member IDs)
+  const cached = groupMembershipCache.get(groupId);
+  if (cached && cached.expiry > Date.now()) {
+    return cached;
+  }
+
+  // Fetch from DB
   const Group = (await import('../models/Group.js')).default;
   const group = await Group.findById(groupId).select('name members').lean();
-  
+
   if (!group) return null;
-  
+
   const memberIds = group.members.map(m => m.toString());
-  const membership = { name: group.name, memberIds };
-  
-  // Cache in Redis or memory
-  await safeRedisOp(async () => {
-    const cacheKey = getGroupMembersKey(groupId);
-    await redis.setex(cacheKey, GROUP_MEMBERS_TTL, JSON.stringify(membership));
-  }, () => {
-    memoryGroupCache.set(groupId, membership);
-    // Auto-expire memory cache
-    setTimeout(() => memoryGroupCache.delete(groupId), GROUP_MEMBERS_TTL * 1000);
-  });
-  
+  const membership = { name: group.name, memberIds, expiry: Date.now() + GROUP_CACHE_TTL };
+
+  groupMembershipCache.set(groupId, membership);
   return membership;
 };
 
-// Invalidate group membership cache (call when members change)
-const invalidateGroupMembershipCache = async (groupId) => {
-  await safeRedisOp(
-    () => redis.del(getGroupMembersKey(groupId)),
-    () => memoryGroupCache.delete(groupId)
-  );
+/**
+ * Invalidate group membership cache (call when members change)
+ */
+export const invalidateGroupMembershipCache = (groupId) => {
+  groupMembershipCache.delete(groupId);
 };
 
-// Add user to group presence
-const addUserPresence = async (groupId, userId) => {
-  await safeRedisOp(async () => {
-    const key = getPresenceKey(groupId);
-    await redis.sadd(key, userId);
-    await redis.expire(key, PRESENCE_TTL);
-  }, () => {
-    if (!memoryPresence.has(groupId)) {
-      memoryPresence.set(groupId, new Set());
+/**
+ * Add user to group presence
+ */
+const addUserPresence = (groupId, userId) => {
+  if (!onlineUsers.has(groupId)) {
+    onlineUsers.set(groupId, new Set());
+  }
+  onlineUsers.get(groupId).add(userId);
+};
+
+/**
+ * Remove user from group presence
+ */
+const removeUserPresence = (groupId, userId) => {
+  const groupUsers = onlineUsers.get(groupId);
+  if (groupUsers) {
+    groupUsers.delete(userId);
+    if (groupUsers.size === 0) {
+      onlineUsers.delete(groupId);
     }
-    memoryPresence.get(groupId).add(userId);
-  });
+  }
 };
 
-// Remove user from group presence
-const removeUserPresence = async (groupId, userId) => {
-  await safeRedisOp(
-    () => redis.srem(getPresenceKey(groupId), userId),
-    () => memoryPresence.get(groupId)?.delete(userId)
-  );
+/**
+ * Get all online users for a group
+ */
+const getGroupOnlineUsers = (groupId) => {
+  return Array.from(onlineUsers.get(groupId) || []);
 };
 
-// Get all online users for a group
-const getGroupOnlineUsersFromRedis = async (groupId) => {
-  return await safeRedisOp(
-    () => redis.smembers(getPresenceKey(groupId)),
-    () => Array.from(memoryPresence.get(groupId) || [])
-  );
+/**
+ * Set user typing status
+ */
+const setUserTyping = (groupId, userId, userName) => {
+  if (!typingUsers.has(groupId)) {
+    typingUsers.set(groupId, new Map());
+  }
+  typingUsers.get(groupId).set(userId, { userName, timestamp: Date.now() });
 };
 
-// Set user typing status
-const setUserTyping = async (groupId, userId, userName) => {
-  await safeRedisOp(async () => {
-    const key = getTypingKey(groupId);
-    await redis.hset(key, userId, JSON.stringify({ userName, timestamp: Date.now() }));
-    await redis.expire(key, TYPING_TTL);
-  }, () => {
-    if (!memoryTyping.has(groupId)) {
-      memoryTyping.set(groupId, new Map());
+/**
+ * Remove user typing status
+ */
+const removeUserTyping = (groupId, userId) => {
+  const groupTyping = typingUsers.get(groupId);
+  if (groupTyping) {
+    groupTyping.delete(userId);
+    if (groupTyping.size === 0) {
+      typingUsers.delete(groupId);
     }
-    memoryTyping.get(groupId).set(userId, { userName, timestamp: Date.now() });
-  });
-};
-
-// Remove user typing status
-const removeUserTyping = async (groupId, userId) => {
-  await safeRedisOp(
-    () => redis.hdel(getTypingKey(groupId), userId),
-    () => memoryTyping.get(groupId)?.delete(userId)
-  );
+  }
 };
 
 // Cleanup stale typing indicators every 5 seconds
@@ -141,284 +127,90 @@ let typingCleanupInterval = null;
 
 const startTypingCleanup = () => {
   if (typingCleanupInterval) return;
-  
-  typingCleanupInterval = setInterval(async () => {
-    try {
-      const now = Date.now();
-      
-      if (isRedisAvailable() && redis) {
-        // Redis-based cleanup using SCAN instead of KEYS for cluster compatibility
-        const keys = await scanKeys(redis, `${TYPING_KEY_PREFIX}*`);
-        for (const key of keys) {
-          const typingData = await redis.hgetall(key);
-          for (const [userId, dataStr] of Object.entries(typingData)) {
-            try {
-              const data = JSON.parse(dataStr);
-              if (now - data.timestamp > 5000) {
-                await redis.hdel(key, userId);
-              }
-            } catch (e) {
-              await redis.hdel(key, userId);
-            }
-          }
-        }
-      } else {
-        // Memory-based cleanup
-        for (const [groupId, users] of memoryTyping) {
-          for (const [userId, data] of users) {
-            if (now - data.timestamp > 5000) {
-              users.delete(userId);
-            }
-          }
-          if (users.size === 0) {
-            memoryTyping.delete(groupId);
-          }
+
+  typingCleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [groupId, users] of typingUsers) {
+      for (const [userId, data] of users) {
+        if (now - data.timestamp > 5000) {
+          users.delete(userId);
         }
       }
-    } catch (error) {
-      // Suppress errors in dev when Redis isn't available
-      if (!isDev || isRedisAvailable()) {
-        console.error('Typing cleanup error:', error);
+      if (users.size === 0) {
+        typingUsers.delete(groupId);
       }
     }
   }, 5000);
 };
 
+// Stop typing cleanup (for graceful shutdown)
+export const stopTypingCleanup = () => {
+  if (typingCleanupInterval) {
+    clearInterval(typingCleanupInterval);
+    typingCleanupInterval = null;
+  }
+};
+
 // Start cleanup immediately
 startTypingCleanup();
 
-// Store io instance for exports
-let ioInstance = null;
-
 /**
- * Test if Redis supports pub/sub by attempting a benign PSUBSCRIBE command
- * Returns true if pub/sub is supported, false if the command is not available
- * (e.g., ElastiCache serverless which doesn't support psubscribe)
+ * Initialize Socket.io server
+ * @param {Object} httpServer - HTTP server instance
+ * @returns {Object} Socket.io server instance
  */
-const testRedisPubSubCapability = async (client) => {
-  try {
-    // Attempt to subscribe to a pattern (benign test)
-    // This will fail immediately on ElastiCache serverless with "unknown command" error
-    const subClient = client.duplicate();
-    
-    // Set a short timeout for the test
-    const testPromise = new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        subClient.unsubscribe().catch(() => {});
-        subClient.quit().catch(() => {});
-        reject(new Error('Pub/sub test timeout'));
-      }, 2000);
-      
-      subClient.once('error', (error) => {
-        clearTimeout(timeout);
-        subClient.unsubscribe().catch(() => {});
-        subClient.quit().catch(() => {});
-        reject(error);
-      });
-      
-      subClient.once('ready', () => {
-        clearTimeout(timeout);
-        // Try to subscribe to test pattern
-        subClient.psubscribe('socket-io-test-*', (err) => {
-          if (err) {
-            subClient.quit().catch(() => {});
-            reject(err);
-          } else {
-            subClient.punsubscribe().then(() => {
-              subClient.quit().catch(() => {});
-              resolve(true);
-            }).catch((err) => {
-              subClient.quit().catch(() => {});
-              reject(err);
-            });
-          }
-        });
-      });
-    });
-    
-    await testPromise;
-    return true;
-  } catch (error) {
-    // Check if it's an "unknown command" error (indicates pub/sub not supported)
-    if (error.message?.includes('unknown command') || error.code === 'ERR') {
-      console.warn('Socket.IO: Redis pub/sub not supported (ElastiCache serverless?), will run without adapter');
-      return false;
-    }
-    // For other errors, log but don't assume pub/sub is unavailable
-    console.warn('Socket.IO: Pub/sub capability test failed:', error.message);
-    return false;
-  }
-};
-
-// Create Redis adapter - exported for server.js to call before handlers
-export const createRedisAdapter = async () => {
-  // Check environment toggle to disable adapter
-  if (process.env.SOCKET_IO_REDIS_ADAPTER === 'false') {
-    console.log('Socket.IO: Redis adapter disabled via SOCKET_IO_REDIS_ADAPTER=false');
-    return null;
-  }
-  
-  if (!isRedisAvailable()) {
-    console.log('Socket.IO: Redis not available, running without adapter (single-node mode)');
-    return null;
-  }
-  
-  try {
-    const host = process.env.REDIS_HOST || 'localhost';
-    const port = parseInt(process.env.REDIS_PORT, 10) || 6379;
-    const password = process.env.REDIS_AUTH_TOKEN || process.env.REDIS_PASSWORD || undefined;
-    const isCluster = process.env.REDIS_CLUSTER_MODE === 'true';
-    const useTls = process.env.REDIS_TLS === 'true' || process.env.ELASTICACHE_TLS === 'true';
-    
-    let pubClient;
-    let subClient;
-    
-    if (isCluster) {
-      // Redis Cluster mode for ElastiCache with TLS support
-      const clusterNodes = [{ host, port }];
-      
-      const redisOptions = {
-        password,
-        maxRetriesPerRequest: null,
-        enableOfflineQueue: true,
-        keepAlive: parseInt(process.env.REDIS_KEEP_ALIVE, 10) || 30000,
-      };
-      
-      if (useTls) {
-        redisOptions.tls = {
-          rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
-          servername: host,
-        };
-      }
-      
-      const clusterOptions = {
-        dnsLookup: (address, callback) => callback(null, address),
-        enableReadyCheck: true,
-        slotsRefreshTimeout: 10000,
-        slotsRefreshInterval: 5000,
-        redisOptions,
-        scaleReads: 'slave',
-        clusterRetryStrategy: (times) => {
-          if (times > 20) return 30000;
-          return Math.min(times * 1000, 30000);
-        },
-      };
-      
-      pubClient = new Redis.Cluster(clusterNodes, clusterOptions);
-      subClient = new Redis.Cluster(clusterNodes, clusterOptions);
-      
-      console.log('Socket.IO: Using Redis Cluster adapter for ElastiCache');
-    } else {
-      // Standalone Redis mode for local/dev
-      const redisOptions = {
-        host,
-        port,
-        password,
-        maxRetriesPerRequest: null,
-        lazyConnect: true,
-        keepAlive: parseInt(process.env.REDIS_KEEP_ALIVE, 10) || 30000,
-      };
-
-      if (useTls) {
-        redisOptions.tls = {
-          rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false',
-        };
-      }
-
-      pubClient = new Redis(redisOptions);
-      subClient = pubClient.duplicate();
-      
-      console.log('Socket.IO: Using standalone Redis adapter');
-    }
-    
-    // Attach error handlers to both clients
-    pubClient.on('error', (error) => {
-      if (isDev && error.code === 'ECONNREFUSED') return;
-      console.error('Socket.IO Redis pubClient error:', error.message);
-    });
-    
-    subClient.on('error', (error) => {
-      if (isDev && error.code === 'ECONNREFUSED') return;
-      console.error('Socket.IO Redis subClient error:', error.message);
-    });
-    
-    // Test pub/sub capability before creating adapter
-    // This guards against ElastiCache serverless which doesn't support psubscribe
-    const pubSubSupported = await testRedisPubSubCapability(pubClient);
-    if (!pubSubSupported) {
-      console.log('Socket.IO: Pub/sub not supported, closing adapter clients and running without adapter');
-      try {
-        if (isCluster) {
-          await pubClient.quit();
-          await subClient.quit();
-        } else {
-          // For non-cluster, subClient is a duplicate of pubClient
-          await pubClient.quit();
-        }
-      } catch (closeErr) {
-        console.warn('Socket.IO: Error closing adapter clients:', closeErr.message);
-      }
-      return null;
-    }
-    
-    try {
-      return { pubClient, subClient, adapter: createAdapter(pubClient, subClient) };
-    } catch (adapterError) {
-      // Catch any ReplyError from adapter setup
-      console.warn('Socket.IO: Failed to create adapter:', adapterError.message);
-      try {
-        if (isCluster) {
-          await pubClient.quit();
-          await subClient.quit();
-        } else {
-          await pubClient.quit();
-        }
-      } catch (closeErr) {
-        console.warn('Socket.IO: Error closing adapter clients after setup failure:', closeErr.message);
-      }
-      return null;
-    }
-  } catch (error) {
-    console.warn('Socket.IO: Failed to create Redis adapter:', error.message);
-    return null;
-  }
-};
-
-export const initializeSocket = (httpServer, redisAdapter = null) => {
+export const initializeSocket = (httpServer) => {
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.CLIENT_URL || 'http://localhost:3000',
+      origin: Array.from(allowedOrigins),
       credentials: true,
     },
     pingTimeout: 60000,
     pingInterval: 25000,
-    maxHttpBufferSize: 1e6,  // 1MB
-    transports: ['websocket'],  // Disable long polling
+    maxHttpBufferSize: 1e6, // 1MB
+    transports: ['websocket'], // Disable long polling
     perMessageDeflate: false,
   });
-
-  // Attach Redis adapter for horizontal scaling if provided
-  if (redisAdapter) {
-    io.adapter(redisAdapter);
-    console.log('Socket.IO: Redis adapter attached for horizontal scaling');
-  }
 
   // Store io instance for exports
   ioInstance = io;
 
-  // Authentication middleware - use cookie-based auth
+  console.log('Socket.IO: Initialized (single-instance mode, no Redis adapter)');
+
+  // Authentication middleware - use cookie-based auth with blacklist check and origin verification
   io.use(async (socket, next) => {
     try {
-      // Parse cookies from handshake headers
+      // Origin verification - reject connections from unauthorized origins
+      const origin = socket.handshake.headers.origin || socket.handshake.headers.referer;
+      if (origin) {
+        // Extract origin from referer if present (strip path)
+        const originUrl = origin.includes('/') && !origin.endsWith('/')
+          ? new URL(origin).origin
+          : origin.replace(/\/$/, '');
+
+        if (!allowedOrigins.has(originUrl)) {
+          console.warn(`Socket.IO: Rejected connection from unauthorized origin: ${originUrl}`);
+          return next(new Error('Origin not allowed'));
+        }
+      } else if (process.env.NODE_ENV === 'production') {
+        // In production, require origin header
+        console.warn('Socket.IO: Rejected connection with no origin header');
+        return next(new Error('Origin required'));
+      }
+
       const cookies = cookie.parse(socket.handshake.headers.cookie || '');
       const token = cookies.auth_token;
-      
+
       if (!token) return next(new Error('Authentication error'));
-      
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      // Use shared verification helper that checks blacklist
+      const decoded = verifyTokenWithBlacklist(token);
       socket.userId = decoded.id;
       next();
     } catch (error) {
+      if (error.code === 'TOKEN_REVOKED') {
+        return next(new Error('Token revoked'));
+      }
       next(new Error('Authentication error'));
     }
   });
@@ -429,7 +221,7 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
 
   io.on('connection', (socket) => {
     const userId = socket.userId;
-    
+
     // Enforce connection limit
     const connections = userConnections.get(userId) || 0;
     if (connections >= MAX_CONNECTIONS_PER_USER) {
@@ -444,35 +236,30 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
     // Join group rooms (with authentication)
     socket.on('join:group', async (groupId) => {
       try {
-        // Load Group model dynamically
-        const Group = (await import('../models/Group.js')).default;
-        const group = await Group.findById(groupId).lean();
-        
-        if (!group) {
+        const membership = await getGroupMembership(groupId);
+
+        if (!membership) {
           socket.emit('error', { message: 'Group not found' });
           return;
         }
-        
-        // Check if user is a member
-        const isMember = group.members.some(m => m.toString() === userId);
-        if (!isMember) {
+
+        if (!membership.memberIds.includes(userId)) {
           socket.emit('error', { message: 'Not authorized to join this group' });
           return;
         }
-        
+
         socket.join(`group:${groupId}`);
-        
-        // Track online user for chat presence in Redis (cross-node)
-        await addUserPresence(groupId, userId);
-        
-        // Broadcast user online status to group (propagates via Redis adapter)
+
+        // Track online user
+        addUserPresence(groupId, userId);
+
+        // Broadcast user online status to group
         socket.to(`group:${groupId}`).emit('chat:userOnline', { userId, groupId });
-        
-        // Send current online users to the joining user (from Redis)
-        const onlineUsers = await getGroupOnlineUsersFromRedis(groupId);
+
+        // Send current online users to the joining user
         socket.emit('chat:onlineUsers', {
           groupId,
-          users: onlineUsers,
+          users: getGroupOnlineUsers(groupId),
         });
       } catch (error) {
         console.error('Join group error:', error);
@@ -480,42 +267,31 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
       }
     });
 
-    socket.on('leave:group', async (groupId) => {
+    socket.on('leave:group', (groupId) => {
       socket.leave(`group:${groupId}`);
-      
-      // Remove from online users in Redis
-      await removeUserPresence(groupId, userId);
-      
-      // Remove from typing users in Redis
-      await removeUserTyping(groupId, userId);
-      
-      // Broadcast user offline status (propagates via Redis adapter)
+      removeUserPresence(groupId, userId);
+      removeUserTyping(groupId, userId);
       socket.to(`group:${groupId}`).emit('chat:userOffline', { userId, groupId });
     });
 
     // Chat typing indicator
     socket.on('chat:typing', async (data) => {
       const { groupId, isTyping, userName } = data;
-      
+
       if (!groupId) return;
-      
+
       try {
-        // Verify user is a member of the group
-        const Group = (await import('../models/Group.js')).default;
-        const group = await Group.findById(groupId).lean();
-        
-        if (!group || !group.members.some(m => m.toString() === userId)) {
+        const membership = await getGroupMembership(groupId);
+        if (!membership || !membership.memberIds.includes(userId)) {
           return;
         }
-        
-        // Update typing status in Redis (cross-node)
+
         if (isTyping) {
-          await setUserTyping(groupId, userId, userName || 'Someone');
+          setUserTyping(groupId, userId, userName || 'Someone');
         } else {
-          await removeUserTyping(groupId, userId);
+          removeUserTyping(groupId, userId);
         }
-        
-        // Broadcast to group (except sender) - propagates via Redis adapter
+
         socket.to(`group:${groupId}`).emit('chat:typing', {
           userId,
           userName: userName || 'Someone',
@@ -527,26 +303,22 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
       }
     });
 
-    // Chat message read receipts via socket (alternative to REST)
+    // Chat message read receipts
     socket.on('chat:markRead', async (data) => {
       const { groupId, messageIds } = data;
-      
+
       if (!groupId || !Array.isArray(messageIds) || messageIds.length === 0) return;
-      
+
       try {
-        // Verify user is a member
-        const Group = (await import('../models/Group.js')).default;
-        const group = await Group.findById(groupId).lean();
-        
-        if (!group || !group.members.some(m => m.toString() === userId)) {
+        const membership = await getGroupMembership(groupId);
+        if (!membership || !membership.memberIds.includes(userId)) {
           return;
         }
-        
-        // Update messages in database
+
         const Message = (await import('../models/Message.js')).default;
         await Message.updateMany(
           {
-            _id: { $in: messageIds.slice(0, 50) }, // Limit to 50
+            _id: { $in: messageIds.slice(0, 50) },
             groupId,
             readBy: { $ne: userId },
           },
@@ -554,8 +326,7 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
             $addToSet: { readBy: userId },
           }
         );
-        
-        // Broadcast read receipts to group
+
         io.to(`group:${groupId}`).emit('chat:read', {
           userId,
           messageIds: messageIds.slice(0, 50),
@@ -566,41 +337,36 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
       }
     });
 
-    // Chat message send via socket with delivery confirmation
-    // Security: Only 'text' type messages allowed; metadata is ignored
-    // Optimized: Uses cached group membership, Redis pipeline, bulk notifications
+    // Chat message send via socket
     socket.on('chat:send', async (data, ackCallback) => {
       const { groupId, content, tempId } = data;
-      
-      // Validate required fields
+
       if (!groupId || !content || typeof content !== 'string') {
         if (typeof ackCallback === 'function') {
           ackCallback({ success: false, error: 'Invalid message data' });
         }
         return;
       }
-      
+
       try {
-        // Load models dynamically (these are cached by Node.js module system)
         const Message = (await import('../models/Message.js')).default;
-        
-        // Use cached group membership for fast authorization
         const membership = await getGroupMembership(groupId);
+
         if (!membership) {
           if (typeof ackCallback === 'function') {
             ackCallback({ success: false, error: 'Group not found' });
           }
           return;
         }
-        
+
         if (!membership.memberIds.includes(userId)) {
           if (typeof ackCallback === 'function') {
             ackCallback({ success: false, error: 'Not authorized to send messages in this group' });
           }
           return;
         }
-        
-        // Sanitize content - strip dangerous HTML/script content
+
+        // Sanitize content
         const sanitizedContent = content
           .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
           .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
@@ -608,23 +374,21 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
           .replace(/on\w+\s*=/gi, '')
           .replace(/<[^>]*>/g, '')
           .trim();
-        
-        // Validate sanitized content
+
         if (sanitizedContent.length < 1) {
           if (typeof ackCallback === 'function') {
             ackCallback({ success: false, error: 'Message content cannot be empty' });
           }
           return;
         }
-        
+
         if (sanitizedContent.length > 2000) {
           if (typeof ackCallback === 'function') {
             ackCallback({ success: false, error: 'Message cannot exceed 2000 characters' });
           }
           return;
         }
-        
-        // Check for excessive newlines
+
         const newlineCount = (sanitizedContent.match(/\n/g) || []).length;
         if (newlineCount > 20) {
           if (typeof ackCallback === 'function') {
@@ -632,25 +396,8 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
           }
           return;
         }
-        
-        // Rate limiting using Redis (with in-memory fallback)
-        const rateLimitKey = `chat:ratelimit:${groupId}:${userId}`;
-        const rateLimited = await safeRedisOp(async () => {
-          const count = await redis.incr(rateLimitKey);
-          if (count === 1) {
-            await redis.expire(rateLimitKey, 60); // 60 second window
-          }
-          return count > 30; // 30 messages per minute per user per group
-        }, () => false); // Skip rate limiting if Redis unavailable
-        
-        if (rateLimited) {
-          if (typeof ackCallback === 'function') {
-            ackCallback({ success: false, error: 'Rate limit exceeded. Please slow down.' });
-          }
-          return;
-        }
-        
-        // Create message - always 'text' type for client messages
+
+        // Create message
         const message = await Message.create({
           groupId,
           senderId: userId,
@@ -658,64 +405,36 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
           type: 'text',
           readBy: [userId],
         });
-        
-        // Populate sender info for response
+
         const populatedMessage = await Message.findById(message._id)
           .populate('senderId', 'name email')
           .lean();
-        
-        // Send ack to sender FIRST (keep hot path free of serial awaits)
+
+        // Send ack to sender
         if (typeof ackCallback === 'function') {
           ackCallback({ success: true, tempId, message: populatedMessage });
         }
-        
-        // Broadcast to all group members (including sender for other tabs/devices)
+
+        // Broadcast to all group members
         io.to(`group:${groupId}`).emit('chat:new', populatedMessage);
-        
-        // --- Background tasks (non-blocking) ---
-        // Use setImmediate to defer non-critical operations
+
+        // Background: Send notifications to other members
         setImmediate(async () => {
           try {
             const senderName = populatedMessage.senderId?.name || 'Someone';
             const otherMemberIds = membership.memberIds.filter(id => id !== userId);
-            
-            // Use Redis pipeline for batch cache invalidation (if available)
-            // In cluster mode, use individual deletes to avoid CROSSSLOT errors
-            await safeRedisOp(async () => {
-              if (isClusterMode(redis)) {
-                // Cluster mode: delete individually
-                await redis.del(`chat:${groupId}:latest`);
-                for (const memberId of otherMemberIds) {
-                  await redis.del(`chat:${groupId}:unread:${memberId}`);
-                }
-              } else {
-                // Standalone: use pipeline for efficiency
-                const pipeline = redis.pipeline();
-                pipeline.del(`chat:${groupId}:latest`);
-                for (const memberId of otherMemberIds) {
-                  pipeline.del(`chat:${groupId}:unread:${memberId}`);
-                }
-                await pipeline.exec();
-              }
-            });
-            
-            // Use addBulk for parallel notification enqueueing
+
             if (otherMemberIds.length > 0) {
-              const notificationJobs = otherMemberIds.map(memberId => ({
+              notifyUsers(otherMemberIds, {
+                type: 'info',
+                title: `New message in ${membership.name}`,
+                message: `${senderName}: ${sanitizedContent.substring(0, 50)}${sanitizedContent.length > 50 ? '...' : ''}`,
                 data: {
-                  userId: memberId,
-                  type: 'info',
-                  title: `New message in ${membership.name}`,
-                  message: `${senderName}: ${sanitizedContent.substring(0, 50)}${sanitizedContent.length > 50 ? '...' : ''}`,
-                  data: {
-                    groupId,
-                    messageId: message._id.toString(),
-                    actionType: 'chat_message',
-                  },
+                  groupId,
+                  messageId: message._id.toString(),
+                  actionType: 'chat_message',
                 },
-              }));
-              
-              await notificationQueue.addBulk(notificationJobs);
+              }).catch(err => console.error('Chat notification error:', err.message));
             }
           } catch (bgError) {
             console.error('Chat send background tasks error:', bgError);
@@ -729,28 +448,21 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
       }
     });
 
-    socket.on('disconnect', async () => {
+    socket.on('disconnect', () => {
       const count = userConnections.get(userId) - 1;
       if (count <= 0) {
         userConnections.delete(userId);
       } else {
         userConnections.set(userId, count);
       }
-      
-      // Clean up online/typing status from all groups user was in
-      // Get groups from socket rooms (rooms starting with 'group:')
+
+      // Clean up online/typing status
       const socketRooms = Array.from(socket.rooms || []);
       for (const room of socketRooms) {
         if (room.startsWith('group:')) {
           const groupId = room.replace('group:', '');
-          
-          // Remove from presence in Redis
-          await removeUserPresence(groupId, userId);
-          
-          // Remove from typing in Redis
-          await removeUserTyping(groupId, userId);
-          
-          // Broadcast offline status (propagates via Redis adapter)
+          removeUserPresence(groupId, userId);
+          removeUserTyping(groupId, userId);
           io.to(`group:${groupId}`).emit('chat:userOffline', { userId, groupId });
           io.to(`group:${groupId}`).emit('chat:typing', {
             userId,
@@ -765,12 +477,21 @@ export const initializeSocket = (httpServer, redisAdapter = null) => {
   return io;
 };
 
-// Export helpers for getting online users (now async since they use Redis)
-export const getOnlineUsers = async (groupId) => {
-  return await getGroupOnlineUsersFromRedis(groupId);
+/**
+ * Get online users for a group
+ */
+export const getOnlineUsers = (groupId) => {
+  return getGroupOnlineUsers(groupId);
 };
 
-export const isUserOnline = async (groupId, userId) => {
-  const onlineUsers = await getGroupOnlineUsersFromRedis(groupId);
-  return onlineUsers.includes(userId);
+/**
+ * Check if a user is online in a group
+ */
+export const isUserOnline = (groupId, userId) => {
+  return getGroupOnlineUsers(groupId).includes(userId);
 };
+
+/**
+ * Get the Socket.io instance
+ */
+export const getSocketIO = () => ioInstance;

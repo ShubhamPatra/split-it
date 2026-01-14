@@ -9,7 +9,7 @@ import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
 import Group from '../models/Group.js';
 import User from '../models/User.js';
-import { emailQueue } from '../config/queueBullMQ.js';
+import { sendEmailWithRetry } from '../jobs/emailService.js';
 import { checkEmailPreference } from './emailUtils.js';
 import {
   brand,
@@ -38,10 +38,10 @@ function generateExpenseCSV(expenses, settlements, users) {
     const paidBy = userMap[exp.paidBy?.toString()] || exp.paidBy?.name || 'Unknown';
     const groupName = exp.groupId?.name || 'Unknown';
     const splitAmong = (exp.splitAmong || []).map(id => userMap[id.toString()] || 'Unknown').join('; ');
-    
+
     // Escape description for CSV
     const description = `"${(exp.description || '').replace(/"/g, '""')}"`;
-    
+
     csv += `${date},Expense,${description},${exp.amount},${exp.currency || 'INR'},${exp.category || 'Other'},${paidBy},${groupName},"${splitAmong}"\n`;
   });
 
@@ -51,7 +51,7 @@ function generateExpenseCSV(expenses, settlements, users) {
     const from = userMap[set.fromUserId?.toString()] || set.fromUserId?.name || 'Unknown';
     const to = userMap[set.toUserId?.toString()] || set.toUserId?.name || 'Unknown';
     const groupName = set.groupId?.name || 'Unknown';
-    
+
     csv += `${date},Settlement,"Payment from ${from} to ${to}",${set.amount},${set.currency || 'INR'},Settlement,${from},${groupName},"${to}"\n`;
   });
 
@@ -140,7 +140,7 @@ export async function generateAndEmailReport(userId, options = {}) {
     // Generate report
     let reportContent;
     let reportType;
-    
+
     if (format === 'csv') {
       reportContent = generateExpenseCSV(expenses, settlements, users);
       reportType = 'CSV';
@@ -151,7 +151,7 @@ export async function generateAndEmailReport(userId, options = {}) {
     // For now, we'll include the CSV data inline (base64 encoded)
     // In production, you'd upload to S3/cloud storage and provide a download link
     const base64Content = Buffer.from(reportContent).toString('base64');
-    
+
     // Format date range
     let dateRange = 'All Time';
     if (startDate && endDate) {
@@ -191,7 +191,7 @@ export async function generateAndEmailReport(userId, options = {}) {
       `
     );
 
-    await emailQueue.add({
+    await sendEmailWithRetry({
       to: user.email,
       subject: `📄 Your ${reportType} export for ${groupName || 'all groups'} is ready`,
       html: emailHtml,

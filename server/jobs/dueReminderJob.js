@@ -1,26 +1,16 @@
 /**
- * Due Reminder Worker
+ * Due Reminder Job
  * 
  * Sends daily reminders to users with uncleared dues older than 24 hours.
- * Runs on a schedule via queue (BullMQ or MongoDB).
- * 
- * Uses unified queue system for Redis Cluster compatibility with MongoDB fallback.
- * Uses the modern Split-It email template system for consistent branding.
+ * Called by the cron scheduler.
  */
 
-import {
-  createWorker,
-  emailQueue,
-  notificationQueue,
-  dueReminderQueue,
-  QUEUE_NAMES,
-  getQueueBackend
-} from '../config/queue.js';
-import cron from 'node-cron';
 import User from '../models/User.js';
 import Group from '../models/Group.js';
 import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
+import { sendEmailWithRetry } from './emailService.js';
+import { notifyUser } from './notificationService.js';
 import {
   brand,
   formatCurrency,
@@ -29,25 +19,21 @@ import {
   buttonComponent,
   cardComponent,
   alertComponent,
-  infoRowComponent,
-  tableComponent,
   amountDisplayComponent,
-  dividerComponent,
   textComponent,
   greetingComponent,
 } from '../utils/emailTemplates.js';
 
-// Store cron jobs for cleanup
-let cronJobs = [];
-
+// Mutex flag to prevent overlapping executions
+let isProcessingDueReminders = false;
 
 /**
  * Calculate user's outstanding dues across all groups
  * Only considers dues older than 24 hours
  * @param {string} userId - User ID
- * @returns {Object} - Object with dues details (what user owes and what user is owed)
+ * @returns {Promise<Object>} - Object with dues details
  */
-async function calculateUserDues(userId) {
+export const calculateUserDues = async (userId) => {
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   // Get user's groups
@@ -69,12 +55,11 @@ async function calculateUserDues(userId) {
     groupId: { $in: groupIds },
   }).lean();
 
-  // Build a map of net balances per group - what user owes
+  // Build a map of net balances per group
   const groupBalances = {};
-  // Build a map of what is owed TO the user
   const groupReceivables = {};
 
-  // Process expenses - calculate what user owes AND what user is owed
+  // Process expenses
   for (const expense of expenses) {
     const groupId = expense.groupId._id.toString();
     const groupName = expense.groupId.name;
@@ -82,27 +67,20 @@ async function calculateUserDues(userId) {
     const paidByName = expense.paidBy.name;
 
     if (!groupBalances[groupId]) {
-      groupBalances[groupId] = {
-        groupName,
-        owedTo: {}, // userId -> { amount, name }
-      };
+      groupBalances[groupId] = { groupName, owedTo: {} };
     }
-
     if (!groupReceivables[groupId]) {
-      groupReceivables[groupId] = {
-        groupName,
-        owedBy: {}, // userId -> { amount, name }
-      };
+      groupReceivables[groupId] = { groupName, owedBy: {} };
     }
 
     const splitType = expense.splitConfig?.type || 'equal';
     const shares = expense.splitConfig?.shares || {};
     const splitAmong = (expense.splitAmong || []).map(id => id.toString());
 
-    // If user paid for this expense, calculate what others owe them
+    // If user paid, calculate what others owe them
     if (paidById === userId.toString()) {
       for (const memberId of splitAmong) {
-        if (memberId === userId.toString()) continue; // Skip self
+        if (memberId === userId.toString()) continue;
 
         let memberShare = 0;
         if (splitType === 'equal') {
@@ -110,12 +88,10 @@ async function calculateUserDues(userId) {
         } else if (splitType === 'exact' || splitType === 'itemized') {
           memberShare = shares[memberId] || 0;
         } else if (splitType === 'percentage') {
-          const percentage = shares[memberId] || 0;
-          memberShare = (percentage / 100) * expense.amount;
+          memberShare = (shares[memberId] || 0) / 100 * expense.amount;
         }
 
         if (memberShare > 0) {
-          // Find member name from group
           const member = groups.find(g => g._id.toString() === groupId)?.members.find(m => m._id.toString() === memberId);
           const memberName = member?.name || 'Unknown';
 
@@ -125,26 +101,20 @@ async function calculateUserDues(userId) {
           groupReceivables[groupId].owedBy[memberId].amount += memberShare;
         }
       }
-      continue; // Skip calculating what user owes for expenses they paid
-    }
-
-    // Calculate user's share (what they owe)
-    let userShare = 0;
-
-    // Check if user is part of this expense
-    const isInSplit = splitAmong.includes(userId.toString()) || shares[userId.toString()] !== undefined;
-
-    if (!isInSplit) {
       continue;
     }
 
+    // Calculate user's share (what they owe)
+    const isInSplit = splitAmong.includes(userId.toString()) || shares[userId.toString()] !== undefined;
+    if (!isInSplit) continue;
+
+    let userShare = 0;
     if (splitType === 'equal') {
       userShare = expense.amount / splitAmong.length;
     } else if (splitType === 'exact' || splitType === 'itemized') {
       userShare = shares[userId.toString()] || 0;
     } else if (splitType === 'percentage') {
-      const percentage = shares[userId.toString()] || 0;
-      userShare = (percentage / 100) * expense.amount;
+      userShare = (shares[userId.toString()] || 0) / 100 * expense.amount;
     }
 
     if (userShare > 0) {
@@ -155,20 +125,17 @@ async function calculateUserDues(userId) {
     }
   }
 
-  // Process settlements - reduce owed amounts (both directions)
+  // Process settlements
   for (const settlement of settlements) {
     const groupId = settlement.groupId.toString();
     const fromUserId = settlement.fromUserId.toString();
     const toUserId = settlement.toUserId.toString();
 
-    // If user paid someone (fromUserId is the user) - reduce what user owes
     if (fromUserId === userId.toString()) {
       if (groupBalances[groupId]?.owedTo[toUserId]) {
         groupBalances[groupId].owedTo[toUserId].amount -= settlement.amount;
       }
     }
-
-    // If someone paid the user (toUserId is the user) - reduce what is owed to user
     if (toUserId === userId.toString()) {
       if (groupReceivables[groupId]?.owedBy[fromUserId]) {
         groupReceivables[groupId].owedBy[fromUserId].amount -= settlement.amount;
@@ -176,13 +143,12 @@ async function calculateUserDues(userId) {
     }
   }
 
-  // Compile final dues by group (what user owes)
+  // Compile final dues
   const duesByGroup = [];
   let totalOwed = 0;
 
   for (const [groupId, data] of Object.entries(groupBalances)) {
     const groupDues = [];
-
     for (const [creditorId, creditorData] of Object.entries(data.owedTo)) {
       const roundedAmount = Math.round(creditorData.amount * 100) / 100;
       if (roundedAmount > 0.01) {
@@ -194,7 +160,6 @@ async function calculateUserDues(userId) {
         totalOwed += roundedAmount;
       }
     }
-
     if (groupDues.length > 0) {
       duesByGroup.push({
         groupId,
@@ -205,13 +170,12 @@ async function calculateUserDues(userId) {
     }
   }
 
-  // Compile final receivables by group (what is owed to user)
+  // Compile final receivables
   const receivablesByGroup = [];
   let totalOwedToUser = 0;
 
   for (const [groupId, data] of Object.entries(groupReceivables)) {
     const groupReceivablesList = [];
-
     for (const [debtorId, debtorData] of Object.entries(data.owedBy)) {
       const roundedAmount = Math.round(debtorData.amount * 100) / 100;
       if (roundedAmount > 0.01) {
@@ -223,7 +187,6 @@ async function calculateUserDues(userId) {
         totalOwedToUser += roundedAmount;
       }
     }
-
     if (groupReceivablesList.length > 0) {
       receivablesByGroup.push({
         groupId,
@@ -234,7 +197,7 @@ async function calculateUserDues(userId) {
     }
   }
 
-  // Sort by group total (highest first)
+  // Sort by group total
   duesByGroup.sort((a, b) => b.groupTotal - a.groupTotal);
   receivablesByGroup.sort((a, b) => b.groupTotal - a.groupTotal);
 
@@ -244,25 +207,16 @@ async function calculateUserDues(userId) {
     duesByGroup,
     receivablesByGroup,
   };
-}
+};
 
 /**
  * Generate HTML email content for due reminder
- * Using the modern Split-It email template system
- * @param {Object} data - Email data
- * @returns {string} - HTML content
  */
 function generateDueReminderEmailHtml(data) {
   const { userName, totalOwed, duesByGroup, currency = 'INR' } = data;
 
-  // Build group tables
   let groupsContent = '';
   for (const group of duesByGroup) {
-    const duesRows = group.dues.map(due => [
-      due.creditorName,
-      `<span style="color: ${brand.colors.danger}; font-weight: 600;">${formatCurrency(due.amount, currency)}</span>`
-    ]);
-
     groupsContent += `
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 20px;">
         <tr>
@@ -271,12 +225,6 @@ function generateDueReminderEmailHtml(data) {
               👥 ${group.groupName}
             </p>
             <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 12px;">
-              <thead>
-                <tr style="background-color: ${brand.colors.border};">
-                  <th style="padding: 8px 12px; text-align: left; font-size: ${brand.fonts.sizeSmall}; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted};">Owed To</th>
-                  <th style="padding: 8px 12px; text-align: right; font-size: ${brand.fonts.sizeSmall}; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted};">Amount</th>
-                </tr>
-              </thead>
               <tbody>
                 ${group.dues.map(due => `
                   <tr>
@@ -299,21 +247,12 @@ function generateDueReminderEmailHtml(data) {
   }
 
   return buildEmail(
-    {
-      title: 'Payment Reminder',
-      subtitle: 'You have pending dues to settle',
-      icon: '💸',
-      variant: 'danger'
-    },
+    { title: 'Payment Reminder', subtitle: 'You have pending dues to settle', icon: '💸', variant: 'danger' },
     `
       ${greetingComponent(userName)}
       ${textComponent("You have outstanding dues that haven't been cleared yet. Here's a summary of what you owe:")}
       
-      ${amountDisplayComponent(totalOwed, {
-      currency,
-      variant: 'danger',
-      label: 'Total Outstanding'
-    })}
+      ${amountDisplayComponent(totalOwed, { currency, variant: 'danger', label: 'Total Outstanding' })}
       
       ${groupsContent}
       
@@ -331,14 +270,10 @@ function generateDueReminderEmailHtml(data) {
 
 /**
  * Generate HTML email content for UPI setup reminder
- * Using the modern Split-It email template system
- * @param {Object} data - Email data
- * @returns {string} - HTML content
  */
 function generateUpiReminderEmailHtml(data) {
   const { userName, totalOwedToUser, receivablesByGroup, currency = 'INR' } = data;
 
-  // Build group tables for receivables
   let groupsContent = '';
   for (const group of receivablesByGroup) {
     groupsContent += `
@@ -349,12 +284,6 @@ function generateUpiReminderEmailHtml(data) {
               👥 ${group.groupName}
             </p>
             <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 12px;">
-              <thead>
-                <tr style="background-color: ${brand.colors.border};">
-                  <th style="padding: 8px 12px; text-align: left; font-size: ${brand.fonts.sizeSmall}; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted};">Owed By</th>
-                  <th style="padding: 8px 12px; text-align: right; font-size: ${brand.fonts.sizeSmall}; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted};">Amount</th>
-                </tr>
-              </thead>
               <tbody>
                 ${group.receivables.map(receivable => `
                   <tr>
@@ -377,21 +306,12 @@ function generateUpiReminderEmailHtml(data) {
   }
 
   return buildEmail(
-    {
-      title: 'Add Your UPI ID',
-      subtitle: 'Money is waiting for you!',
-      icon: '💳',
-      variant: 'success'
-    },
+    { title: 'Add Your UPI ID', subtitle: 'Money is waiting for you!', icon: '💳', variant: 'success' },
     `
       ${greetingComponent(userName)}
       ${textComponent("You have money waiting to be collected! Add your UPI ID to make it easy for others to pay you.")}
       
-      ${amountDisplayComponent(totalOwedToUser, {
-      currency,
-      variant: 'success',
-      label: 'Total Owed to You'
-    })}
+      ${amountDisplayComponent(totalOwedToUser, { currency, variant: 'success', label: 'Total Owed to You' })}
       
       ${groupsContent}
       
@@ -423,193 +343,141 @@ function generateUpiReminderEmailHtml(data) {
 
 /**
  * Process due reminders for all users with pending dues
+ * @param {any} _data - Unused data parameter (for jobRunner compatibility)
+ * @param {Object} options - Execution options
+ * @param {AbortSignal} options.signal - Abort signal for cancellation
+ * @returns {Promise<Object>} Results object
  */
-async function processDueReminders() {
-  console.log('Processing due reminders...');
+export const processDueReminders = async (_data, options = {}) => {
+  const { signal } = options;
 
-  const now = new Date();
-
-  // Get all users who have payment reminders enabled
-  const users = await User.find({
-    $or: [
-      { 'emailPreferences.paymentReminders': true },
-      { 'emailPreferences.paymentReminders': { $exists: false } }, // Default to true
-    ],
-  }).lean();
-
-  console.log(`Found ${users.length} users with payment reminders enabled`);
-
-  let emailsSent = 0;
-  let notificationsSent = 0;
-  let upiRemindersSent = 0;
-  let skipped = 0;
-
-  for (const user of users) {
-    try {
-      const { totalOwed, totalOwedToUser, duesByGroup, receivablesByGroup } = await calculateUserDues(user._id);
-
-      // Send due reminder if user owes money
-      if (totalOwed >= 1) {
-        // Send email notification for dues
-        const emailHtml = generateDueReminderEmailHtml({
-          userName: user.name,
-          totalOwed,
-          duesByGroup,
-          currency: 'INR',
-        });
-
-        await emailQueue.add({
-          to: user.email,
-          subject: `💸 Reminder: You have ₹${totalOwed.toFixed(2)} in pending dues`,
-          html: emailHtml,
-        });
-        emailsSent++;
-
-        // Send in-app notification for dues
-        await notificationQueue.add({
-          userId: user._id.toString(),
-          type: 'warning',
-          title: 'Pending Dues Reminder',
-          message: `You have ₹${totalOwed.toFixed(2)} in outstanding dues across ${duesByGroup.length} group${duesByGroup.length > 1 ? 's' : ''}. Settle your dues to keep your accounts clear!`,
-          data: {
-            actionType: 'due_reminder',
-            totalOwed,
-            groupCount: duesByGroup.length,
-          },
-        });
-        notificationsSent++;
-      }
-
-      // Send UPI reminder if user is owed money but doesn't have UPI ID set
-      if (totalOwedToUser >= 1 && !user.upiId) {
-        // Send email notification for UPI setup
-        const upiEmailHtml = generateUpiReminderEmailHtml({
-          userName: user.name,
-          totalOwedToUser,
-          receivablesByGroup,
-          currency: 'INR',
-        });
-
-        await emailQueue.add({
-          to: user.email,
-          subject: `💳 Add your UPI ID - ₹${totalOwedToUser.toFixed(2)} waiting for you!`,
-          html: upiEmailHtml,
-        });
-
-        // Send in-app notification for UPI setup
-        await notificationQueue.add({
-          userId: user._id.toString(),
-          type: 'info',
-          title: 'Add Your UPI ID',
-          message: `You have ₹${totalOwedToUser.toFixed(2)} pending from others. Add your UPI ID to make it easy for them to pay you!`,
-          data: {
-            actionType: 'add_upi',
-            totalOwedToUser,
-            groupCount: receivablesByGroup.length,
-          },
-        });
-        upiRemindersSent++;
-      }
-
-      // Skip count if no action was taken
-      if (totalOwed < 1 && (totalOwedToUser < 1 || user.upiId)) {
-        skipped++;
-      }
-
-    } catch (error) {
-      console.error(`Failed to process due reminder for ${user.email}:`, error.message);
-      skipped++;
-    }
+  // Check if already aborted
+  if (signal?.aborted) {
+    console.log('[DueReminder] Aborted before start');
+    return { emailsSent: 0, notificationsSent: 0, upiRemindersSent: 0, skipped: 0, aborted: true };
   }
 
-  console.log(`Due reminders complete: ${emailsSent} due emails, ${upiRemindersSent} UPI reminders, ${notificationsSent} notifications, ${skipped} skipped`);
-  return { emailsSent, notificationsSent, upiRemindersSent, skipped };
-}
+  // Mutex guard: prevent overlapping executions
+  if (isProcessingDueReminders) {
+    console.log('[DueReminder] Already running, skipping this execution');
+    return { emailsSent: 0, notificationsSent: 0, upiRemindersSent: 0, skipped: 0, alreadyRunning: true };
+  }
 
-/**
- * Initialize the due reminder worker
- * Returns the worker instance for graceful shutdown
- */
-export const initDueReminderWorker = async () => {
-  // Process due reminder job handler
-  const processDueReminderJob = async (job) => {
-    const { type } = job.data;
+  isProcessingDueReminders = true;
+  console.log('[DueReminder] Processing due reminders...');
 
-    if (type === 'daily') {
-      return processDueReminders();
-    }
+  try {
+    // Get all users who have payment reminders enabled
+    const users = await User.find({
+      $or: [
+        { 'emailPreferences.paymentReminders': true },
+        { 'emailPreferences.paymentReminders': { $exists: false } },
+      ],
+    }).lean();
 
-    throw new Error(`Unknown due reminder type: ${type}`);
-  };
+    console.log(`[DueReminder] Found ${users.length} users with payment reminders enabled`);
 
-  // Create worker with concurrency 1
-  const worker = await createWorker(QUEUE_NAMES.DUE_REMINDER, processDueReminderJob, {
-    concurrency: 1,
-  });
+    let emailsSent = 0;
+    let notificationsSent = 0;
+    let upiRemindersSent = 0;
+    let skipped = 0;
 
-  // Check which backend is active
-  const backend = getQueueBackend();
+    // Process in batches of 50 to avoid blocking event loop
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < users.length; i += BATCH_SIZE) {
+      // Check for abort signal between batches
+      if (signal?.aborted) {
+        console.log(`[DueReminder] Aborted after processing ${i} users`);
+        return { emailsSent, notificationsSent, upiRemindersSent, skipped, aborted: true };
+      }
 
-  if (backend === 'redis') {
-    // BullMQ repeat scheduling (Redis backend)
-    try {
-      await dueReminderQueue.add(
-        'daily',
-        { type: 'daily' },
-        {
-          repeat: {
-            pattern: '0 10 * * *', // Every day at 10:00 AM
-          },
-          jobId: 'daily-due-reminder-scheduler',
+      const batch = users.slice(i, i + BATCH_SIZE);
+
+      for (const user of batch) {
+        try {
+          const { totalOwed, totalOwedToUser, duesByGroup, receivablesByGroup } = await calculateUserDues(user._id);
+
+          // Send due reminder if user owes money
+          if (totalOwed >= 1) {
+            const emailHtml = generateDueReminderEmailHtml({
+              userName: user.name,
+              totalOwed,
+              duesByGroup,
+              currency: 'INR',
+            });
+
+            await sendEmailWithRetry({
+              to: user.email,
+              subject: `💸 Reminder: You have ₹${totalOwed.toFixed(2)} in pending dues`,
+              html: emailHtml,
+            });
+            emailsSent++;
+
+            // Send in-app notification
+            notifyUser(user._id.toString(), {
+              type: 'warning',
+              title: 'Pending Dues Reminder',
+              message: `You have ₹${totalOwed.toFixed(2)} in outstanding dues across ${duesByGroup.length} group${duesByGroup.length > 1 ? 's' : ''}. Settle your dues to keep your accounts clear!`,
+              data: {
+                actionType: 'due_reminder',
+                totalOwed,
+                groupCount: duesByGroup.length,
+              },
+            }).catch(err => console.error('[DueReminder] Notification error:', err.message));
+            notificationsSent++;
+          }
+
+          // Send UPI reminder if user is owed money but doesn't have UPI ID
+          if (totalOwedToUser >= 1 && !user.upiId) {
+            const upiEmailHtml = generateUpiReminderEmailHtml({
+              userName: user.name,
+              totalOwedToUser,
+              receivablesByGroup,
+              currency: 'INR',
+            });
+
+            await sendEmailWithRetry({
+              to: user.email,
+              subject: `💳 Add your UPI ID - ₹${totalOwedToUser.toFixed(2)} waiting for you!`,
+              html: upiEmailHtml,
+            });
+
+            notifyUser(user._id.toString(), {
+              type: 'info',
+              title: 'Add Your UPI ID',
+              message: `You have ₹${totalOwedToUser.toFixed(2)} pending from others. Add your UPI ID to make it easy for them to pay you!`,
+              data: {
+                actionType: 'add_upi',
+                totalOwedToUser,
+                groupCount: receivablesByGroup.length,
+              },
+            }).catch(err => console.error('[DueReminder] Notification error:', err.message));
+            upiRemindersSent++;
+          }
+
+          if (totalOwed < 1 && (totalOwedToUser < 1 || user.upiId)) {
+            skipped++;
+          }
+        } catch (error) {
+          console.error(`[DueReminder] Failed for ${user.email}:`, error.message);
+          skipped++;
         }
-      );
-      console.log('Due reminder: Daily reminder scheduled via BullMQ (10 AM)');
-    } catch (err) {
-      console.error('Failed to schedule daily due reminder:', err.message);
-    }
-  } else {
-    // MongoDB backend - use node-cron for scheduling
-    console.log('Due reminder: Using node-cron for scheduling (MongoDB backend)');
-
-    // Daily due reminder - Every day at 10 AM
-    const dailyJob = cron.schedule('0 10 * * *', async () => {
-      console.log('Due reminder: Triggering daily reminder via cron');
-      try {
-        await dueReminderQueue.add('daily', { type: 'daily' });
-      } catch (err) {
-        console.error('Failed to queue daily due reminder:', err.message);
       }
-    }, { scheduled: true });
-    cronJobs.push(dailyJob);
-    console.log('Due reminder: Daily reminder scheduled via node-cron (10 AM)');
+
+      // Yield to event loop between batches to prevent blocking
+      if (i + BATCH_SIZE < users.length) {
+        await new Promise(resolve => setImmediate(resolve));
+      }
+    }
+
+    console.log(`[DueReminder] Complete: ${emailsSent} due emails, ${upiRemindersSent} UPI reminders, ${notificationsSent} notifications, ${skipped} skipped`);
+    return { emailsSent, notificationsSent, upiRemindersSent, skipped };
+  } finally {
+    isProcessingDueReminders = false;
   }
-
-  console.log(`Due reminder worker initialized (concurrency: 1, backend: ${backend || 'auto'})`);
-  return worker;
 };
 
-/**
- * Stop all cron jobs (for graceful shutdown)
- */
-export const stopDueReminderCronJobs = () => {
-  for (const job of cronJobs) {
-    job.stop();
-  }
-  cronJobs = [];
-  console.log('Due reminder: All cron jobs stopped');
+export default {
+  calculateUserDues,
+  processDueReminders,
 };
-
-/**
- * Manually trigger due reminder processing (for testing)
- */
-export const triggerDueReminder = async () => {
-  return dueReminderQueue.add('daily', { type: 'daily' }, { priority: 1 });
-};
-
-/**
- * Get pending dues for a specific user (utility function)
- * Can be used by controllers if needed
- */
-export const getUserPendingDues = calculateUserDues;
-
-export default initDueReminderWorker;

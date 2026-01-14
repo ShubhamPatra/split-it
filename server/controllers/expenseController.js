@@ -2,12 +2,11 @@ import mongoose from 'mongoose';
 import Expense from '../models/Expense.js';
 import Group from '../models/Group.js';
 import Message from '../models/Message.js';
-import redis from '../config/redis.js';
-import { notificationQueue } from '../config/queueBullMQ.js';
 import { saveReceiptFiles, deleteReceiptFiles } from '../middleware/upload.js';
 import { generateAndEmailReport } from '../utils/exportService.js';
 import { checkAndSendBudgetAlert } from '../utils/emailUtils.js';
-import { deleteKeysByPattern } from '../utils/redisClusterHelper.js';
+import { notifyUsers } from '../jobs/notificationService.js';
+import { invalidateBalanceCache } from '../jobs/balanceService.js';
 
 // Helper: Calculate current month spending using aggregation (optimized)
 const getMonthlySpending = async (groupId) => {
@@ -31,15 +30,6 @@ const getMonthlySpending = async (groupId) => {
   ]);
 
   return result.length > 0 ? result[0].total : 0;
-};
-
-// Helper: Invalidate balance cache when expense changes
-const invalidateBalanceCache = async (groupId) => {
-  try {
-    await redis.del(`balances:${groupId}`);
-  } catch (e) {
-    console.error('Failed to invalidate balance cache:', e);
-  }
 };
 
 // @desc    Get all expenses for user's groups
@@ -147,16 +137,15 @@ export const getExpenses = async (req, res) => {
 const EXPENSE_CACHE_TTL = 30; // 30 seconds cache
 const EXPENSE_CACHE_PREFIX = 'expenses:group:';
 
+// In-memory expense cache (replaces Redis caching)
+const expenseCache = new Map();
+
 // Helper to invalidate expense cache for a group
-export const invalidateExpenseCache = async (groupId) => {
-  try {
-    // Use safe deletion helper for cluster compatibility
-    const deletedCount = await deleteKeysByPattern(redis, `${EXPENSE_CACHE_PREFIX}${groupId}*`);
-    if (deletedCount > 0) {
-      console.log(`Invalidated ${deletedCount} expense cache keys for group ${groupId}`);
+export const invalidateExpenseCache = (groupId) => {
+  for (const key of expenseCache.keys()) {
+    if (key.startsWith(`${EXPENSE_CACHE_PREFIX}${groupId}`)) {
+      expenseCache.delete(key);
     }
-  } catch (error) {
-    console.error('Failed to invalidate expense cache:', error);
   }
 };
 
@@ -170,15 +159,10 @@ export const getExpensesByGroup = async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit, 10) || 100, 100);
     const cacheKey = `${EXPENSE_CACHE_PREFIX}${groupId}:${skip}:${limit}`;
 
-    // Try Redis cache first
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        return res.json(JSON.parse(cached));
-      }
-    } catch (cacheErr) {
-      console.error('Redis cache read error:', cacheErr);
-      // Continue without cache on error
+    // Try in-memory cache first
+    const cached = expenseCache.get(cacheKey);
+    if (cached && cached.expiry > Date.now()) {
+      return res.json(cached.data);
     }
 
     const group = await Group.findById(groupId).lean();
@@ -200,13 +184,11 @@ export const getExpensesByGroup = async (req, res) => {
       .limit(limit)
       .skip(skip);
 
-    // Cache the result
-    try {
-      await redis.setex(cacheKey, EXPENSE_CACHE_TTL, JSON.stringify(expenses));
-    } catch (cacheErr) {
-      console.error('Redis cache write error:', cacheErr);
-      // Continue without caching on error
-    }
+    // Cache the result in memory
+    expenseCache.set(cacheKey, {
+      data: expenses,
+      expiry: Date.now() + EXPENSE_CACHE_TTL * 1000,
+    });
 
     res.json(expenses);
   } catch (error) {
@@ -246,9 +228,9 @@ export const getExpenseById = async (req, res) => {
 // @access  Private
 export const createExpense = async (req, res) => {
   try {
-    const { 
-      groupId, description, amount, currency, category, paidBy, date, 
-      splitAmong, splitConfig, lineItems, receipts, recurrence 
+    const {
+      groupId, description, amount, currency, category, paidBy, date,
+      splitAmong, splitConfig, lineItems, receipts, recurrence
     } = req.body;
 
     // Verify group exists and user is a member
@@ -299,19 +281,18 @@ export const createExpense = async (req, res) => {
 
       // Warn if over threshold
       if (percentUsed >= group.budget.alertThreshold) {
-        // Enqueue bulk notifications for all members (Comment 12)
-        const notificationJobs = group.members.map(memberId => ({
-          data: {
-            userId: memberId.toString(),
-            type: 'warning',
-            title: 'Budget Alert',
-            message: percentUsed >= 100 
-              ? `Group "${group.name}" has exceeded its monthly budget!`
-              : `Group "${group.name}" has used ${percentUsed.toFixed(0)}% of its monthly budget.`,
-            data: { groupId, actionType: 'budget_alert' },
-          },
-        }));
-        await notificationQueue.addBulk(notificationJobs).catch(err => console.error('Notification queue error:', err));
+        // Send notifications to all members (Comment 12)
+        const memberIds = group.members.map(m => m.toString());
+        const alertMessage = percentUsed >= 100
+          ? `Group "${group.name}" has exceeded its monthly budget!`
+          : `Group "${group.name}" has used ${percentUsed.toFixed(0)}% of its monthly budget.`;
+
+        notifyUsers(memberIds, {
+          type: 'warning',
+          title: 'Budget Alert',
+          message: alertMessage,
+          data: { groupId, actionType: 'budget_alert' },
+        }).catch(err => console.error('Budget notification error:', err));
       }
     }
 
@@ -345,7 +326,7 @@ export const createExpense = async (req, res) => {
         interval: recurrence.interval || 1,
         endDate: recurrence.endDate ? new Date(recurrence.endDate) : null,
       };
-      
+
       // Calculate next run date
       const tempExpense = new Expense(expenseData);
       expenseData.recurrence.nextRunAt = tempExpense.calculateNextRunDate();
@@ -363,21 +344,16 @@ export const createExpense = async (req, res) => {
     await invalidateBalanceCache(groupId);
     await invalidateExpenseCache(groupId);
 
-    // Enqueue bulk notifications for expense participants (optimized)
+    // Send notifications for expense participants (optimized)
     const payerName = populatedExpense.paidBy?.name || 'Someone';
     const notifyIds = (splitAmong || []).filter(id => id.toString() !== paidBy.toString());
     if (notifyIds.length > 0) {
-      const notificationJobs = notifyIds.map(memberId => ({
-        data: {
-          userId: memberId.toString(),
-          type: 'info',
-          actionType: 'navigate',
-          title: 'New Expense Added',
-          message: `${payerName} added "${description}" for ₹${amount}`,
-          data: { groupId, expenseId: expense._id.toString() },
-        },
-      }));
-      await notificationQueue.addBulk(notificationJobs).catch(err => console.error('Notification queue error:', err));
+      notifyUsers(notifyIds.map(id => id.toString()), {
+        type: 'info',
+        title: 'New Expense Added',
+        message: `${payerName} added "${description}" for ₹${amount}`,
+        data: { groupId, expenseId: expense._id.toString(), actionType: 'navigate' },
+      }).catch(err => console.error('Expense notification error:', err));
     }
 
     // Emit socket event to group members
@@ -385,7 +361,7 @@ export const createExpense = async (req, res) => {
     if (io) {
       const { emitToGroup, emitAnalyticsUpdate } = await import('../utils/socketEmitter.js');
       emitToGroup(io, groupId, 'expense:created', populatedExpense);
-      
+
       // Emit analytics update
       emitAnalyticsUpdate(io, groupId, {
         action: 'expenseAdded',
@@ -393,7 +369,7 @@ export const createExpense = async (req, res) => {
         category,
         totalExpenses: await Expense.countDocuments({ groupId }),
       });
-      
+
       // Create system message for chat
       try {
         const systemMessage = await Message.create({
@@ -407,11 +383,11 @@ export const createExpense = async (req, res) => {
           },
           readBy: [req.user._id],
         });
-        
+
         const populatedSystemMessage = await Message.findById(systemMessage._id)
           .populate('senderId', 'name email')
           .lean();
-        
+
         emitToGroup(io, groupId, 'chat:new', populatedSystemMessage);
       } catch (msgError) {
         console.error('Error creating system message for expense:', msgError);
@@ -444,26 +420,26 @@ export const updateExpense = async (req, res) => {
 
     // Check role-based permissions (Comment 10)
     const isPayer = expense.paidBy.toString() === req.user._id.toString();
-    const isAdmin = expense.groupId.isAdmin ? expense.groupId.isAdmin(req.user._id) : 
-                    expense.groupId.createdBy.toString() === req.user._id.toString();
+    const isAdmin = expense.groupId.isAdmin ? expense.groupId.isAdmin(req.user._id) :
+      expense.groupId.createdBy.toString() === req.user._id.toString();
     if (!isPayer && !isAdmin) {
       return res.status(403).json({ message: 'Only the payer or group admin can modify this expense' });
     }
 
-    const { 
-      description, amount, currency, category, paidBy, date, 
-      splitAmong, splitConfig, lineItems, receipts, recurrence 
+    const {
+      description, amount, currency, category, paidBy, date,
+      splitAmong, splitConfig, lineItems, receipts, recurrence
     } = req.body;
 
     // Validate paidBy and splitAmong against group members if provided
     const memberStrings = expense.groupId.members.map(m => m.toString());
-    
+
     if (paidBy !== undefined) {
       if (!memberStrings.includes(paidBy.toString())) {
         return res.status(400).json({ message: 'Payer must be a group member' });
       }
     }
-    
+
     if (splitAmong !== undefined && splitAmong.length > 0) {
       const invalidParticipants = splitAmong.filter(id => !memberStrings.includes(id.toString()));
       if (invalidParticipants.length > 0) {
@@ -479,7 +455,7 @@ export const updateExpense = async (req, res) => {
     if (date !== undefined) expense.date = date;
     if (splitAmong !== undefined) expense.splitAmong = splitAmong;
     if (splitConfig !== undefined) expense.splitConfig = splitConfig;
-    
+
     // Update line items (Comment 5)
     if (lineItems !== undefined) {
       expense.lineItems = lineItems;
@@ -491,12 +467,12 @@ export const updateExpense = async (req, res) => {
         }
       }
     }
-    
+
     // Update receipts (Comment 6)
     if (receipts !== undefined) {
       expense.receipts = receipts;
     }
-    
+
     // Update recurrence (Comment 3)
     if (recurrence !== undefined) {
       if (recurrence.enabled) {
@@ -530,7 +506,7 @@ export const updateExpense = async (req, res) => {
     if (io) {
       const { emitToGroup, emitAnalyticsUpdate } = await import('../utils/socketEmitter.js');
       emitToGroup(io, expense.groupId._id.toString(), 'expense:updated', updatedExpense);
-      
+
       // Emit analytics update
       emitAnalyticsUpdate(io, expense.groupId._id.toString(), {
         action: 'expenseUpdated',
@@ -580,7 +556,7 @@ export const deleteExpense = async (req, res) => {
     if (io) {
       const { emitToGroup, emitAnalyticsUpdate } = await import('../utils/socketEmitter.js');
       emitToGroup(io, groupId.toString(), 'expense:deleted', { expenseId: req.params.id });
-      
+
       // Emit analytics update
       emitAnalyticsUpdate(io, groupId.toString(), {
         action: 'expenseRemoved',
@@ -624,8 +600,8 @@ export const uploadExpenseReceipts = async (req, res) => {
     // Check total receipts limit (5 max)
     const currentCount = expense.receipts?.length || 0;
     if (currentCount + req.files.length > 5) {
-      return res.status(400).json({ 
-        message: `Maximum 5 receipts allowed. Current: ${currentCount}, Trying to add: ${req.files.length}` 
+      return res.status(400).json({
+        message: `Maximum 5 receipts allowed. Current: ${currentCount}, Trying to add: ${req.files.length}`
       });
     }
 
@@ -652,10 +628,10 @@ export const uploadExpenseReceipts = async (req, res) => {
       emitToGroup(io, expense.groupId._id.toString(), 'expense:updated', updatedExpense);
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       receipts: savedReceipts,
-      expense: updatedExpense 
+      expense: updatedExpense
     });
   } catch (error) {
     console.error('Receipt upload error:', error);
@@ -725,13 +701,13 @@ export const exportExpensesReport = async (req, res) => {
 
     if (!result.success) {
       if (result.reason === 'preference_disabled') {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: 'Export reports are disabled in your email preferences. Enable them to receive reports via email.',
           code: 'PREFERENCE_DISABLED'
         });
       }
       if (result.reason === 'no_groups') {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: 'You need to be a member of at least one group to export expenses. Create or join a group first.',
           code: 'NO_GROUPS'
         });
@@ -740,8 +716,8 @@ export const exportExpensesReport = async (req, res) => {
       return res.status(400).json({ message: result.reason || 'Failed to generate export' });
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: 'Export report has been sent to your email',
       expenses: result.expenses,
       settlements: result.settlements,
@@ -758,7 +734,7 @@ export const exportExpensesReport = async (req, res) => {
 export const checkUserBudget = async (req, res) => {
   try {
     const userId = req.user._id;
-    
+
     // Get user's groups and calculate current month spending
     const groups = await Group.find({ members: userId }).lean();
     const groupIds = groups.map(g => g._id);
@@ -813,7 +789,7 @@ export const checkUserBudget = async (req, res) => {
     // Check and potentially send budget alert
     await checkAndSendBudgetAlert(userId, currentSpend);
 
-    res.json({ 
+    res.json({
       currentSpend,
       month: startOfMonth.toISOString(),
     });

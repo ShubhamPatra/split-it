@@ -1,24 +1,28 @@
 import mongoose from 'mongoose';
 import Message from '../models/Message.js';
 import Group from '../models/Group.js';
-import redis from '../config/redis.js';
-import { notificationQueue } from '../config/queueBullMQ.js';
+import { notifyUsers } from '../jobs/notificationService.js';
 import { emitToGroup } from '../utils/socketEmitter.js';
 
 // Cache TTL constants
 const CACHE_TTL_MESSAGES = 60; // 60 seconds
 const CACHE_TTL_UNREAD = 30; // 30 seconds
 
-// Rate limiting tracking (in-memory, backed by Redis for persistence)
+// Rate limiting tracking (in-memory)
 const MESSAGE_RATE_LIMIT = 100; // messages per minute per user per group
 const RATE_LIMIT_WINDOW = 60; // seconds
+const rateLimitMap = new Map();
+
+// In-memory caches (replacing Redis)
+const messageCache = new Map();
+const unreadCache = new Map();
 
 /**
  * Strip dangerous HTML/script content from message
  */
 const sanitizeContent = (content) => {
   if (!content) return '';
-  
+
   return content
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
     .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
@@ -29,32 +33,78 @@ const sanitizeContent = (content) => {
 };
 
 /**
- * Check rate limit for user in group
+ * Check rate limit for user in group (in-memory)
  */
-const checkRateLimit = async (userId, groupId) => {
-  const key = `chat:ratelimit:${groupId}:${userId}`;
-  const count = await redis.incr(key);
-  
-  if (count === 1) {
-    await redis.expire(key, RATE_LIMIT_WINDOW);
+const checkRateLimit = (userId, groupId) => {
+  const key = `${groupId}:${userId}`;
+  const now = Date.now();
+  const entry = rateLimitMap.get(key);
+
+  if (!entry || now - entry.timestamp > RATE_LIMIT_WINDOW * 1000) {
+    rateLimitMap.set(key, { count: 1, timestamp: now });
+    return true;
   }
-  
-  return count <= MESSAGE_RATE_LIMIT;
+
+  entry.count++;
+  return entry.count <= MESSAGE_RATE_LIMIT;
 };
 
 /**
  * Invalidate cache for group messages
  */
-const invalidateCache = async (groupId) => {
-  await redis.del(`chat:${groupId}:latest`);
+const invalidateCache = (groupId) => {
+  messageCache.delete(`${groupId}:latest`);
 };
 
 /**
  * Invalidate unread count cache for user
  */
-const invalidateUnreadCache = async (groupId, userId) => {
-  await redis.del(`chat:${groupId}:unread:${userId}`);
+const invalidateUnreadCache = (groupId, userId) => {
+  unreadCache.delete(`${groupId}:${userId}`);
 };
+
+// Cleanup stale cache entries every 60 seconds
+let cacheCleanupInterval = null;
+
+const startCacheCleanup = () => {
+  if (cacheCleanupInterval) return;
+
+  cacheCleanupInterval = setInterval(() => {
+    const now = Date.now();
+
+    // Clean up expired rate limit entries
+    for (const [key, entry] of rateLimitMap) {
+      if (now - entry.timestamp > RATE_LIMIT_WINDOW * 1000) {
+        rateLimitMap.delete(key);
+      }
+    }
+
+    // Clean up expired message cache entries
+    for (const [key, entry] of messageCache) {
+      if (entry.expiry <= now) {
+        messageCache.delete(key);
+      }
+    }
+
+    // Clean up expired unread cache entries
+    for (const [key, entry] of unreadCache) {
+      if (entry.expiry <= now) {
+        unreadCache.delete(key);
+      }
+    }
+  }, 60000); // Run every 60 seconds
+};
+
+// Stop cache cleanup (for graceful shutdown)
+export const stopCacheCleanup = () => {
+  if (cacheCleanupInterval) {
+    clearInterval(cacheCleanupInterval);
+    cacheCleanupInterval = null;
+  }
+};
+
+// Start cleanup immediately on module load
+startCacheCleanup();
 
 // @desc    Get messages for a group (with pagination)
 // @route   GET /api/groups/:groupId/messages
@@ -63,38 +113,38 @@ export const getMessages = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { limit = 50, before } = req.query;
-    
+
     // Verify group exists and user is a member
     const group = await Group.findById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
-    
+
     if (!group.members.some(m => m.toString() === req.user._id.toString())) {
       return res.status(403).json({ message: 'Not authorized to view messages in this group' });
     }
-    
+
     // Parse and validate limit
     const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 100);
-    
-    // Try cache for first page (no 'before' cursor)
+
+    // Try in-memory cache for first page (no 'before' cursor)
     if (!before) {
-      const cached = await redis.get(`chat:${groupId}:latest`);
-      if (cached) {
-        return res.json(JSON.parse(cached));
+      const cached = messageCache.get(`${groupId}:latest`);
+      if (cached && cached.expiry > Date.now()) {
+        return res.json(cached.data);
       }
     }
-    
+
     // Build query
     const query = {
       groupId,
       deletedAt: null,
     };
-    
+
     if (before) {
       query._id = { $lt: before };
     }
-    
+
     // Fetch messages using _id cursor for efficient pagination
     const messages = await Message.find(query)
       .populate('senderId', 'name email')
@@ -103,12 +153,12 @@ export const getMessages = async (req, res) => {
       .sort({ _id: -1 })
       .limit(parsedLimit + 1)
       .lean();
-    
+
     const hasMore = messages.length > parsedLimit;
     if (hasMore) {
       messages.pop();
     }
-    
+
     // Transform messages to safe objects (hide deleted content)
     const safeMessages = messages.map(msg => {
       if (msg.deletedAt) {
@@ -120,19 +170,22 @@ export const getMessages = async (req, res) => {
       }
       return msg;
     });
-    
+
     // Reverse to get chronological order
     const result = {
       messages: safeMessages.reverse(),
       hasMore,
       oldestMessageId: safeMessages.length > 0 ? safeMessages[0]._id : null,
     };
-    
-    // Cache first page
+
+    // Cache first page in memory
     if (!before) {
-      await redis.setex(`chat:${groupId}:latest`, CACHE_TTL_MESSAGES, JSON.stringify(result));
+      messageCache.set(`${groupId}:latest`, {
+        data: result,
+        expiry: Date.now() + CACHE_TTL_MESSAGES * 1000,
+      });
     }
-    
+
     res.json(result);
   } catch (error) {
     console.error('Error getting messages:', error);
@@ -151,44 +204,44 @@ export const sendMessage = async (req, res) => {
     const { content } = req.body;
     // Security: Ignore client-provided 'type' and 'metadata' to prevent forged system messages
     // Only 'text' type is allowed from REST/Socket.IO clients
-    
+
     // Verify group exists and user is a member
     const group = await Group.findById(groupId).populate('members', 'name email');
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
-    
+
     if (!group.members.some(m => m._id.toString() === req.user._id.toString())) {
       return res.status(403).json({ message: 'Not authorized to send messages in this group' });
     }
-    
+
     // Validate content
     if (!content || typeof content !== 'string') {
       return res.status(400).json({ message: 'Message content is required' });
     }
-    
+
     const sanitizedContent = sanitizeContent(content);
-    
+
     if (sanitizedContent.length < 1) {
       return res.status(400).json({ message: 'Message content cannot be empty' });
     }
-    
+
     if (sanitizedContent.length > 2000) {
       return res.status(400).json({ message: 'Message cannot exceed 2000 characters' });
     }
-    
+
     // Check for excessive newlines
     const newlineCount = (sanitizedContent.match(/\n/g) || []).length;
     if (newlineCount > 20) {
       return res.status(400).json({ message: 'Message contains too many newlines' });
     }
-    
+
     // Check rate limit
-    const withinLimit = await checkRateLimit(req.user._id.toString(), groupId);
+    const withinLimit = checkRateLimit(req.user._id.toString(), groupId);
     if (!withinLimit) {
       return res.status(429).json({ message: 'Rate limit exceeded. Please slow down.' });
     }
-    
+
     // Create message - always 'text' type for client-sent messages
     // No metadata allowed from clients to prevent cross-group references
     const messageData = {
@@ -198,30 +251,29 @@ export const sendMessage = async (req, res) => {
       type: 'text', // Security: Force 'text' type for all client messages
       readBy: [req.user._id], // Sender has automatically read their own message
     };
-    
+
     const message = await Message.create(messageData);
-    
+
     // Populate sender info
     const populatedMessage = await Message.findById(message._id)
       .populate('senderId', 'name email')
       .populate('metadata.expenseId', 'description amount currency')
       .populate('metadata.settlementId', 'amount currency')
       .lean();
-    
+
     // Emit socket event to group
     const io = req.app.get('io');
     if (io) {
       emitToGroup(io, groupId, 'chat:new', populatedMessage);
     }
-    
-    // Queue notifications for offline members
-    const otherMembers = group.members.filter(
-      m => m._id.toString() !== req.user._id.toString()
-    );
-    
-    for (const member of otherMembers) {
-      notificationQueue.add({
-        userId: member._id.toString(),
+
+    // Send notifications to offline members
+    const otherMemberIds = group.members
+      .filter(m => m._id.toString() !== req.user._id.toString())
+      .map(m => m._id.toString());
+
+    if (otherMemberIds.length > 0) {
+      notifyUsers(otherMemberIds, {
         type: 'info',
         title: `New message in ${group.name}`,
         message: `${req.user.name}: ${sanitizedContent.substring(0, 50)}${sanitizedContent.length > 50 ? '...' : ''}`,
@@ -230,15 +282,17 @@ export const sendMessage = async (req, res) => {
           messageId: message._id.toString(),
           actionType: 'chat_message',
         },
-      }).catch(err => console.error('Notification queue error:', err));
-      
-      // Invalidate unread cache for member
-      await invalidateUnreadCache(groupId, member._id.toString());
+      }).catch(err => console.error('Chat notification error:', err));
+
+      // Invalidate unread cache for members
+      for (const memberId of otherMemberIds) {
+        invalidateUnreadCache(groupId, memberId);
+      }
     }
-    
+
     // Invalidate messages cache
-    await invalidateCache(groupId);
-    
+    invalidateCache(groupId);
+
     res.status(201).json(populatedMessage);
   } catch (error) {
     console.error('Error sending message:', error);
@@ -253,64 +307,64 @@ export const editMessage = async (req, res) => {
   try {
     const { groupId, messageId } = req.params;
     const { content } = req.body;
-    
+
     // Verify group exists and user is a member
     const group = await Group.findById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
-    
+
     if (!group.members.some(m => m.toString() === req.user._id.toString())) {
       return res.status(403).json({ message: 'Not authorized' });
     }
-    
+
     // Find message
     const message = await Message.findById(messageId);
     if (!message) {
       return res.status(404).json({ message: 'Message not found' });
     }
-    
+
     if (message.groupId.toString() !== groupId) {
       return res.status(400).json({ message: 'Message does not belong to this group' });
     }
-    
+
     // Check if user can edit
     if (!message.isEditable(req.user._id)) {
-      return res.status(403).json({ 
-        message: 'Cannot edit this message. Only the sender can edit within 15 minutes of sending.' 
+      return res.status(403).json({
+        message: 'Cannot edit this message. Only the sender can edit within 15 minutes of sending.'
       });
     }
-    
+
     // Validate new content
     if (!content || typeof content !== 'string') {
       return res.status(400).json({ message: 'Message content is required' });
     }
-    
+
     const sanitizedContent = sanitizeContent(content);
-    
+
     if (sanitizedContent.length < 1 || sanitizedContent.length > 2000) {
       return res.status(400).json({ message: 'Message must be 1-2000 characters' });
     }
-    
+
     // Update message
     message.content = sanitizedContent;
     message.editedAt = new Date();
     await message.save();
-    
+
     // Get populated message
     const populatedMessage = await Message.findById(message._id)
       .populate('senderId', 'name email')
       .lean();
-    
+
     // Emit socket event
     const io = req.app.get('io');
     if (io) {
       emitToGroup(io, groupId, 'chat:edit', populatedMessage);
     }
-    
+
     // Invalidate cache
     await invalidateCache(groupId);
-    
+
     res.json(populatedMessage);
   } catch (error) {
     console.error('Error editing message:', error);
@@ -324,47 +378,47 @@ export const editMessage = async (req, res) => {
 export const deleteMessage = async (req, res) => {
   try {
     const { groupId, messageId } = req.params;
-    
+
     // Verify group exists and user is a member
     const group = await Group.findById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
-    
+
     if (!group.members.some(m => m.toString() === req.user._id.toString())) {
       return res.status(403).json({ message: 'Not authorized' });
     }
-    
+
     // Find message
     const message = await Message.findById(messageId);
     if (!message) {
       return res.status(404).json({ message: 'Message not found' });
     }
-    
+
     if (message.groupId.toString() !== groupId) {
       return res.status(400).json({ message: 'Message does not belong to this group' });
     }
-    
+
     // Check if user can delete (sender or admin)
     const isAdmin = group.createdBy.toString() === req.user._id.toString();
     if (!message.isDeletable(req.user._id, isAdmin)) {
       return res.status(403).json({ message: 'Cannot delete this message' });
     }
-    
+
     // Soft delete
     message.deletedAt = new Date();
     message.deletedBy = req.user._id;
     await message.save();
-    
+
     // Emit socket event
     const io = req.app.get('io');
     if (io) {
       emitToGroup(io, groupId, 'chat:delete', { messageId });
     }
-    
+
     // Invalidate cache
     await invalidateCache(groupId);
-    
+
     res.json({ success: true, messageId });
   } catch (error) {
     console.error('Error deleting message:', error);
@@ -379,26 +433,26 @@ export const markMessagesAsRead = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { messageIds } = req.body;
-    
+
     // Verify group exists and user is a member
     const group = await Group.findById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
-    
+
     if (!group.members.some(m => m.toString() === req.user._id.toString())) {
       return res.status(403).json({ message: 'Not authorized' });
     }
-    
+
     // Validate messageIds
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       return res.status(400).json({ message: 'messageIds must be a non-empty array' });
     }
-    
+
     if (messageIds.length > 50) {
       return res.status(400).json({ message: 'Cannot mark more than 50 messages at once' });
     }
-    
+
     // Bulk update
     const result = await Message.updateMany(
       {
@@ -410,7 +464,7 @@ export const markMessagesAsRead = async (req, res) => {
         $addToSet: { readBy: req.user._id },
       }
     );
-    
+
     // Emit socket event for read receipts
     const io = req.app.get('io');
     if (io) {
@@ -419,10 +473,10 @@ export const markMessagesAsRead = async (req, res) => {
         messageIds,
       });
     }
-    
+
     // Invalidate unread cache
-    await invalidateUnreadCache(groupId, req.user._id.toString());
-    
+    invalidateUnreadCache(groupId, req.user._id.toString());
+
     res.json({ success: true, count: result.modifiedCount });
   } catch (error) {
     console.error('Error marking messages as read:', error);
@@ -436,24 +490,24 @@ export const markMessagesAsRead = async (req, res) => {
 export const getUnreadCount = async (req, res) => {
   try {
     const { groupId } = req.params;
-    
+
     // Verify group exists and user is a member
     const group = await Group.findById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
-    
+
     if (!group.members.some(m => m.toString() === req.user._id.toString())) {
       return res.status(403).json({ message: 'Not authorized' });
     }
-    
-    // Try cache first
-    const cacheKey = `chat:${groupId}:unread:${req.user._id}`;
-    const cached = await redis.get(cacheKey);
-    if (cached !== null) {
-      return res.json({ count: parseInt(cached) });
+
+    // Try in-memory cache first
+    const cacheKey = `${groupId}:${req.user._id}`;
+    const cached = unreadCache.get(cacheKey);
+    if (cached && cached.expiry > Date.now()) {
+      return res.json({ count: cached.count });
     }
-    
+
     // Count unread messages
     const count = await Message.countDocuments({
       groupId,
@@ -461,10 +515,13 @@ export const getUnreadCount = async (req, res) => {
       senderId: { $ne: req.user._id },
       readBy: { $ne: req.user._id },
     });
-    
-    // Cache the result
-    await redis.setex(cacheKey, CACHE_TTL_UNREAD, count.toString());
-    
+
+    // Cache the result in memory
+    unreadCache.set(cacheKey, {
+      count,
+      expiry: Date.now() + CACHE_TTL_UNREAD * 1000,
+    });
+
     res.json({ count });
   } catch (error) {
     console.error('Error getting unread count:', error);
@@ -478,36 +535,36 @@ export const getUnreadCount = async (req, res) => {
 export const getBatchUnreadCounts = async (req, res) => {
   try {
     const { groupIds } = req.body;
-    
+
     if (!Array.isArray(groupIds) || groupIds.length === 0) {
       return res.status(400).json({ message: 'groupIds must be a non-empty array' });
     }
-    
+
     // Limit to 50 groups max
     const limitedGroupIds = groupIds.slice(0, 50);
     const userId = req.user._id.toString();
-    
+
     // Get groups user is a member of
     const groups = await Group.find({
       _id: { $in: limitedGroupIds },
       members: req.user._id,
     }).select('_id');
-    
+
     const validGroupIds = groups.map(g => g._id.toString());
     const counts = {};
-    
-    // Check cache first for all groups
+
+    // Check in-memory cache first for all groups
     const uncachedGroupIds = [];
     for (const groupId of validGroupIds) {
-      const cacheKey = `chat:${groupId}:unread:${userId}`;
-      const cached = await redis.get(cacheKey);
-      if (cached !== null) {
-        counts[groupId] = parseInt(cached);
+      const cacheKey = `${groupId}:${userId}`;
+      const cached = unreadCache.get(cacheKey);
+      if (cached && cached.expiry > Date.now()) {
+        counts[groupId] = cached.count;
       } else {
         uncachedGroupIds.push(groupId);
       }
     }
-    
+
     // Fetch uncached counts from database
     if (uncachedGroupIds.length > 0) {
       const pipeline = [
@@ -526,21 +583,24 @@ export const getBatchUnreadCounts = async (req, res) => {
           },
         },
       ];
-      
+
       const results = await Message.aggregate(pipeline);
-      
-      // Process results and cache them
+
+      // Process results and cache them in memory
       for (const groupId of uncachedGroupIds) {
         const result = results.find(r => r._id.toString() === groupId);
         const count = result ? result.count : 0;
         counts[groupId] = count;
-        
-        // Cache the result
-        const cacheKey = `chat:${groupId}:unread:${userId}`;
-        await redis.setex(cacheKey, CACHE_TTL_UNREAD, count.toString());
+
+        // Cache the result in memory
+        const cacheKey = `${groupId}:${userId}`;
+        unreadCache.set(cacheKey, {
+          count,
+          expiry: Date.now() + CACHE_TTL_UNREAD * 1000,
+        });
       }
     }
-    
+
     res.json({ counts });
   } catch (error) {
     console.error('Error getting batch unread counts:', error);
@@ -560,7 +620,7 @@ export const createSystemMessage = async (groupId, senderId, content, metadata =
     // Security: Validate that type is a valid internal type (not 'text')
     const validInternalTypes = ['system', 'expense', 'settlement'];
     const messageType = validInternalTypes.includes(type) ? type : 'system';
-    
+
     // Security: Verify expense/settlement references belong to the same group
     if (metadata.expenseId) {
       const Expense = (await import('../models/Expense.js')).default;
@@ -571,7 +631,7 @@ export const createSystemMessage = async (groupId, senderId, content, metadata =
         delete metadata.expenseId;
       }
     }
-    
+
     if (metadata.settlementId) {
       const Settlement = (await import('../models/Settlement.js')).default;
       const settlement = await Settlement.findById(metadata.settlementId).lean();
@@ -581,7 +641,7 @@ export const createSystemMessage = async (groupId, senderId, content, metadata =
         delete metadata.settlementId;
       }
     }
-    
+
     const message = await Message.create({
       groupId,
       senderId,
@@ -590,13 +650,13 @@ export const createSystemMessage = async (groupId, senderId, content, metadata =
       metadata,
       readBy: [senderId],
     });
-    
+
     const populatedMessage = await Message.findById(message._id)
       .populate('senderId', 'name email')
       .populate('metadata.expenseId', 'description amount currency')
       .populate('metadata.settlementId', 'amount currency')
       .lean();
-    
+
     return populatedMessage;
   } catch (error) {
     console.error('Error creating system message:', error);

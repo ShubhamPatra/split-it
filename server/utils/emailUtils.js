@@ -6,7 +6,7 @@
  */
 
 import User from '../models/User.js';
-import { emailQueue } from '../config/queueBullMQ.js';
+import { sendEmailWithRetry } from '../jobs/emailService.js';
 
 /**
  * Check if a user has a specific email preference enabled
@@ -19,16 +19,16 @@ export async function checkEmailPreference(userId, preference) {
     const user = await User.findById(userId).select('emailPreferences').lean();
     if (!user || !user.emailPreferences) {
       // Default to true for most notifications if preferences not set
-      const defaultEnabled = ['expenseAdded', 'settlementConfirmation', 'paymentReminders', 
+      const defaultEnabled = ['expenseAdded', 'settlementConfirmation', 'paymentReminders',
         'recurringExpenseReminder', 'memberJoined', 'groupInvite', 'budgetAlerts', 'exportReports'];
       return defaultEnabled.includes(preference);
     }
-    
+
     // If preference is explicitly set, use that value
     // If not set (undefined), fall back to defaults
     const value = user.emailPreferences[preference];
     if (value === undefined) {
-      const defaultEnabled = ['expenseAdded', 'settlementConfirmation', 'paymentReminders', 
+      const defaultEnabled = ['expenseAdded', 'settlementConfirmation', 'paymentReminders',
         'recurringExpenseReminder', 'memberJoined', 'groupInvite', 'budgetAlerts', 'exportReports'];
       return defaultEnabled.includes(preference);
     }
@@ -50,13 +50,13 @@ export async function checkEmailPreference(userId, preference) {
 export async function sendPreferenceEmail(userId, preference, emailData, options = {}) {
   try {
     const isEnabled = await checkEmailPreference(userId, preference);
-    
+
     if (!isEnabled) {
       console.log(`Email skipped for user ${userId}: ${preference} preference disabled`);
       return false;
     }
 
-    await emailQueue.add(emailData, options);
+    await sendEmailWithRetry(emailData);
     return true;
   } catch (error) {
     console.error('Error sending preference email:', error);
@@ -78,14 +78,14 @@ export async function sendBulkPreferenceEmail(users, preference, emailDataFn) {
   for (const user of users) {
     try {
       const isEnabled = await checkEmailPreference(user.userId || user._id, preference);
-      
+
       if (!isEnabled) {
         skipped++;
         continue;
       }
 
       const emailData = emailDataFn(user);
-      await emailQueue.add(emailData);
+      await sendEmailWithRetry(emailData);
       sent++;
     } catch (error) {
       console.error(`Error sending email to ${user.email}:`, error);
@@ -105,12 +105,12 @@ export async function sendBulkPreferenceEmail(users, preference, emailDataFn) {
 export async function checkAndSendBudgetAlert(userId, currentSpend, category = null) {
   try {
     const user = await User.findById(userId).select('name email emailPreferences budgetSettings').lean();
-    
+
     if (!user) return;
-    
+
     // Check if budget alerts are enabled
     if (!user.emailPreferences?.budgetAlerts) return;
-    
+
     const budgetSettings = user.budgetSettings || {};
     let limit = 0;
     let alertThreshold = budgetSettings.alertThreshold || 80;
@@ -129,8 +129,8 @@ export async function checkAndSendBudgetAlert(userId, currentSpend, category = n
     // Only alert at threshold or over
     if (percentage < alertThreshold) return;
 
-    // Queue budget alert email
-    await emailQueue.add({
+    // Send budget alert email
+    await sendEmailWithRetry({
       to: user.email,
       template: 'budgetAlert',
       data: {
@@ -162,17 +162,17 @@ export async function checkAndSendPaymentMethodReminder(userId, pendingAmount) {
     if (pendingAmount <= 0) return;
 
     const user = await User.findById(userId).select('name email upiId emailPreferences').lean();
-    
+
     if (!user) return;
-    
+
     // Check if user already has UPI ID
     if (user.upiId) return;
-    
+
     // Check if payment reminders are enabled
     if (!user.emailPreferences?.paymentReminders) return;
 
-    // Queue reminder email
-    await emailQueue.add({
+    // Send reminder email
+    await sendEmailWithRetry({
       to: user.email,
       template: 'paymentMethodReminder',
       data: {

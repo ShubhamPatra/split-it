@@ -3,8 +3,8 @@ import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
-import redis from '../config/redis.js';
-import { emailQueue, notificationQueue, balanceQueue } from '../config/queueBullMQ.js';
+import { calculateGroupBalances } from '../jobs/balanceService.js';
+import { invalidateGroupMembershipCache } from '../config/socket.js';
 
 // Helper to check if user is admin (enforces server-side role check - Comment 10)
 const requireAdmin = (group, userId) => {
@@ -98,9 +98,15 @@ export const updateGroup = async (req, res) => {
 
     const { name, members } = req.body;
     if (name) group.name = name;
+    const membersChanged = !!members;
     if (members) group.members = members;
 
     await group.save();
+
+    // Invalidate socket group membership cache if members were updated
+    if (membersChanged) {
+      invalidateGroupMembershipCache(group._id.toString());
+    }
 
     const updatedGroup = await Group.findById(group._id)
       .populate('createdBy', 'name email upiId')
@@ -127,6 +133,9 @@ export const deleteGroup = async (req, res) => {
     if (group.createdBy.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Not authorized to delete this group' });
     }
+
+    // Invalidate socket group membership cache before deletion
+    invalidateGroupMembershipCache(req.params.id);
 
     // Delete associated expenses and settlements
     await Expense.deleteMany({ groupId: req.params.id });
@@ -177,6 +186,9 @@ export const addMember = async (req, res) => {
       message: `${req.user.name} added you to the group "${group.name}"`,
     });
 
+    // Invalidate socket group membership cache
+    invalidateGroupMembershipCache(req.params.id);
+
     res.json(updatedGroup);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -211,6 +223,9 @@ export const removeMember = async (req, res) => {
       .populate('createdBy', 'name email upiId')
       .populate('members', 'name email upiId');
 
+    // Invalidate socket group membership cache
+    invalidateGroupMembershipCache(req.params.id);
+
     res.json(updatedGroup);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -233,49 +248,9 @@ export const getGroupBalances = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
-    // Check Redis cache first
-    const cacheKey = `balances:${req.params.id}`;
-    let cached;
-    try {
-      cached = await redis.get(cacheKey);
-    } catch (e) {
-      console.error('Redis cache get failed:', e);
-      cached = null;
-    }
-    
-    if (cached) {
-      return res.json(JSON.parse(cached));
-    }
+    // Use the in-memory cached balance service
+    const result = await calculateGroupBalances(req.params.id);
 
-    // Use BullMQ job with waitUntilFinished to get result asynchronously
-    // This prevents duplicate computation - only the worker calculates
-    const job = await balanceQueue.add(
-      'calculate',
-      { groupId: req.params.id, userId: req.user._id },
-      { priority: 1 }
-    );
-
-    // Wait for the job to complete and get its result
-    let result;
-    try {
-      result = await job.waitUntilFinished();
-    } catch (jobError) {
-      console.error('Balance job failed:', jobError);
-      // Fallback: if job fails, compute synchronously once
-      const { calculateGroupBalancesOptimized } = await import('../workers/balanceWorker.js');
-      result = await calculateGroupBalancesOptimized(req.params.id);
-    }
-    
-    // Cache the result for future requests
-    if (result) {
-      try {
-        await redis.setex(cacheKey, 300, JSON.stringify(result));
-      } catch (e) {
-        console.error('Redis cache set failed:', e);
-        // Continue even if caching fails
-      }
-    }
-    
     res.json(result);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -301,7 +276,7 @@ export const generateInviteCode = async (req, res) => {
     // Generate new invite code
     let isUnique = false;
     let inviteCode;
-    
+
     while (!isUnique) {
       inviteCode = group.generateInviteCode();
       const existing = await Group.findOne({ inviteCode, _id: { $ne: group._id } });
@@ -350,6 +325,9 @@ export const joinGroupByInvite = async (req, res) => {
       title: 'New Member Joined',
       message: `${req.user.name} joined the group "${group.name}" via invite link`,
     });
+
+    // Invalidate socket group membership cache
+    invalidateGroupMembershipCache(group._id.toString());
 
     res.json(updatedGroup);
   } catch (error) {
@@ -466,8 +444,8 @@ export const getGroupBudget = async (req, res) => {
     res.json({
       budget: group.budget,
       currentSpending,
-      percentUsed: group.budget.monthlyLimit > 0 
-        ? (currentSpending / group.budget.monthlyLimit) * 100 
+      percentUsed: group.budget.monthlyLimit > 0
+        ? (currentSpending / group.budget.monthlyLimit) * 100
         : 0,
     });
   } catch (error) {
