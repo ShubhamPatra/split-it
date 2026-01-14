@@ -24,9 +24,6 @@
 .env.production.local
 server/.env
 
-# Deployment archive (local reference only, not tracked)
-.deployment-archive/
-
 # IDE / Editor
 .vs/
 .idea/

@@ -8,6 +8,55 @@ Split-It is a full-featured expense sharing application that makes it easy to tr
 
 ---
 
+## 📚 Documentation
+
+- **[SETUP.md](./SETUP.md)** - Local development setup guide
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Production deployment guide (AWS EC2, Docker)
+- **[API Documentation](#-api-endpoints)** - REST API reference
+
+---
+
+## 📁 Repository Overview
+
+```
+split-it/
+├── docker-compose.yml      # Production deployment (single file)
+├── Dockerfile              # API container build
+├── nginx.conf              # Nginx reverse proxy config
+├── .env.example            # Environment template
+├── public/                 # Static assets (favicon, manifest, icons)
+├── src/                    # React frontend source
+│   ├── components/         # Reusable UI components
+│   ├── context/            # React context providers
+│   ├── data/               # Static data files
+│   ├── hooks/              # Custom React hooks
+│   ├── lib/                # Library utilities (shadcn/ui)
+│   ├── pages/              # Page components (routes)
+│   └── utils/              # Utility functions
+├── server/                 # Node.js backend
+│   ├── config/             # Configuration (database, socket, etc.)
+│   ├── controllers/        # Route handlers
+│   ├── jobs/               # Cron job definitions (scheduler, handlers)
+│   ├── middleware/         # Express middleware
+│   ├── migrations/         # Database migration scripts
+│   ├── models/             # Mongoose schemas
+│   ├── routes/             # API route definitions
+│   ├── utils/              # Utility functions
+│   └── server.js           # Entry point
+├── build/                  # Production frontend build (generated)
+├── SETUP.md                # Local development guide
+├── DEPLOYMENT.md           # Production deployment guide
+└── README.md               # This file
+```
+
+**Recent Changes:**
+- Simplified deployment to single `docker-compose.yml` at project root
+- Migrated from Redis/BullMQ to in-process node-cron scheduler
+- Implemented in-memory caching for Socket.IO and group membership
+- Removed legacy deploy/ folder, PM2 config, and multiple Dockerfiles
+
+---
+
 ## ✨ Features
 
 ### 👥 Group Management
@@ -111,13 +160,24 @@ Set up automatic recurring expenses for:
 ### Backend
 - **Node.js 20** - JavaScript runtime
 - **Express.js** - Web application framework
-- **MongoDB** - Document database for flexible data storage
-- **Redis / Amazon ElastiCache** - Caching, sessions, and real-time pub/sub
-- **Socket.IO** - WebSocket server for real-time features
+- **MongoDB Atlas** - Document database for flexible data storage
+- **Socket.IO** - WebSocket server for real-time features (in-memory, no Redis)
+- **node-cron** - Scheduled job processing (recurring expenses, reminders, digests)
 - **Passport.js** - Authentication middleware (Local + Google OAuth)
 - **Nodemailer** - Email delivery for notifications
 - **Web Push** - Browser push notifications
-- **BullMQ** - Background job processing
+
+### Architecture
+
+Split-It is designed for **single-instance deployment** with in-process job scheduling:
+
+- **No Redis required** - All caching and real-time features use in-memory storage
+- **No external queue** - Background jobs run with node-cron scheduler
+- **Optimized for AWS EC2** - Single t2.micro instance can handle moderate traffic
+- **Graceful shutdown** - Proper cleanup of connections, jobs, and resources
+- **Horizontal scaling** - For high traffic, use load balancer with sticky sessions
+
+See `DEPLOYMENT.md` for production setup instructions.
 
 ### Security
 - **JWT tokens** in HttpOnly cookies (XSS-safe)
