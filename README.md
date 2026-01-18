@@ -50,10 +50,14 @@ split-it/
 ```
 
 **Recent Changes:**
-- Simplified deployment to single `docker-compose.yml` at project root
-- Migrated from Redis/BullMQ to in-process node-cron scheduler
-- Implemented in-memory caching for Socket.IO and group membership
-- Removed legacy deploy/ folder, PM2 config, and multiple Dockerfiles
+- Added payment confirmation flow (pending/confirmed/failed settlements)
+- Added settlement rejection with automatic payer notification
+- Fixed real-time socket updates for chat and expenses
+- Enhanced email templates with logo and branding
+- Improved notification permission handling (persists across sessions)
+- Added Docker image auto-cleanup in CI/CD pipeline
+- Optimized deployment to clean up frontend dev files after build
+- Fixed balance calculations to only count confirmed settlements
 
 ---
 
@@ -79,7 +83,9 @@ Split expenses in multiple ways to match any real-world scenario:
 - **Optimized debt simplification** - minimizes the number of transactions needed
 - **Settlement suggestions** - see exactly who owes whom
 - **One-click settlement recording** - mark debts as paid instantly
-- **Payment history** - track all past settlements
+- **Payment confirmation flow** - receiver confirms payment receipt
+- **Rejection handling** - mark payments as not received with notifications
+- **Payment history** - track all past settlements with status
 
 ### 💱 Multi-Currency Support
 - Support for **INR, USD, EUR, GBP** out of the box
@@ -210,9 +216,11 @@ See `DEPLOYMENT.md` for production setup instructions.
 
 1. **View Balances** - Dashboard shows who owes whom in each group
 2. **Get Suggestions** - App calculates optimal settlement path
-3. **Record Settlement** - Mark payment as complete with optional notes
-4. **Notification** - Both parties notified of the settlement
-5. **History** - All settlements tracked with timestamps
+3. **Record Settlement** - Mark payment with method (UPI, Cash, Bank, Card)
+4. **Await Confirmation** - Payment shows as "pending" until receiver confirms
+5. **Confirm/Reject** - Receiver can confirm receipt or mark as not received
+6. **Notification** - Both parties notified of settlement status changes
+7. **History** - All settlements tracked with timestamps and status
 
 ### Settlement Optimization Algorithm
 Split-It uses a **debt simplification algorithm** that minimizes the total number of transactions:
@@ -286,8 +294,9 @@ Split-It sends transactional emails for:
 - groupId
 - fromUserId → toUserId
 - amount, currency
-- paymentMethod, notes
-- status (pending/completed)
+- paymentMethod (upi/cash/bank/card)
+- paymentStatus (pending/confirmed/failed)
+- paymentNotes
 - settledAt
 ```
 
@@ -330,6 +339,8 @@ Split-It sends transactional emails for:
 |--------|----------|-------------|
 | GET | `/api/groups/:id/settlements` | List settlements |
 | POST | `/api/settlements` | Record settlement |
+| POST | `/api/settlements/:id/confirm` | Confirm payment received |
+| POST | `/api/settlements/:id/reject` | Mark payment not received |
 | GET | `/api/groups/:id/balances` | Get group balances |
 | GET | `/api/groups/:id/suggestions` | Get settlement suggestions |
 
