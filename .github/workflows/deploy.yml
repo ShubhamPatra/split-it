@@ -66,6 +66,12 @@ jobs:
             echo "=== Building frontend ==="
             npm run build
             
+            echo "=== Cleaning up frontend dev files ==="
+            rm -rf node_modules src public
+            
+            echo "=== Cleaning up old Docker images ==="
+            docker image prune -f
+            
             echo "=== Restarting containers ==="
             docker-compose down
             docker-compose up -d --build
