@@ -9,7 +9,7 @@ import { useGroupRoles } from '../hooks/useGroupRoles';
 import { getCategoryById } from '../data/categories';
 import { calculateOptimalSettlements } from '../utils/settlementOptimizer';
 import apiClient from '../lib/apiClient';
-import { 
+import {
   exportFullReportToCsv,
   exportFullReportToPdf
 } from '../lib/exportCsv';
@@ -59,10 +59,10 @@ const GroupDetail = () => {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const { user, isAuthenticated } = useAuth();
-  const { 
-    getGroupById, 
-    getGroupExpenses, 
-    getGroupBalances, 
+  const {
+    getGroupById,
+    getGroupExpenses,
+    getGroupBalances,
     getTotalExpenses,
     getGroupSettlements,
     addSettlement,
@@ -75,14 +75,14 @@ const GroupDetail = () => {
   const { getUnreadCount, subscribeToGroup, unsubscribeFromGroup } = useChat();
   const { refreshNotifications } = useNotifications();
   const { toast } = useToast();
-  
+
   const group = getGroupById(id || '');
-  
-  const { 
-    isAdmin, 
+
+  const {
+    isAdmin,
     isCreator,
-    canEditExpense, 
-    canDeleteExpense, 
+    canEditExpense,
+    canDeleteExpense,
     getMemberRole,
     setMemberRole,
     canManageRoles,
@@ -109,10 +109,10 @@ const GroupDetail = () => {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(initialTab);
-  
+
   // Chat unread count
   const chatUnreadCount = getUnreadCount(id || '');
-  
+
   // Budget settings state (Comment 4)
   const [isBudgetDialogOpen, setIsBudgetDialogOpen] = useState(false);
   const [budgetEnabled, setBudgetEnabled] = useState(false);
@@ -134,7 +134,7 @@ const GroupDetail = () => {
       hasLoadedRef.current = id;
       loadGroupExpenses(id);
     }
-    
+
     // Cleanup: leave socket room when unmounting or group changes
     return () => {
       if (id) {
@@ -196,19 +196,19 @@ const GroupDetail = () => {
 
   // Calculate who the current user owes money to (must be before early returns)
   const balancesForMemo = getGroupBalances(id || '');
-  
+
   // All optimal settlements for the group (for admins/creators)
   const allDebts = React.useMemo(() => {
     if (!balancesForMemo || Object.keys(balancesForMemo).length === 0) return [];
     return calculateOptimalSettlements(balancesForMemo);
   }, [balancesForMemo]);
-  
+
   // Just the current user's debts
   const userDebts = React.useMemo(() => {
     if (!user?.id) return [];
     return allDebts.filter(s => s.from === user.id);
   }, [allDebts, user?.id]);
-  
+
   // Get debts for a specific payer (used in admin mode)
   const getDebtsForPayer = (payerId) => {
     return allDebts.filter(s => s.from === payerId);
@@ -234,8 +234,8 @@ const GroupDetail = () => {
   const isOverBudget = budgetPercentage > 100;
   const isNearBudget = budgetPercentage >= alertThreshold && budgetPercentage <= 100;
 
-  const filteredExpenses = categoryFilter === 'all' 
-    ? expenses 
+  const filteredExpenses = categoryFilter === 'all'
+    ? expenses
     : expenses.filter(exp => exp.category === categoryFilter);
 
   const usedCategories = [...new Set(expenses.map(exp => exp.category))];
@@ -262,7 +262,7 @@ const GroupDetail = () => {
 
   const handleSettle = () => {
     const payerId = (isAdmin(user?.id || '') || isCreator(user?.id || '')) ? settlePaidBy : user?.id;
-    
+
     if (!payerId) {
       toast({ title: "Select payer", description: "Please select who made the payment.", variant: "destructive" });
       return;
@@ -292,7 +292,7 @@ const GroupDetail = () => {
 
     const payerName = payerId === user?.id ? 'Your' : `${getUserProfile(payerId)?.name}'s`;
     toast({ title: "Settlement recorded!", description: `${payerName} ₹${parseFloat(settleAmount).toLocaleString()} settlement has been recorded.` });
-    
+
     // If UPI payment and current user is the payer, offer to pay now
     if (paymentMethod === 'upi' && payerId === user?.id) {
       const receiver = getUserProfile(settlePaidTo);
@@ -306,7 +306,7 @@ const GroupDetail = () => {
         setShowPaymentPrompt(true);
       }
     }
-    
+
     setSettleAmount('');
     setSettlePaidBy('');
     setSettlePaidTo('');
@@ -372,7 +372,7 @@ const GroupDetail = () => {
   // eslint-disable-next-line no-unused-vars
   const handleGenerateInviteLink = async () => {
     if (!group?.id) return;
-    
+
     setIsGeneratingLink(true);
     try {
       const code = await generateInviteCode(group.id);
@@ -419,7 +419,7 @@ const GroupDetail = () => {
   // Save budget settings (Comment 4)
   const handleSaveBudget = async () => {
     if (!group?.id) return;
-    
+
     setBudgetLoading(true);
     try {
       await apiClient.put(`/groups/${group.id}/budget`, {
@@ -428,20 +428,20 @@ const GroupDetail = () => {
         alertThreshold: alertThreshold,
         currency: 'INR',
       });
-      
-      toast({ 
-        title: "Budget updated", 
-        description: budgetEnabled 
+
+      toast({
+        title: "Budget updated",
+        description: budgetEnabled
           ? `Monthly budget set to ₹${parseFloat(monthlyLimit).toLocaleString()}`
           : "Budget tracking disabled"
       });
       setIsBudgetDialogOpen(false);
     } catch (error) {
       console.error('Error saving budget:', error);
-      toast({ 
-        title: "Error", 
-        description: "Failed to update budget settings.", 
-        variant: "destructive" 
+      toast({
+        title: "Error",
+        description: "Failed to update budget settings.",
+        variant: "destructive"
       });
     } finally {
       setBudgetLoading(false);
@@ -451,7 +451,7 @@ const GroupDetail = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
         <button onClick={() => navigate('/groups')} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 sm:mb-6 transition-colors min-h-[44px] min-w-[44px] group">
           <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
@@ -468,7 +468,7 @@ const GroupDetail = () => {
                   <span>{group.members.length} members</span>
                 </div>
               </div>
-              
+
               <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                 <div className="text-left sm:text-right px-3 py-2 rounded-xl bg-primary/5 border border-primary/10">
                   <p className="text-xs text-muted-foreground">Total Expenses</p>
@@ -537,69 +537,69 @@ const GroupDetail = () => {
                 })}
               </div>
             </div>
-          
-          {/* Budget Section (Comment 4) */}
-          {budgetEnabled && monthlyLimit && (
-            <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-border/50">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Wallet size={16} className="text-muted-foreground" />
-                  <span className="text-xs sm:text-sm text-muted-foreground">Monthly Budget</span>
-                </div>
-                {isAdmin(user?.id || '') && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => setIsBudgetDialogOpen(true)}
-                    className="text-xs h-8 hover:bg-primary/10"
-                  >
-                    <Settings size={12} className="mr-1" />Edit
-                  </Button>
-                )}
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between items-center text-sm">
-                  <span className={isOverBudget ? 'text-destructive font-medium' : isNearBudget ? 'text-warning font-medium' : ''}>
-                    ₹{currentMonthSpending.toLocaleString()} / ₹{parseFloat(monthlyLimit).toLocaleString()}
-                  </span>
-                  <span className={`text-xs ${isOverBudget ? 'text-destructive' : isNearBudget ? 'text-warning' : 'text-muted-foreground'}`}>
-                    {budgetPercentage.toFixed(0)}%
-                  </span>
-                </div>
-                <div className="h-2.5 bg-muted/50 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full transition-all rounded-full ${isOverBudget ? 'bg-gradient-to-r from-destructive to-destructive/80' : isNearBudget ? 'bg-gradient-to-r from-warning to-warning/80' : 'bg-gradient-to-r from-primary to-primary/80'}`}
-                    style={{ width: `${Math.min(budgetPercentage, 100)}%` }}
-                  />
-                </div>
-                {isOverBudget && (
-                  <div className="flex items-center gap-1 text-xs text-destructive bg-destructive/10 px-2 py-1 rounded-lg w-fit">
-                    <AlertTriangle size={12} />
-                    <span>Over budget by ₹{(currentMonthSpending - parseFloat(monthlyLimit)).toLocaleString()}</span>
+
+            {/* Budget Section (Comment 4) */}
+            {budgetEnabled && monthlyLimit && (
+              <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-border/50">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Wallet size={16} className="text-muted-foreground" />
+                    <span className="text-xs sm:text-sm text-muted-foreground">Monthly Budget</span>
                   </div>
-                )}
-                {isNearBudget && !isOverBudget && (
-                  <div className="flex items-center gap-1 text-xs text-warning bg-warning/10 px-2 py-1 rounded-lg w-fit">
-                    <AlertTriangle size={12} />
-                    <span>Approaching budget limit</span>
+                  {isAdmin(user?.id || '') && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsBudgetDialogOpen(true)}
+                      className="text-xs h-8 hover:bg-primary/10"
+                    >
+                      <Settings size={12} className="mr-1" />Edit
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className={isOverBudget ? 'text-destructive font-medium' : isNearBudget ? 'text-warning font-medium' : ''}>
+                      ₹{currentMonthSpending.toLocaleString()} / ₹{parseFloat(monthlyLimit).toLocaleString()}
+                    </span>
+                    <span className={`text-xs ${isOverBudget ? 'text-destructive' : isNearBudget ? 'text-warning' : 'text-muted-foreground'}`}>
+                      {budgetPercentage.toFixed(0)}%
+                    </span>
                   </div>
-                )}
+                  <div className="h-2.5 bg-muted/50 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all rounded-full ${isOverBudget ? 'bg-gradient-to-r from-destructive to-destructive/80' : isNearBudget ? 'bg-gradient-to-r from-warning to-warning/80' : 'bg-gradient-to-r from-primary to-primary/80'}`}
+                      style={{ width: `${Math.min(budgetPercentage, 100)}%` }}
+                    />
+                  </div>
+                  {isOverBudget && (
+                    <div className="flex items-center gap-1 text-xs text-destructive bg-destructive/10 px-2 py-1 rounded-lg w-fit">
+                      <AlertTriangle size={12} />
+                      <span>Over budget by ₹{(currentMonthSpending - parseFloat(monthlyLimit)).toLocaleString()}</span>
+                    </div>
+                  )}
+                  {isNearBudget && !isOverBudget && (
+                    <div className="flex items-center gap-1 text-xs text-warning bg-warning/10 px-2 py-1 rounded-lg w-fit">
+                      <AlertTriangle size={12} />
+                      <span>Approaching budget limit</span>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-          
-          {/* Budget Setup Prompt for Admins */}
-          {!budgetEnabled && isAdmin(user?.id || '') && (
-            <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-border/50">
-              <button 
-                onClick={() => setIsBudgetDialogOpen(true)}
-                className="w-full p-3 border border-dashed border-border/50 rounded-xl hover:border-primary/50 hover:bg-primary/5 transition-all flex items-center justify-center gap-2 text-sm text-muted-foreground group"
-              >
-                <Wallet size={16} className="group-hover:text-primary transition-colors" />
-                <span className="group-hover:text-foreground transition-colors">Set up monthly budget</span>
-              </button>
-            </div>
-          )}
+            )}
+
+            {/* Budget Setup Prompt for Admins */}
+            {!budgetEnabled && isAdmin(user?.id || '') && (
+              <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-border/50">
+                <button
+                  onClick={() => setIsBudgetDialogOpen(true)}
+                  className="w-full p-3 border border-dashed border-border/50 rounded-xl hover:border-primary/50 hover:bg-primary/5 transition-all flex items-center justify-center gap-2 text-sm text-muted-foreground group"
+                >
+                  <Wallet size={16} className="group-hover:text-primary transition-colors" />
+                  <span className="group-hover:text-foreground transition-colors">Set up monthly budget</span>
+                </button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -647,9 +647,9 @@ const GroupDetail = () => {
                 ))}
               </div>
             ) : expenses.length > 0 ? (
-              <Card className="border-border/50 shadow-sm">
+              <Card className="border-border/50">
                 <CardContent className="p-8 sm:p-12 text-center">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-muted/80 to-muted/40 flex items-center justify-center mx-auto mb-4">
+                  <div className="w-16 h-16 rounded bg-muted/50 flex items-center justify-center mx-auto mb-4">
                     <Filter className="text-muted-foreground" size={32} />
                   </div>
                   <h3 className="font-display font-semibold text-lg text-foreground mb-2">No expenses in this category</h3>
@@ -658,9 +658,9 @@ const GroupDetail = () => {
                 </CardContent>
               </Card>
             ) : (
-              <Card className="border-border/50 shadow-sm">
+              <Card className="border-border/50">
                 <CardContent className="p-8 sm:p-12 text-center">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center mx-auto mb-4">
+                  <div className="w-16 h-16 rounded bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-4">
                     <Receipt className="text-primary" size={32} />
                   </div>
                   <h3 className="font-display font-semibold text-lg text-foreground mb-2">No expenses yet</h3>
@@ -674,7 +674,7 @@ const GroupDetail = () => {
           <TabsContent value="balances">
             {/* Settlement Suggestions */}
             <div className="mb-4 sm:mb-6">
-              <SettlementSuggestions 
+              <SettlementSuggestions
                 balances={balances}
                 settlements={settlements}
                 profiles={group.members.reduce((acc, memberId) => {
@@ -714,9 +714,9 @@ const GroupDetail = () => {
                 ))}
               </div>
             ) : (
-              <Card className="border-border/50 shadow-sm">
+              <Card className="border-border/50">
                 <CardContent className="p-8 sm:p-12 text-center">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-success/20 to-success/5 border border-success/20 flex items-center justify-center mx-auto mb-4">
+                  <div className="w-16 h-16 rounded bg-success/10 border border-success/20 flex items-center justify-center mx-auto mb-4">
                     <CheckCircle className="text-success" size={32} />
                   </div>
                   <h3 className="font-display font-semibold text-lg text-foreground mb-2">No settlements yet</h3>
@@ -729,9 +729,9 @@ const GroupDetail = () => {
         </Tabs>
 
         {/* Floating Chat Button */}
-        <ChatButton 
-          onClick={() => setIsChatOpen(true)} 
-          unreadCount={chatUnreadCount} 
+        <ChatButton
+          onClick={() => setIsChatOpen(true)}
+          unreadCount={chatUnreadCount}
         />
 
         {/* Sliding Chat Panel */}
@@ -797,17 +797,17 @@ const GroupDetail = () => {
                           <Label htmlFor="settleAmount" className="text-sm sm:text-base">Amount</Label>
                           <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" className="min-h-[44px]" />
                           <p className="text-xs text-muted-foreground">
-                            💡 {getUserProfile(settlePaidBy)?.name} owes ₹{getDebtsForPayer(settlePaidBy).find(d => d.to === settlePaidTo)?.amount.toFixed(2) || 0} to {getUserProfile(settlePaidTo)?.name}
+                            <span className="font-medium">Note:</span> {getUserProfile(settlePaidBy)?.name} owes ₹{getDebtsForPayer(settlePaidBy).find(d => d.to === settlePaidTo)?.amount.toFixed(2) || 0} to {getUserProfile(settlePaidTo)?.name}
                           </p>
                         </div>
                         <div className="space-y-2">
                           <Label className="text-sm sm:text-base">Payment Method</Label>
                           <div className="flex gap-2">
-                            <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>✓ Paid</Button>
-                            <Button 
-                              type="button" 
-                              variant={paymentMethod === 'upi' ? 'default' : 'outline'} 
-                              className="flex-1 min-h-[44px] h-auto text-sm" 
+                            <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>Paid</Button>
+                            <Button
+                              type="button"
+                              variant={paymentMethod === 'upi' ? 'default' : 'outline'}
+                              className="flex-1 min-h-[44px] h-auto text-sm"
                               onClick={() => setPaymentMethod('upi')}
                               disabled={!getUserProfile(settlePaidTo)?.upiId}
                               title={!getUserProfile(settlePaidTo)?.upiId ? 'Receiver has not set up UPI ID' : 'Pay via UPI'}
@@ -832,74 +832,74 @@ const GroupDetail = () => {
             ) : (
               /* Regular member mode - can only record their own payments */
               userDebts.length === 0 ? (
-              <div className="text-center py-6">
-                <CheckCircle className="mx-auto text-success mb-3" size={48} />
-                <p className="text-lg font-medium text-foreground">You're all settled up!</p>
-                <p className="text-sm text-muted-foreground">You don't owe anyone in this group.</p>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <Label className="text-sm sm:text-base">You are paying</Label>
-                  <div className="p-3 bg-muted/50 rounded-lg border border-border/50">
-                    <span className="font-medium">{getUserProfile(user?.id)?.name || 'You'}</span>
-                    <span className="text-destructive ml-2">(owes ₹{Math.abs(balances[user?.id] || 0).toFixed(0)})</span>
+                <div className="text-center py-6">
+                  <CheckCircle className="mx-auto text-success mb-3" size={48} />
+                  <p className="text-lg font-medium text-foreground">You're all settled up!</p>
+                  <p className="text-sm text-muted-foreground">You don't owe anyone in this group.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-sm sm:text-base">You are paying</Label>
+                    <div className="p-3 bg-muted/50 rounded-lg border border-border/50">
+                      <span className="font-medium">{getUserProfile(user?.id)?.name || 'You'}</span>
+                      <span className="text-destructive ml-2">(owes ₹{Math.abs(balances[user?.id] || 0).toFixed(0)})</span>
+                    </div>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm sm:text-base">Pay to</Label>
-                  <Select value={settlePaidTo} onValueChange={(val) => { setSettlePaidTo(val); suggestAmount(val); }}>
-                    <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select who to pay" /></SelectTrigger>
-                    <SelectContent>
-                      {userDebts.map(debt => (
-                        <SelectItem key={debt.to} value={debt.to}>
-                          {getUserProfile(debt.to)?.name || 'Unknown'}
-                          <span className="text-success ml-2">(you owe ₹{debt.amount.toFixed(0)})</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="settleAmount" className="text-sm sm:text-base">Amount</Label>
-                  <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" className="min-h-[44px]" />
-                  {settlePaidTo && (
-                    <p className="text-xs text-muted-foreground">
-                      💡 You owe ₹{userDebts.find(d => d.to === settlePaidTo)?.amount.toFixed(2) || 0} to {getUserProfile(settlePaidTo)?.name}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm sm:text-base">Payment Method</Label>
-                  <div className="flex gap-2">
-                    <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>✓ Paid</Button>
-                    <Button 
-                      type="button" 
-                      variant={paymentMethod === 'upi' ? 'default' : 'outline'} 
-                      className="flex-1 min-h-[44px] h-auto text-sm" 
-                      onClick={() => setPaymentMethod('upi')}
-                      disabled={!settlePaidTo || !getUserProfile(settlePaidTo)?.upiId}
-                      title={!settlePaidTo ? 'Select receiver first' : !getUserProfile(settlePaidTo)?.upiId ? 'Receiver has not set up UPI ID' : 'Pay via UPI'}
-                    >
-                      <Smartphone size={16} className="mr-1" />UPI
-                    </Button>
+                  <div className="space-y-2">
+                    <Label className="text-sm sm:text-base">Pay to</Label>
+                    <Select value={settlePaidTo} onValueChange={(val) => { setSettlePaidTo(val); suggestAmount(val); }}>
+                      <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select who to pay" /></SelectTrigger>
+                      <SelectContent>
+                        {userDebts.map(debt => (
+                          <SelectItem key={debt.to} value={debt.to}>
+                            {getUserProfile(debt.to)?.name || 'Unknown'}
+                            <span className="text-success ml-2">(you owe ₹{debt.amount.toFixed(0)})</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  {settlePaidTo && !getUserProfile(settlePaidTo)?.upiId && (
-                    <p className="text-xs text-muted-foreground">
-                      💡 UPI payment unavailable - {getUserProfile(settlePaidTo)?.name} hasn't added their UPI ID yet
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="settleDate" className="text-sm sm:text-base">Date</Label>
-                  <div className="relative">
-                    <Input id="settleDate" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} className="pr-10 min-h-[44px] cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer" />
-                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={18} />
+                  <div className="space-y-2">
+                    <Label htmlFor="settleAmount" className="text-sm sm:text-base">Amount</Label>
+                    <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" className="min-h-[44px]" />
+                    {settlePaidTo && (
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-medium">Note:</span> You owe ₹{userDebts.find(d => d.to === settlePaidTo)?.amount.toFixed(2) || 0} to {getUserProfile(settlePaidTo)?.name}
+                      </p>
+                    )}
                   </div>
-                </div>
-                <Button onClick={handleSettle} className="w-full min-h-[44px] h-auto"><CheckCircle size={18} />Record Settlement</Button>
-              </>
-            )
+                  <div className="space-y-2">
+                    <Label className="text-sm sm:text-base">Payment Method</Label>
+                    <div className="flex gap-2">
+                      <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>Paid</Button>
+                      <Button
+                        type="button"
+                        variant={paymentMethod === 'upi' ? 'default' : 'outline'}
+                        className="flex-1 min-h-[44px] h-auto text-sm"
+                        onClick={() => setPaymentMethod('upi')}
+                        disabled={!settlePaidTo || !getUserProfile(settlePaidTo)?.upiId}
+                        title={!settlePaidTo ? 'Select receiver first' : !getUserProfile(settlePaidTo)?.upiId ? 'Receiver has not set up UPI ID' : 'Pay via UPI'}
+                      >
+                        <Smartphone size={16} className="mr-1" />UPI
+                      </Button>
+                    </div>
+                    {settlePaidTo && !getUserProfile(settlePaidTo)?.upiId && (
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-medium">Note:</span> UPI payment unavailable - {getUserProfile(settlePaidTo)?.name} hasn't added their UPI ID yet
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="settleDate" className="text-sm sm:text-base">Date</Label>
+                    <div className="relative">
+                      <Input id="settleDate" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} className="pr-10 min-h-[44px] cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer" />
+                      <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={18} />
+                    </div>
+                  </div>
+                  <Button onClick={handleSettle} className="w-full min-h-[44px] h-auto"><CheckCircle size={18} />Record Settlement</Button>
+                </>
+              )
             )}
           </div>
         </DialogContent>
@@ -977,8 +977,8 @@ const GroupDetail = () => {
                   className="flex-1"
                 />
               )}
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => setShowPaymentPrompt(false)}
                 className="flex-1"
               >
@@ -1012,7 +1012,7 @@ const GroupDetail = () => {
                 onCheckedChange={setBudgetEnabled}
               />
             </div>
-            
+
             {budgetEnabled && (
               <>
                 <div className="space-y-2">
@@ -1028,7 +1028,7 @@ const GroupDetail = () => {
                     className="min-h-[44px]"
                   />
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label>Alert Threshold: {alertThreshold}%</Label>
                   <p className="text-xs text-muted-foreground mb-2">
@@ -1048,7 +1048,7 @@ const GroupDetail = () => {
                     <span>95%</span>
                   </div>
                 </div>
-                
+
                 {monthlyLimit && (
                   <div className="p-3 bg-secondary/50 rounded-lg">
                     <p className="text-sm text-muted-foreground">Preview</p>
@@ -1059,7 +1059,7 @@ const GroupDetail = () => {
                 )}
               </>
             )}
-            
+
             <div className="flex gap-2">
               <Button
                 variant="outline"

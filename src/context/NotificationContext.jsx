@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import apiClient from '../lib/apiClient';
-import { initializeSocket, disconnectSocket } from '../lib/socketClient';
+import { initializeSocket } from '../lib/socketClient';
 
 const NotificationContext = createContext(undefined);
 
@@ -53,9 +53,9 @@ export const NotificationProvider = ({ children }) => {
   // Initialize socket connection and listen for notifications
   useEffect(() => {
     if (!user) {
-      // Disconnect socket when user logs out
+      // Socket disconnection is now managed by AuthContext
+      // Just reset local state tracking
       if (socketInitialized.current) {
-        disconnectSocket();
         socketInitialized.current = false;
         setSocketConnected(false);
       }

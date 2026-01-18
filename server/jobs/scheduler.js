@@ -12,6 +12,18 @@ import { processWeeklyDigest, processMonthlyDigest } from './digestJob.js';
 import { processDueReminders } from './dueReminderJob.js';
 import { executeJob } from './jobRunner.js';
 
+// Debug log helper (lazy loaded)
+const logJobEvt = async (jobName, status, data = {}) => {
+  if (process.env.DEBUG_ENABLED === 'true') {
+    try {
+      const { logJobEvent } = await import('../internal/debug/logCollector.js');
+      logJobEvent(jobName, status, data);
+    } catch (e) {
+      // Debug portal not available, ignore
+    }
+  }
+};
+
 // Store all cron jobs for cleanup
 let cronJobs = [];
 let isInitialized = false;
@@ -66,6 +78,7 @@ const executeScheduledJob = async (jobName, handler, options = {}) => {
     jobStates.set(jobName, { isRunning: true, startedAt: new Date() });
 
     console.log(`[Scheduler] Starting: ${jobName}`);
+    logJobEvt(jobName, 'started');
 
     // Get job-specific timeout or use default
     const timeout = JOB_TIMEOUTS[jobName] || 5 * 60 * 1000; // Default to 5 minutes if not specified
@@ -76,8 +89,10 @@ const executeScheduledJob = async (jobName, handler, options = {}) => {
 
         if (result.success) {
             console.log(`[Scheduler] Completed: ${jobName} in ${result.duration}ms`, result.data);
+            logJobEvt(jobName, 'completed', { duration: result.duration });
         } else {
             console.error(`[Scheduler] Failed: ${jobName} after ${result.duration}ms (${result.attempt} attempts):`, result.error);
+            logJobEvt(jobName, 'failed', { duration: result.duration, error: result.error, attempts: result.attempt });
         }
 
         return result;

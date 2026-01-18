@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import apiClient from '../lib/apiClient';
-import { initializeSocket, disconnectSocket } from '../lib/socketClient';
+import { initializeSocket, leaveGroupRoom, joinGroupRoom } from '../lib/socketClient';
 
 // Create the context
 const GroupContext = createContext(undefined);
@@ -16,6 +16,7 @@ export const GroupProvider = ({ children }) => {
   const [expenses, setExpenses] = useState([]); // Now stores expenses lazily loaded per group
   const [settlements, setSettlements] = useState([]);
   const [profiles, setProfiles] = useState({}); // Cache user profiles
+  const [balancesByGroup, setBalancesByGroup] = useState({}); // Server-provided balances per group
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
 
@@ -40,7 +41,32 @@ export const GroupProvider = ({ children }) => {
 
   // Selective update functions instead of full reload
   const updateGroupLocally = useCallback((groupId, updates) => {
-    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, ...updates } : g));
+    setGroups(prev => prev.map(g => {
+      if (g.id !== groupId) return g;
+      
+      // Normalize the updates to ensure members are ID strings, not objects
+      const normalizedUpdates = { ...updates };
+      
+      // Normalize members array if present (handles populated objects from socket events)
+      if (normalizedUpdates.members && Array.isArray(normalizedUpdates.members)) {
+        normalizedUpdates.members = normalizedUpdates.members.map(m => 
+          (m._id || m.id || m)?.toString()
+        );
+      }
+      
+      // Normalize createdBy if present (handles populated objects from socket events)
+      if (normalizedUpdates.createdBy && typeof normalizedUpdates.createdBy === 'object') {
+        normalizedUpdates.createdBy = (normalizedUpdates.createdBy._id || normalizedUpdates.createdBy.id)?.toString();
+      }
+      
+      // Normalize id/_id
+      if (normalizedUpdates._id) {
+        normalizedUpdates.id = normalizedUpdates._id.toString();
+        delete normalizedUpdates._id;
+      }
+      
+      return { ...g, ...normalizedUpdates };
+    }));
   }, []);
 
   const addExpenseLocally = useCallback((expense) => {
@@ -57,11 +83,51 @@ export const GroupProvider = ({ children }) => {
       splitConfig: expense.splitConfig,
       receipts: expense.receipts || [],
     };
-    setExpenses(prev => [transformed, ...prev]);
+    // Guard: skip if expense id already exists to prevent duplicates from multiple event handlers
+    setExpenses(prev => {
+      if (prev.some(e => e.id === transformed.id)) {
+        return prev;
+      }
+      return [transformed, ...prev];
+    });
   }, []);
 
   const updateExpenseLocally = useCallback((expenseId, updates) => {
-    setExpenses(prev => prev.map(e => e.id === expenseId ? { ...e, ...updates } : e));
+    setExpenses(prev => prev.map(e => {
+      if (e.id !== expenseId) return e;
+      
+      // Normalize updates to ensure IDs are strings, not populated objects
+      const normalizedUpdates = { ...updates };
+      
+      // Normalize id/_id
+      if (normalizedUpdates._id) {
+        normalizedUpdates.id = normalizedUpdates._id.toString();
+        delete normalizedUpdates._id;
+      }
+      
+      // Normalize groupId (handles populated object from socket events)
+      if (normalizedUpdates.groupId && typeof normalizedUpdates.groupId === 'object') {
+        normalizedUpdates.groupId = (normalizedUpdates.groupId._id || normalizedUpdates.groupId.id)?.toString();
+      } else if (normalizedUpdates.groupId) {
+        normalizedUpdates.groupId = normalizedUpdates.groupId.toString();
+      }
+      
+      // Normalize paidBy (handles populated object from socket events)
+      if (normalizedUpdates.paidBy && typeof normalizedUpdates.paidBy === 'object') {
+        normalizedUpdates.paidBy = (normalizedUpdates.paidBy._id || normalizedUpdates.paidBy.id)?.toString();
+      } else if (normalizedUpdates.paidBy) {
+        normalizedUpdates.paidBy = normalizedUpdates.paidBy.toString();
+      }
+      
+      // Normalize splitAmong array (handles populated objects from socket events)
+      if (normalizedUpdates.splitAmong && Array.isArray(normalizedUpdates.splitAmong)) {
+        normalizedUpdates.splitAmong = normalizedUpdates.splitAmong.map(s => 
+          (s._id || s.id || s)?.toString()
+        );
+      }
+      
+      return { ...e, ...normalizedUpdates };
+    }));
   }, []);
 
   const deleteExpenseLocally = useCallback((expenseId) => {
@@ -80,7 +146,13 @@ export const GroupProvider = ({ children }) => {
       paymentMethod: settlement.paymentMethod || 'cash',
       paymentStatus: settlement.paymentStatus || 'pending',
     };
-    setSettlements(prev => [transformed, ...prev]);
+    // Guard: skip if settlement id already exists to prevent duplicates from multiple event handlers
+    setSettlements(prev => {
+      if (prev.some(s => s.id === transformed.id)) {
+        return prev;
+      }
+      return [transformed, ...prev];
+    });
   }, []);
 
   const addGroupLocally = useCallback((group) => {
@@ -102,7 +174,41 @@ export const GroupProvider = ({ children }) => {
   }, []);
 
   const updateSettlementLocally = useCallback((settlementId, updates) => {
-    setSettlements(prev => prev.map(s => s.id === settlementId ? { ...s, ...updates } : s));
+    setSettlements(prev => prev.map(s => {
+      if (s.id !== settlementId) return s;
+      
+      // Normalize updates to ensure IDs are strings, not populated objects
+      const normalizedUpdates = { ...updates };
+      
+      // Normalize id/_id
+      if (normalizedUpdates._id) {
+        normalizedUpdates.id = normalizedUpdates._id.toString();
+        delete normalizedUpdates._id;
+      }
+      
+      // Normalize groupId (handles populated object from socket events)
+      if (normalizedUpdates.groupId && typeof normalizedUpdates.groupId === 'object') {
+        normalizedUpdates.groupId = (normalizedUpdates.groupId._id || normalizedUpdates.groupId.id)?.toString();
+      } else if (normalizedUpdates.groupId) {
+        normalizedUpdates.groupId = normalizedUpdates.groupId.toString();
+      }
+      
+      // Normalize fromUserId (handles populated object from socket events)
+      if (normalizedUpdates.fromUserId && typeof normalizedUpdates.fromUserId === 'object') {
+        normalizedUpdates.fromUserId = (normalizedUpdates.fromUserId._id || normalizedUpdates.fromUserId.id)?.toString();
+      } else if (normalizedUpdates.fromUserId) {
+        normalizedUpdates.fromUserId = normalizedUpdates.fromUserId.toString();
+      }
+      
+      // Normalize toUserId (handles populated object from socket events)
+      if (normalizedUpdates.toUserId && typeof normalizedUpdates.toUserId === 'object') {
+        normalizedUpdates.toUserId = (normalizedUpdates.toUserId._id || normalizedUpdates.toUserId.id)?.toString();
+      } else if (normalizedUpdates.toUserId) {
+        normalizedUpdates.toUserId = normalizedUpdates.toUserId.toString();
+      }
+      
+      return { ...s, ...normalizedUpdates };
+    }));
   }, []);
 
   const deleteSettlementLocally = useCallback((settlementId) => {
@@ -113,6 +219,9 @@ export const GroupProvider = ({ children }) => {
   const loadUserData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    
+    // Clear balance cache to prevent stale balances after refresh
+    setBalancesByGroup({});
 
     try {
       // Only load groups and settlements initially - expenses are loaded per-group lazily
@@ -149,6 +258,11 @@ export const GroupProvider = ({ children }) => {
       // Reset lazy loading state
       loadedGroupsRef.current = new Set();
       setExpenses([]);
+
+      // Join all group rooms for real-time updates
+      transformedGroups.forEach(g => {
+        joinGroupRoom(g.id);
+      });
 
       // Build profiles cache from populated data
       const profilesMap = {};
@@ -254,6 +368,7 @@ export const GroupProvider = ({ children }) => {
       setGroups([]);
       setExpenses([]);
       setSettlements([]);
+      setBalancesByGroup({});
       setLoading(false);
     }
   }, [user, loadUserData]);
@@ -359,12 +474,16 @@ export const GroupProvider = ({ children }) => {
   const addMemberToGroup = async (groupId, memberId) => {
     try {
       await apiClient.post(`/groups/${groupId}/members`, { memberId });
-      // Update group locally with new member
-      setGroups(prev => prev.map(g => 
-        g.id === groupId 
-          ? { ...g, members: [...g.members, memberId] }
-          : g
-      ));
+      // Update group locally with new member (with deduplication to prevent duplicates from socket race)
+      setGroups(prev => prev.map(g => {
+        if (g.id === groupId) {
+          // Check if member already exists to avoid duplicates
+          if (!g.members.includes(memberId)) {
+            return { ...g, members: [...g.members, memberId] };
+          }
+        }
+        return g;
+      }));
       return true;
     } catch (error) {
       console.error('Error adding member:', error);
@@ -503,8 +622,14 @@ export const GroupProvider = ({ children }) => {
     return settlements.filter(set => set.groupId === groupId);
   };
 
-  // Get balances for a group (client-side calculation)
-  const getGroupBalances = (groupId) => {
+  // Get balances for a group (uses server-provided balances if available, falls back to client-side calculation)
+  const getGroupBalances = useCallback((groupId) => {
+    // Return server-provided balances if available
+    if (balancesByGroup[groupId]) {
+      return balancesByGroup[groupId];
+    }
+    
+    // Fallback to client-side calculation
     const groupExpenses = getGroupExpenses(groupId);
     const groupSettlements = getGroupSettlements(groupId);
     
@@ -539,7 +664,7 @@ export const GroupProvider = ({ children }) => {
     });
 
     return balances;
-  };
+  }, [balancesByGroup, getGroupExpenses, groups]);
 
   // Get total expenses for a group
   const getTotalExpenses = (groupId) => {
@@ -563,11 +688,26 @@ export const GroupProvider = ({ children }) => {
       addExpenseLocally(expense);
     });
 
+    // Alias event for contract alignment
+    socket.on('expense:add', (expense) => {
+      addExpenseLocally(expense);
+    });
+
     socket.on('expense:updated', (expense) => {
       updateExpenseLocally(expense._id || expense.id, expense);
     });
 
+    // Alias event for contract alignment
+    socket.on('expense:update', (expense) => {
+      updateExpenseLocally(expense._id || expense.id, expense);
+    });
+
     socket.on('expense:deleted', (data) => {
+      deleteExpenseLocally(data.expenseId || data);
+    });
+
+    // Alias event for contract alignment
+    socket.on('expense:delete', (data) => {
       deleteExpenseLocally(data.expenseId || data);
     });
 
@@ -584,27 +724,294 @@ export const GroupProvider = ({ children }) => {
     });
 
     socket.on('group:updated', (group) => {
-      updateGroupLocally(group._id || group.id, group);
+      const groupId = (group._id || group.id)?.toString();
+      updateGroupLocally(groupId, group);
+      
+      // Also update profiles from populated members if present
+      if (group.members && Array.isArray(group.members)) {
+        group.members.forEach(m => {
+          if (m && typeof m === 'object' && m._id) {
+            const memberId = m._id.toString();
+            setProfiles(prev => ({
+              ...prev,
+              [memberId]: {
+                id: memberId,
+                name: m.name,
+                email: m.email,
+                upiId: m.upiId || ''
+              }
+            }));
+          }
+        });
+      }
+    });
+
+    // Alias event for contract alignment
+    socket.on('group:update', (group) => {
+      const groupId = (group._id || group.id)?.toString();
+      updateGroupLocally(groupId, group);
+      
+      // Also update profiles from populated members if present
+      if (group.members && Array.isArray(group.members)) {
+        group.members.forEach(m => {
+          if (m && typeof m === 'object' && m._id) {
+            const memberId = m._id.toString();
+            setProfiles(prev => ({
+              ...prev,
+              [memberId]: {
+                id: memberId,
+                name: m.name,
+                email: m.email,
+                upiId: m.upiId || ''
+              }
+            }));
+          }
+        });
+      }
+    });
+
+    // Handle new group creation (received via user room for invited members)
+    socket.on('group:created', (group) => {
+      const groupId = (group._id || group.id)?.toString();
+      // Only add if not already in state (avoid duplicates from API response)
+      setGroups(prev => {
+        if (prev.some(g => g.id === groupId)) {
+          return prev;
+        }
+        // Use addGroupLocally transformation
+        const transformed = {
+          id: groupId,
+          name: group.name,
+          createdBy: (group.createdBy?._id || group.createdBy)?.toString(),
+          createdAt: group.createdAt,
+          members: (group.members || []).map(m => (m._id || m)?.toString()),
+          inviteCode: group.inviteCode,
+        };
+        return [transformed, ...prev];
+      });
+      
+      // Join socket room immediately so client receives expense/settlement/chat updates
+      joinGroupRoom(groupId);
+      
+      // Update profiles from populated members
+      if (group.members && Array.isArray(group.members)) {
+        group.members.forEach(m => {
+          if (m && typeof m === 'object' && m._id) {
+            const memberId = m._id.toString();
+            setProfiles(prev => ({
+              ...prev,
+              [memberId]: {
+                id: memberId,
+                name: m.name,
+                email: m.email,
+                upiId: m.upiId || ''
+              }
+            }));
+          }
+        });
+      }
+      
+      // Update profile for creator if populated
+      if (group.createdBy && typeof group.createdBy === 'object' && group.createdBy._id) {
+        const creatorId = group.createdBy._id.toString();
+        setProfiles(prev => ({
+          ...prev,
+          [creatorId]: {
+            id: creatorId,
+            name: group.createdBy.name,
+            email: group.createdBy.email,
+            upiId: group.createdBy.upiId || ''
+          }
+        }));
+      }
     });
 
     // New invite-related socket events
     socket.on('group:memberJoined', ({ groupId, member }) => {
       addMemberToGroupLocally(groupId, member);
+      
+      // Comment 3 fix: Invalidate balance cache or add new member with zero balance
+      const memberId = (member.id || member._id || member)?.toString();
+      setBalancesByGroup(prev => {
+        if (!prev[groupId]) return prev;
+        // Add new member with zero balance to keep balance view consistent
+        return {
+          ...prev,
+          [groupId]: {
+            ...prev[groupId],
+            [memberId]: 0
+          }
+        };
+      });
+      
+      // If the current user is the one being added, join the socket room
+      if (memberId === user?.id) {
+        joinGroupRoom(groupId);
+      }
     });
 
-    socket.on('invite:created', (data) => {
-      // Invites are managed in the InviteModal component
-      // This event can be used for notifications or refreshing invite lists
-      console.log('New invite created:', data);
+    // Comment 3: Subscribe to aliased events for contract alignment
+    socket.on('group:join', ({ groupId, member }) => {
+      addMemberToGroupLocally(groupId, member);
+      
+      // Comment 3 fix: Invalidate balance cache or add new member with zero balance
+      const memberId = (member.id || member._id || member)?.toString();
+      setBalancesByGroup(prev => {
+        if (!prev[groupId]) return prev;
+        // Add new member with zero balance to keep balance view consistent
+        return {
+          ...prev,
+          [groupId]: {
+            ...prev[groupId],
+            [memberId]: 0
+          }
+        };
+      });
+      
+      // If the current user is the one being added, join the socket room
+      if (memberId === user?.id) {
+        joinGroupRoom(groupId);
+      }
+    });
+    
+    socket.on('group:memberRemoved', ({ groupId, memberId }) => {
+      // Check if the current user was removed from the group
+      if (memberId === user?.id) {
+        // Remove the group from local state
+        deleteGroupLocally(groupId);
+        // Clear stored balances for this group
+        setBalancesByGroup(prev => {
+          const next = { ...prev };
+          delete next[groupId];
+          return next;
+        });
+        // Clear lazy-load tracking so rejoining triggers fresh expense fetch
+        loadedGroupsRef.current.delete(groupId);
+        loadingGroupsRef.current.delete(groupId);
+        setLoadingGroups(prev => {
+          const next = new Set(prev);
+          next.delete(groupId);
+          return next;
+        });
+        // Leave the socket room
+        leaveGroupRoom(groupId);
+      } else {
+        // Another member was removed, just update the members list
+        setGroups(prev => prev.map(g => 
+          g.id === groupId 
+            ? { ...g, members: g.members.filter(m => m !== memberId) }
+            : g
+        ));
+        
+        // Comment 3 fix: Remove the member from balance cache to keep balance view consistent
+        setBalancesByGroup(prev => {
+          if (!prev[groupId]) return prev;
+          const updatedBalances = { ...prev[groupId] };
+          delete updatedBalances[memberId];
+          return {
+            ...prev,
+            [groupId]: updatedBalances
+          };
+        });
+      }
     });
 
-    socket.on('invite:revoked', ({ inviteId }) => {
-      // Invites are managed in the InviteModal component
-      console.log('Invite revoked:', inviteId);
+    // Comment 3: Subscribe to aliased event for contract alignment
+    socket.on('group:leave', ({ groupId, memberId }) => {
+      // Check if the current user was removed from the group
+      if (memberId === user?.id) {
+        deleteGroupLocally(groupId);
+        setBalancesByGroup(prev => {
+          const next = { ...prev };
+          delete next[groupId];
+          return next;
+        });
+        loadedGroupsRef.current.delete(groupId);
+        loadingGroupsRef.current.delete(groupId);
+        setLoadingGroups(prev => {
+          const next = new Set(prev);
+          next.delete(groupId);
+          return next;
+        });
+        leaveGroupRoom(groupId);
+      } else {
+        setGroups(prev => prev.map(g => 
+          g.id === groupId 
+            ? { ...g, members: g.members.filter(m => m !== memberId) }
+            : g
+        ));
+        setBalancesByGroup(prev => {
+          if (!prev[groupId]) return prev;
+          const updatedBalances = { ...prev[groupId] };
+          delete updatedBalances[memberId];
+          return {
+            ...prev,
+            [groupId]: updatedBalances
+          };
+        });
+      }
+    });
+
+    socket.on('group:budgetUpdated', ({ groupId, budget }) => {
+      updateGroupLocally(groupId, { budget });
+    });
+
+    socket.on('group:deleted', ({ groupId }) => {
+      // Remove group from local state
+      deleteGroupLocally(groupId);
+      // Clear balance cache for this group
+      setBalancesByGroup(prev => {
+        const next = { ...prev };
+        delete next[groupId];
+        return next;
+      });
+      // Clear lazy-load tracking
+      loadedGroupsRef.current.delete(groupId);
+      loadingGroupsRef.current.delete(groupId);
+      setLoadingGroups(prev => {
+        const next = new Set(prev);
+        next.delete(groupId);
+        return next;
+      });
+      // Leave the socket room
+      leaveGroupRoom(groupId);
+    });
+
+    socket.on('balance:update', ({ groupId, balances }) => {
+      // Store server-provided balances for real-time updates
+      // The server now sends only the userId→amount map (not the full balance object)
+      // If we receive an object with a nested 'balances' property (legacy format),
+      // extract just the balance map to maintain flat userId→amount structure
+      const balanceMap = balances && typeof balances === 'object' && balances.balances
+        ? balances.balances
+        : balances;
+      setBalancesByGroup(prev => ({
+        ...prev,
+        [groupId]: balanceMap
+      }));
     });
 
     return () => {
-      disconnectSocket();
+      socket.off('expense:created');
+      socket.off('expense:add'); // Alias event
+      socket.off('expense:updated');
+      socket.off('expense:update'); // Alias event
+      socket.off('expense:deleted');
+      socket.off('expense:delete'); // Alias event
+      socket.off('settlement:created');
+      socket.off('settlement:updated');
+      socket.off('settlement:deleted');
+      socket.off('group:created');
+      socket.off('group:updated');
+      socket.off('group:update'); // Alias event
+      socket.off('group:memberJoined');
+      socket.off('group:join'); // Alias event
+      socket.off('group:memberRemoved');
+      socket.off('group:leave'); // Alias event
+      socket.off('group:budgetUpdated');
+      socket.off('group:deleted');
+      socket.off('balance:update');
+      // Note: Socket disconnection is now managed by AuthContext
     };
   }, [user, addExpenseLocally, updateExpenseLocally, deleteExpenseLocally, addSettlementLocally, updateSettlementLocally, deleteSettlementLocally, updateGroupLocally, addMemberToGroupLocally]);
 
@@ -640,7 +1047,7 @@ export const GroupProvider = ({ children }) => {
     loadGroupExpenses, // Expose for explicit lazy loading
     refreshData: loadUserData,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [groups, expenses, settlements, profiles, loading, loadingGroups.size, groupsById, expensesByGroup, loadUserData, joinGroupByInvite, getGroupExpenses, loadGroupExpenses]);
+  }), [groups, expenses, settlements, profiles, loading, loadingGroups.size, groupsById, expensesByGroup, loadUserData, joinGroupByInvite, getGroupExpenses, loadGroupExpenses, getGroupBalances]);
 
   return (
     <GroupContext.Provider value={contextValue}>

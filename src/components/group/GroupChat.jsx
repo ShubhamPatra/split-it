@@ -24,11 +24,11 @@ const GroupChat = ({ groupId }) => {
     retryMessage,
     markAsRead,
     sendTypingIndicator,
-    subscribeToGroup,
-    unsubscribeFromGroup,
+    // Comment 4: Removed subscribeToGroup/unsubscribeFromGroup - managed by GroupDetail.jsx
     getGroupMessages,
     getTypingUsers,
     hasMoreMessages,
+    getOnlineUsers,
   } = useChat();
 
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -60,6 +60,9 @@ const GroupChat = ({ groupId }) => {
   const justLoadedOlderRef = useRef(false);
   // Track countdown interval for rate-limit retry cleanup
   const countdownIntervalRef = useRef(null);
+
+  // Comment 4: Removed subscription effect - GroupDetail.jsx already manages chat subscriptions
+  // This prevents double subscription/unsubscription that could stop unread updates
 
   // Group consecutive messages from the same sender within 5 minutes
   const groupMessages = useCallback((msgs) => {
@@ -148,13 +151,9 @@ const GroupChat = ({ groupId }) => {
     overscan: 5,
   });
 
-  // Subscribe to chat events on mount
-  useEffect(() => {
-    if (groupId) {
-      subscribeToGroup(groupId);
-      return () => unsubscribeFromGroup(groupId);
-    }
-  }, [groupId, subscribeToGroup, unsubscribeFromGroup]);
+  // Comment 4: Subscription effect removed - GroupDetail.jsx manages chat subscriptions
+  // This prevents the issue where closing the chat panel would unsubscribe and stop unread updates
+  // Reference counting in ChatContext ensures proper cleanup when ALL components unsubscribe
 
   // Reset unread tracking state when switching groups
   useEffect(() => {

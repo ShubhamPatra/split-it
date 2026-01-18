@@ -22,8 +22,8 @@ const isMember = (group, userId) => {
 export const getGroups = async (req, res) => {
   try {
     const groups = await Group.find({ members: req.user._id })
-      .populate('createdBy', 'name email')  // Remove upiId unless needed
-      .populate('members', 'name email')
+      .populate('createdBy', 'name email upiId')
+      .populate('members', 'name email upiId')
       .sort({ createdAt: -1 })
       .lean()  // Convert to plain JS objects (faster)
       .limit(50);  // Add pagination
@@ -74,6 +74,26 @@ export const createGroup = async (req, res) => {
       .populate('createdBy', 'name email upiId')
       .populate('members', 'name email upiId');
 
+    // Emit real-time event to all members (including creator) so they see the new group instantly
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToUser, emitToGroup } = await import('../utils/socketEmitter.js');
+        
+        // Emit to each member's user room so they receive the group even before joining the group room
+        const memberIds = populatedGroup.members.map(m => m._id.toString());
+        for (const memberId of memberIds) {
+          emitToUser(io, memberId, 'group:created', populatedGroup);
+        }
+        
+        // Also emit to the new group room for any listeners
+        emitToGroup(io, group._id.toString(), 'group:updated', populatedGroup);
+      } catch (socketError) {
+        console.error('Error emitting group creation event:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
+
     res.status(201).json(populatedGroup);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -98,19 +118,109 @@ export const updateGroup = async (req, res) => {
 
     const { name, members } = req.body;
     if (name) group.name = name;
+    
+    // Track member changes before updating
     const membersChanged = !!members;
-    if (members) group.members = members;
+    let addedMembers = [];
+    let removedMembers = [];
+    
+    if (members) {
+      const oldMemberIds = group.members.map(m => m.toString());
+      const newMemberIds = members.map(m => m.toString());
+      
+      addedMembers = newMemberIds.filter(id => !oldMemberIds.includes(id));
+      removedMembers = oldMemberIds.filter(id => !newMemberIds.includes(id));
+      
+      group.members = members;
+    }
 
     await group.save();
 
     // Invalidate socket group membership cache if members were updated
     if (membersChanged) {
       invalidateGroupMembershipCache(group._id.toString());
+      
+      // Comment 1: Invalidate balance cache when members change
+      const { invalidateBalanceCache } = await import('../jobs/balanceService.js');
+      invalidateBalanceCache(group._id.toString());
     }
 
     const updatedGroup = await Group.findById(group._id)
       .populate('createdBy', 'name email upiId')
       .populate('members', 'name email upiId');
+
+    // Emit socket event to group members
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup, emitToUser, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, group._id.toString(), 'group:updated', updatedGroup);
+        // Emit alias event for contract alignment
+        emitToGroup(io, group._id.toString(), 'group:update', updatedGroup);
+        
+        // Notify about added members
+        for (const memberId of addedMembers) {
+          const memberData = updatedGroup.members.find(m => m._id.toString() === memberId);
+          if (memberData) {
+            // Emit to the new member's user room so they receive the group
+            emitToUser(io, memberId, 'group:created', updatedGroup);
+            
+            // Emit member joined event to group room
+            emitToGroup(io, group._id.toString(), 'group:memberJoined', {
+              groupId: group._id.toString(),
+              member: memberData
+            });
+            // Comment 3: Emit aliased event for contract alignment
+            emitToGroup(io, group._id.toString(), 'group:join', {
+              groupId: group._id.toString(),
+              member: memberData
+            });
+          }
+        }
+        
+        // Notify about removed members
+        for (const memberId of removedMembers) {
+          // Force the removed member's sockets to leave the group room BEFORE emitting group-room events
+          // so they don't receive broadcasts intended for remaining members
+          const { forceLeaveGroupRoom } = await import('../utils/socketEmitter.js');
+          await forceLeaveGroupRoom(io, memberId, group._id.toString());
+          
+          // Emit member removed event to group room (removed member won't receive this)
+          emitToGroup(io, group._id.toString(), 'group:memberRemoved', {
+            groupId: group._id.toString(),
+            memberId
+          });
+          // Comment 3: Emit aliased event for contract alignment
+          emitToGroup(io, group._id.toString(), 'group:leave', {
+            groupId: group._id.toString(),
+            memberId
+          });
+          
+          // Notify the removed member via their user room so they still receive the removal notice
+          emitToUser(io, memberId, 'group:memberRemoved', {
+            groupId: group._id.toString(),
+            memberId
+          });
+        }
+
+        // Comment 1: Recalculate and emit fresh balances after member changes
+        if (membersChanged) {
+          try {
+            const result = await calculateGroupBalances(group._id.toString());
+            emitBalanceUpdate(io, group._id.toString(), result.balances);
+            // Comment 3: Also emit balance:update to each newly added member's user room
+            for (const newMemberId of addedMembers) {
+              emitToUser(io, newMemberId, 'balance:update', { groupId: group._id.toString(), balances: result.balances });
+            }
+          } catch (balanceError) {
+            console.error('Error emitting balance update for group update:', balanceError);
+          }
+        }
+      } catch (socketError) {
+        console.error('Error emitting group update event:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
 
     res.json(updatedGroup);
   } catch (error) {
@@ -137,11 +247,39 @@ export const deleteGroup = async (req, res) => {
     // Invalidate socket group membership cache before deletion
     invalidateGroupMembershipCache(req.params.id);
 
+    // Store member IDs before deletion for socket notifications
+    const memberIds = group.members.map(m => m.toString());
+
     // Delete associated expenses and settlements
     await Expense.deleteMany({ groupId: req.params.id });
     await Settlement.deleteMany({ groupId: req.params.id });
 
     await Group.findByIdAndDelete(req.params.id);
+
+    // Emit socket event to notify all members about group deletion
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup, emitToUser } = await import('../utils/socketEmitter.js');
+        
+        // Emit to group room (for members currently viewing the group)
+        emitToGroup(io, req.params.id, 'group:deleted', { groupId: req.params.id });
+        
+        // Also emit to each member's user room so dashboards update even if they haven't joined the group room
+        for (const memberId of memberIds) {
+          emitToUser(io, memberId, 'group:deleted', { groupId: req.params.id });
+        }
+        
+        // Force all members' sockets to leave the deleted group room
+        const { forceLeaveGroupRoom } = await import('../utils/socketEmitter.js');
+        for (const memberId of memberIds) {
+          await forceLeaveGroupRoom(io, memberId, req.params.id);
+        }
+      } catch (socketError) {
+        console.error('Error emitting group deletion event:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
 
     res.json({ message: 'Group deleted successfully', success: true });
   } catch (error) {
@@ -184,10 +322,54 @@ export const addMember = async (req, res) => {
       type: 'info',
       title: 'Added to Group',
       message: `${req.user.name} added you to the group "${group.name}"`,
+      actionType: 'navigate',
+      data: { url: `/groups/${req.params.id}` },
     });
 
     // Invalidate socket group membership cache
     invalidateGroupMembershipCache(req.params.id);
+
+    // Comment 1: Invalidate balance cache and emit fresh balances
+    const { invalidateBalanceCache } = await import('../jobs/balanceService.js');
+    invalidateBalanceCache(req.params.id);
+
+    // Emit socket event to group members
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup, emitToUser, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        const memberData = updatedGroup.members.find(m => m._id.toString() === memberId.toString());
+        
+        // Emit to the new member's user room so they receive the group before joining the group room
+        emitToUser(io, memberId, 'group:created', updatedGroup);
+        
+        emitToGroup(io, req.params.id, 'group:memberJoined', { 
+          groupId: req.params.id, 
+          member: memberData 
+        });
+        // Comment 3: Emit aliased event for contract alignment
+        emitToGroup(io, req.params.id, 'group:join', { 
+          groupId: req.params.id, 
+          member: memberData 
+        });
+        emitToGroup(io, req.params.id, 'group:updated', updatedGroup);
+        // Comment 3: Emit group:update alias for contract alignment
+        emitToGroup(io, req.params.id, 'group:update', updatedGroup);
+
+        // Comment 1: Recalculate and emit fresh balances after member addition
+        try {
+          const result = await calculateGroupBalances(req.params.id);
+          emitBalanceUpdate(io, req.params.id, result.balances);
+          // Comment 3: Also emit balance:update to the new member's user room so they receive initial balance state
+          emitToUser(io, memberId, 'balance:update', { groupId: req.params.id, balances: result.balances });
+        } catch (balanceError) {
+          console.error('Error emitting balance update for member addition:', balanceError);
+        }
+      } catch (socketError) {
+        console.error('Error emitting member join event:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
 
     res.json(updatedGroup);
   } catch (error) {
@@ -225,6 +407,52 @@ export const removeMember = async (req, res) => {
 
     // Invalidate socket group membership cache
     invalidateGroupMembershipCache(req.params.id);
+
+    // Comment 1: Invalidate balance cache and emit fresh balances
+    const { invalidateBalanceCache } = await import('../jobs/balanceService.js');
+    invalidateBalanceCache(req.params.id);
+
+    // Emit socket event to group members
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup, emitToUser, emitBalanceUpdate, forceLeaveGroupRoom } = await import('../utils/socketEmitter.js');
+        
+        // Force the removed member's sockets to leave the group room BEFORE emitting group-room events
+        // so they don't receive broadcasts intended for remaining members
+        await forceLeaveGroupRoom(io, req.params.memberId, req.params.id);
+        
+        emitToGroup(io, req.params.id, 'group:memberRemoved', { 
+          groupId: req.params.id, 
+          memberId: req.params.memberId 
+        });
+        // Comment 3: Emit aliased event for contract alignment
+        emitToGroup(io, req.params.id, 'group:leave', { 
+          groupId: req.params.id, 
+          memberId: req.params.memberId 
+        });
+        emitToGroup(io, req.params.id, 'group:updated', updatedGroup);
+        // Comment 3: Emit group:update alias for contract alignment
+        emitToGroup(io, req.params.id, 'group:update', updatedGroup);
+        
+        // Notify the removed member via their user room so they still receive the removal notice
+        emitToUser(io, req.params.memberId, 'group:memberRemoved', { 
+          groupId: req.params.id, 
+          memberId: req.params.memberId 
+        });
+
+        // Comment 1: Recalculate and emit fresh balances after member removal
+        try {
+          const result = await calculateGroupBalances(req.params.id);
+          emitBalanceUpdate(io, req.params.id, result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for member removal:', balanceError);
+        }
+      } catch (socketError) {
+        console.error('Error emitting member removal event:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
 
     res.json(updatedGroup);
   } catch (error) {
@@ -328,6 +556,48 @@ export const joinGroupByInvite = async (req, res) => {
 
     // Invalidate socket group membership cache
     invalidateGroupMembershipCache(group._id.toString());
+
+    // Comment 1: Invalidate balance cache and emit fresh balances
+    const { invalidateBalanceCache } = await import('../jobs/balanceService.js');
+    invalidateBalanceCache(group._id.toString());
+
+    // Emit socket event to group members
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup, emitToUser, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        const memberData = updatedGroup.members.find(m => m._id.toString() === req.user._id.toString());
+        
+        // Emit to the joining user's room so they see the new group in real time
+        emitToUser(io, req.user._id.toString(), 'group:created', updatedGroup);
+        
+        emitToGroup(io, group._id.toString(), 'group:memberJoined', { 
+          groupId: group._id.toString(), 
+          member: memberData 
+        });
+        // Comment 3: Emit aliased event for contract alignment
+        emitToGroup(io, group._id.toString(), 'group:join', { 
+          groupId: group._id.toString(), 
+          member: memberData 
+        });
+        emitToGroup(io, group._id.toString(), 'group:updated', updatedGroup);
+        // Comment 3: Emit group:update alias for contract alignment
+        emitToGroup(io, group._id.toString(), 'group:update', updatedGroup);
+
+        // Comment 1: Recalculate and emit fresh balances after member joins via invite
+        try {
+          const result = await calculateGroupBalances(group._id.toString());
+          emitBalanceUpdate(io, group._id.toString(), result.balances);
+          // Comment 3: Also emit balance:update to the joining user's room so they receive initial balance state
+          emitToUser(io, req.user._id.toString(), 'balance:update', { groupId: group._id.toString(), balances: result.balances });
+        } catch (balanceError) {
+          console.error('Error emitting balance update for invite join:', balanceError);
+        }
+      } catch (socketError) {
+        console.error('Error emitting invite join event:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
 
     res.json(updatedGroup);
   } catch (error) {
@@ -542,6 +812,31 @@ export const updateGroupBudget = async (req, res) => {
     }
 
     await group.save();
+
+    // Emit socket event to group members
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, req.params.id, 'group:budgetUpdated', { 
+          groupId: req.params.id, 
+          budget: group.budget 
+        });
+        
+        // Populate group for full update events
+        const updatedGroup = await Group.findById(req.params.id)
+          .populate('createdBy', 'name email upiId')
+          .populate('members', 'name email upiId');
+        
+        // Emit group:updated so generic group-update listeners stay in sync
+        emitToGroup(io, req.params.id, 'group:updated', updatedGroup);
+        // Emit group:update alias for contract alignment
+        emitToGroup(io, req.params.id, 'group:update', updatedGroup);
+      } catch (socketError) {
+        console.error('Error emitting budget update event:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
 
     res.json({ success: true, budget: group.budget });
   } catch (error) {

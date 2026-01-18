@@ -184,39 +184,54 @@ export const createSettlement = async (req, res) => {
       },
     });
 
+    // Invalidate balance cache for this group before emitting
+    invalidateBalanceCache(groupId);
+
     // Emit socket event to group members
     const io = req.app.get('io');
     if (io) {
-      const { emitToGroup } = await import('../utils/socketEmitter.js');
-      emitToGroup(io, groupId, 'settlement:created', populatedSettlement);
-
-      // Create system message for chat
       try {
-        const systemMessage = await Message.create({
-          groupId,
-          senderId: fromUserId,
-          content: `${payer.name} paid ${receiver.name} ${currency || 'INR'}${amount}${paymentMethod === 'upi' ? ' via UPI' : ''}`,
-          type: 'system',
-          metadata: {
-            settlementId: settlement._id,
-            action: 'created',
-          },
-          readBy: [fromUserId, toUserId],
-        });
+        const { emitToGroup, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, groupId, 'settlement:created', populatedSettlement);
 
-        const populatedSystemMessage = await Message.findById(systemMessage._id)
-          .populate('senderId', 'name email')
-          .lean();
+        // Emit balance update (cache already invalidated above)
+        try {
+          const { calculateGroupBalances } = await import('../jobs/balanceService.js');
+          const result = await calculateGroupBalances(groupId);
+          emitBalanceUpdate(io, groupId, result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for settlement creation:', balanceError);
+          // Don't fail the request if balance emission fails
+        }
 
-        emitToGroup(io, groupId, 'chat:new', populatedSystemMessage);
-      } catch (msgError) {
-        console.error('Error creating system message for settlement:', msgError);
-        // Don't fail the request if message creation fails
+        // Create system message for chat
+        try {
+          const systemMessage = await Message.create({
+            groupId,
+            senderId: fromUserId,
+            content: `${payer.name} paid ${receiver.name} ${currency || 'INR'}${amount}${paymentMethod === 'upi' ? ' via UPI' : ''}`,
+            type: 'system',
+            metadata: {
+              settlementId: settlement._id,
+              action: 'created',
+            },
+            readBy: [fromUserId, toUserId],
+          });
+
+          const populatedSystemMessage = await Message.findById(systemMessage._id)
+            .populate('senderId', 'name email')
+            .lean();
+
+          emitToGroup(io, groupId, 'chat:new', populatedSystemMessage);
+        } catch (msgError) {
+          console.error('Error creating system message for settlement:', msgError);
+          // Don't fail the request if message creation fails
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket events for settlement creation:', socketError);
+        // Don't fail the request if socket emission fails
       }
     }
-
-    // Invalidate balance cache for this group
-    invalidateBalanceCache(groupId);
 
     res.status(201).json(populatedSettlement);
   } catch (error) {
@@ -263,15 +278,30 @@ export const updateSettlement = async (req, res) => {
       .populate('toUserId', 'name email')
       .populate('groupId', 'name');
 
+    // Invalidate balance cache for this group before emitting
+    invalidateBalanceCache(settlement.groupId._id.toString());
+
     // Emit socket event to group members
     const io = req.app.get('io');
     if (io) {
-      const { emitToGroup } = await import('../utils/socketEmitter.js');
-      emitToGroup(io, settlement.groupId._id.toString(), 'settlement:updated', updatedSettlement);
-    }
+      try {
+        const { emitToGroup, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, settlement.groupId._id.toString(), 'settlement:updated', updatedSettlement);
 
-    // Invalidate balance cache for this group
-    invalidateBalanceCache(settlement.groupId._id.toString());
+        // Emit balance update (cache already invalidated above)
+        try {
+          const { calculateGroupBalances } = await import('../jobs/balanceService.js');
+          const result = await calculateGroupBalances(settlement.groupId._id.toString());
+          emitBalanceUpdate(io, settlement.groupId._id.toString(), result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for settlement update:', balanceError);
+          // Don't fail the request if balance emission fails
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket events for settlement update:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
 
     res.json(updatedSettlement);
   } catch (error) {
@@ -306,15 +336,30 @@ export const deleteSettlement = async (req, res) => {
     const groupId = settlement.groupId._id.toString();
     await Settlement.findByIdAndDelete(req.params.id);
 
+    // Invalidate balance cache for this group before emitting
+    invalidateBalanceCache(groupId);
+
     // Emit socket event to group members
     const io = req.app.get('io');
     if (io) {
-      const { emitToGroup } = await import('../utils/socketEmitter.js');
-      emitToGroup(io, groupId, 'settlement:deleted', { settlementId: req.params.id });
-    }
+      try {
+        const { emitToGroup, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, groupId, 'settlement:deleted', { settlementId: req.params.id });
 
-    // Invalidate balance cache for this group
-    invalidateBalanceCache(groupId);
+        // Emit balance update (cache already invalidated above)
+        try {
+          const { calculateGroupBalances } = await import('../jobs/balanceService.js');
+          const result = await calculateGroupBalances(groupId);
+          emitBalanceUpdate(io, groupId, result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for settlement deletion:', balanceError);
+          // Don't fail the request if balance emission fails
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket events for settlement deletion:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
 
     res.json({ message: 'Settlement deleted successfully', success: true });
   } catch (error) {
@@ -371,11 +416,29 @@ export const confirmPaymentReceipt = async (req, res) => {
       .populate('toUserId', 'name email')
       .populate('groupId', 'name');
 
+    // Invalidate balance cache for this group before emitting
+    invalidateBalanceCache(settlement.groupId._id.toString());
+
     // Emit socket event to group members for real-time update
     const io = req.app.get('io');
     if (io) {
-      const { emitToGroup } = await import('../utils/socketEmitter.js');
-      emitToGroup(io, settlement.groupId._id.toString(), 'settlement:updated', updatedSettlement);
+      try {
+        const { emitToGroup, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, settlement.groupId._id.toString(), 'settlement:updated', updatedSettlement);
+
+        // Emit balance update (cache already invalidated above)
+        try {
+          const { calculateGroupBalances } = await import('../jobs/balanceService.js');
+          const result = await calculateGroupBalances(settlement.groupId._id.toString());
+          emitBalanceUpdate(io, settlement.groupId._id.toString(), result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for payment confirmation:', balanceError);
+          // Don't fail the request if balance emission fails
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket events for payment confirmation:', socketError);
+        // Don't fail the request if socket emission fails
+      }
     }
 
     // Send push notification to the payer about confirmation
@@ -391,9 +454,6 @@ export const confirmPaymentReceipt = async (req, res) => {
       console.error('Push notification failed:', pushError);
       // Don't fail the request if push fails
     }
-
-    // Invalidate balance cache for this group
-    invalidateBalanceCache(settlement.groupId._id.toString());
 
     res.json(updatedSettlement);
   } catch (error) {

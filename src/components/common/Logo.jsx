@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wallet } from 'lucide-react';
+import { CreditCard } from 'lucide-react';
 
 const Logo = ({ size = 'md' }) => {
   const sizeClasses = {
@@ -16,8 +16,8 @@ const Logo = ({ size = 'md' }) => {
 
   return (
     <div className="flex items-center gap-2">
-      <div className="p-2 rounded-xl bg-primary text-primary-foreground">
-        <Wallet size={iconSizes[size]} />
+      <div className="p-2 rounded bg-primary text-primary-foreground">
+        <CreditCard size={iconSizes[size]} />
       </div>
       <span className={`font-display font-bold text-foreground ${sizeClasses[size]}`}>
         Split-It

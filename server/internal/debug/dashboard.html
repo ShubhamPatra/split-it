@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Split-It Debug Portal</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #334155;
+    }
+    
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      color: #f1f5f9;
+    }
+    
+    .subtitle {
+      font-size: 14px;
+      color: #94a3b8;
+      margin-top: 4px;
+    }
+    
+    .status-badge {
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    
+    .status-healthy { background: #166534; color: #bbf7d0; }
+    .status-degraded { background: #854d0e; color: #fef08a; }
+    .status-unhealthy { background: #991b1b; color: #fecaca; }
+    
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    
+    .card {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid #334155;
+    }
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #f1f5f9;
+    }
+    
+    .service-status {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    
+    .service-working { background: #22c55e; }
+    .service-warning { background: #eab308; }
+    .service-failed { background: #ef4444; }
+    
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #334155;
+    }
+    
+    .metric:last-child {
+      border-bottom: none;
+    }
+    
+    .metric-label {
+      color: #94a3b8;
+      font-size: 14px;
+    }
+    
+    .metric-value {
+      color: #f1f5f9;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    
+    button {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .btn-primary {
+      background: #3b82f6;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: #2563eb;
+    }
+    
+    .btn-secondary {
+      background: #334155;
+      color: #e2e8f0;
+    }
+    
+    .btn-secondary:hover {
+      background: #475569;
+    }
+    
+    .btn-danger {
+      background: #dc2626;
+      color: white;
+    }
+    
+    .btn-danger:hover {
+      background: #b91c1c;
+    }
+    
+    .logs-container {
+      background: #1e293b;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      overflow: hidden;
+    }
+    
+    .logs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid #334155;
+    }
+    
+    .logs-table {
+      width: 100%;
+      overflow-x: auto;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    th, td {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 13px;
+    }
+    
+    th {
+      background: #0f172a;
+      color: #94a3b8;
+      font-weight: 500;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+    }
+    
+    tr:hover {
+      background: #334155;
+    }
+    
+    .severity-error { color: #f87171; }
+    .severity-warning { color: #facc15; }
+    .severity-info { color: #60a5fa; }
+    
+    .loading {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 40px;
+      color: #94a3b8;
+    }
+    
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid #334155;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 12px;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      animation: slideIn 0.3s ease;
+      z-index: 1000;
+    }
+    
+    .toast-success { background: #166534; color: #bbf7d0; }
+    .toast-error { background: #991b1b; color: #fecaca; }
+    
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    
+    .auth-form {
+      max-width: 400px;
+      margin: 100px auto;
+      padding: 32px;
+      background: #1e293b;
+      border-radius: 12px;
+      border: 1px solid #334155;
+    }
+    
+    .auth-form h2 {
+      margin-bottom: 24px;
+      text-align: center;
+    }
+    
+    .form-group {
+      margin-bottom: 16px;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      color: #94a3b8;
+      font-size: 14px;
+    }
+    
+    .form-group input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 14px;
+    }
+    
+    .form-group input:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+    
+    #auth-error {
+      color: #f87171;
+      font-size: 14px;
+      margin-bottom: 16px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Auth Form (shown when not authenticated) -->
+    <div id="auth-section" class="auth-form">
+      <h2>🔐 Debug Portal</h2>
+      <div id="auth-error"></div>
+      <div class="form-group">
+        <label for="auth-email">Email</label>
+        <input type="email" id="auth-email" placeholder="Enter debug email">
+      </div>
+      <div class="form-group">
+        <label for="auth-password">Password</label>
+        <input type="password" id="auth-password" placeholder="Enter debug password">
+      </div>
+      <button class="btn-primary" style="width: 100%; margin-top: 8px;" onclick="authenticate()">
+        Access Portal
+      </button>
+    </div>
+
+    <!-- Main Dashboard (shown when authenticated) -->
+    <div id="dashboard-section" style="display: none;">
+      <header>
+        <div>
+          <h1>🛠️ Split-It Debug Portal</h1>
+          <p class="subtitle">Internal debugging and monitoring dashboard</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span id="overall-status" class="status-badge">Loading...</span>
+          <button class="btn-secondary" onclick="refreshAll()">⟳ Refresh</button>
+        </div>
+      </header>
+
+      <!-- Service Health Cards -->
+      <div class="grid" id="services-grid">
+        <div class="loading">
+          <div class="spinner"></div>
+          Loading services...
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="card" style="margin-bottom: 24px;">
+        <div class="card-header">
+          <span class="card-title">🧪 Test Actions</span>
+        </div>
+        <div class="actions">
+          <button class="btn-primary" onclick="runTest('email')">Test Email</button>
+          <button class="btn-primary" onclick="runTest('socket')">Test Socket</button>
+          <button class="btn-primary" onclick="runTest('database')">Test Database</button>
+          <button class="btn-primary" onclick="runTest('notification')">Test Notification</button>
+          <button class="btn-secondary" onclick="runTest('all')">Run All Tests</button>
+        </div>
+      </div>
+
+      <!-- System Info -->
+      <div class="card" style="margin-bottom: 24px;">
+        <div class="card-header">
+          <span class="card-title">💻 System Information</span>
+        </div>
+        <div id="system-info">
+          <div class="loading">
+            <div class="spinner"></div>
+            Loading...
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent Logs -->
+      <div class="logs-container">
+        <div class="logs-header">
+          <span class="card-title">📋 Recent Logs</span>
+          <div class="actions" style="margin: 0;">
+            <button class="btn-secondary" onclick="loadLogs()">Refresh</button>
+            <button class="btn-danger" onclick="loadLogs('error')">Errors Only</button>
+          </div>
+        </div>
+        <div class="logs-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Service</th>
+                <th>Severity</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody id="logs-body">
+              <tr>
+                <td colspan="4" class="loading">
+                  <div class="spinner"></div>
+                  Loading logs...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Store credentials in memory (not localStorage for security)
+    let debugEmail = '';
+    let debugPassword = '';
+    
+    // Get base URL
+    const baseUrl = window.location.pathname.replace(/\/$/, '');
+
+    // Authenticate
+    async function authenticate() {
+      const email = document.getElementById('auth-email').value;
+      const password = document.getElementById('auth-password').value;
+      const errorEl = document.getElementById('auth-error');
+
+      if (!email || !password) {
+        errorEl.textContent = 'Please enter both email and password';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      try {
+        const response = await fetch(`${baseUrl}/health`, {
+          headers: {
+            'X-Debug-Email': email,
+            'X-Debug-Password': password,
+          },
+        });
+
+        if (response.ok) {
+          debugEmail = email;
+          debugPassword = password;
+          document.getElementById('auth-section').style.display = 'none';
+          document.getElementById('dashboard-section').style.display = 'block';
+          refreshAll();
+        } else {
+          const data = await response.json();
+          errorEl.textContent = data.message || 'Authentication failed';
+          errorEl.style.display = 'block';
+        }
+      } catch (error) {
+        errorEl.textContent = 'Connection error: ' + error.message;
+        errorEl.style.display = 'block';
+      }
+    }
+
+    // API helper
+    async function api(endpoint, options = {}) {
+      const response = await fetch(`${baseUrl}${endpoint}`, {
+        ...options,
+        headers: {
+          'X-Debug-Email': debugEmail,
+          'X-Debug-Password': debugPassword,
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      return response.json();
+    }
+
+    // Show toast notification
+    function showToast(message, type = 'success') {
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    // Refresh all data
+    async function refreshAll() {
+      await Promise.all([
+        loadHealth(),
+        loadSystemInfo(),
+        loadLogs(),
+      ]);
+    }
+
+    // Load health status
+    async function loadHealth() {
+      try {
+        const data = await api('/health');
+        
+        // Update overall status
+        const statusEl = document.getElementById('overall-status');
+        statusEl.textContent = data.status.toUpperCase();
+        statusEl.className = `status-badge status-${data.status}`;
+
+        // Update services grid
+        const grid = document.getElementById('services-grid');
+        grid.innerHTML = Object.entries(data.services).map(([name, service]) => `
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">${formatServiceName(name)}</span>
+              <div class="service-status service-${service.status}"></div>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Status</span>
+              <span class="metric-value">${service.status}</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Response Time</span>
+              <span class="metric-value">${service.responseTime}ms</span>
+            </div>
+            ${service.error ? `
+              <div class="metric">
+                <span class="metric-label">Error</span>
+                <span class="metric-value severity-error">${service.error}</span>
+              </div>
+            ` : ''}
+          </div>
+        `).join('');
+      } catch (error) {
+        showToast('Failed to load health: ' + error.message, 'error');
+      }
+    }
+
+    // Load system info
+    async function loadSystemInfo() {
+      try {
+        const data = await api('/system');
+        const el = document.getElementById('system-info');
+        
+        el.innerHTML = `
+          <div class="grid" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="metric">
+              <span class="metric-label">Node Version</span>
+              <span class="metric-value">${data.node.version}</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Environment</span>
+              <span class="metric-value">${data.environment}</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Uptime</span>
+              <span class="metric-value">${data.process.uptimeFormatted}</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Heap Used</span>
+              <span class="metric-value">${data.memory.heapUsed}</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">RSS</span>
+              <span class="metric-value">${data.memory.rss}</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">CPUs</span>
+              <span class="metric-value">${data.os.cpus}</span>
+            </div>
+          </div>
+        `;
+      } catch (error) {
+        showToast('Failed to load system info: ' + error.message, 'error');
+      }
+    }
+
+    // Load logs
+    async function loadLogs(severity = null) {
+      try {
+        const endpoint = severity ? `/logs?severity=${severity}&limit=50` : '/logs?limit=50';
+        const data = await api(endpoint);
+        const tbody = document.getElementById('logs-body');
+
+        if (data.logs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #94a3b8;">No logs found</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.logs.map(log => `
+          <tr>
+            <td style="white-space: nowrap; color: #94a3b8;">${formatTimestamp(log.timestamp)}</td>
+            <td>${log.service}</td>
+            <td class="severity-${log.severity}">${log.severity}</td>
+            <td style="max-width: 500px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(log.message)}</td>
+          </tr>
+        `).join('');
+      } catch (error) {
+        showToast('Failed to load logs: ' + error.message, 'error');
+      }
+    }
+
+    // Run test
+    async function runTest(type) {
+      try {
+        showToast(`Running ${type} test...`);
+        const data = await api(`/test/${type}`, { method: 'POST' });
+        
+        if (data.success || data.overallSuccess) {
+          showToast(`${type} test passed!`, 'success');
+        } else {
+          showToast(`${type} test failed: ${data.error || 'Unknown error'}`, 'error');
+        }
+      } catch (error) {
+        showToast(`Test error: ${error.message}`, 'error');
+      }
+    }
+
+    // Helper functions
+    function formatServiceName(name) {
+      const names = {
+        mongodb: '🗄️ MongoDB',
+        socketio: '🔌 Socket.IO',
+        email: '📧 Email',
+        apiServer: '🌐 API Server',
+        notifications: '🔔 Notifications',
+        jobs: '⏰ Background Jobs',
+      };
+      return names[name] || name;
+    }
+
+    function formatTimestamp(ts) {
+      return new Date(ts).toLocaleTimeString();
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Handle enter key in auth form
+    document.getElementById('auth-password').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') authenticate();
+    });
+  </script>
+</body>
+</html>

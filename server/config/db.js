@@ -1,5 +1,17 @@
 import mongoose from 'mongoose';
 
+// Debug log helper (lazy loaded)
+const logDbEvent = async (event, data = {}) => {
+  if (process.env.DEBUG_ENABLED === 'true') {
+    try {
+      const { logDatabaseEvent } = await import('../internal/debug/logCollector.js');
+      logDatabaseEvent(event, data);
+    } catch (e) {
+      // Debug portal not available, ignore
+    }
+  }
+};
+
 const connectDB = async () => {
   const options = {
     maxPoolSize: 10,           // Connection pool size
@@ -18,6 +30,7 @@ const connectDB = async () => {
     try {
       await mongoose.connect(process.env.MONGODB_URI, options);
       console.log(`MongoDB Connected: ${mongoose.connection.host}`);
+      logDbEvent('connected', { host: mongoose.connection.host });
       break;
     } catch (error) {
       retries--;
@@ -33,10 +46,17 @@ const connectDB = async () => {
   // Connection event handlers
   mongoose.connection.on('error', (err) => {
     console.error('MongoDB connection error:', err);
+    logDbEvent('error', { error: err.message });
   });
   
   mongoose.connection.on('disconnected', () => {
     console.warn('MongoDB disconnected. Attempting to reconnect...');
+    logDbEvent('disconnected');
+  });
+
+  mongoose.connection.on('reconnected', () => {
+    console.log('MongoDB reconnected');
+    logDbEvent('reconnected', { host: mongoose.connection.host });
   });
 };
 

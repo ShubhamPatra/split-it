@@ -81,7 +81,7 @@ const Summary = () => {
               <Card className="group animate-fade-in border-border/50 shadow-sm hover:shadow-lg hover:border-success/30 transition-all duration-300" style={{ animationDelay: '0.1s' }}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-xl bg-gradient-to-br from-success/20 to-success/5 border border-success/20 group-hover:scale-110 transition-transform duration-300">
+                    <div className="p-3 rounded bg-success/10 border border-success/20 group-hover:scale-110 transition-transform duration-300">
                       <TrendingUp className="text-success" size={22} />
                     </div>
                     <div className="min-w-0">
@@ -95,7 +95,7 @@ const Summary = () => {
               <Card className="group animate-fade-in border-border/50 shadow-sm hover:shadow-lg hover:border-destructive/30 transition-all duration-300" style={{ animationDelay: '0.15s' }}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-xl bg-gradient-to-br from-destructive/20 to-destructive/5 border border-destructive/20 group-hover:scale-110 transition-transform duration-300">
+                    <div className="p-3 rounded bg-destructive/10 border border-destructive/20 group-hover:scale-110 transition-transform duration-300">
                       <TrendingDown className="text-destructive" size={22} />
                     </div>
                     <div className="min-w-0">
@@ -109,7 +109,7 @@ const Summary = () => {
               <Card className="group animate-fade-in border-border/50 shadow-sm hover:shadow-lg hover:border-primary/30 transition-all duration-300" style={{ animationDelay: '0.2s' }}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 group-hover:scale-110 transition-transform duration-300">
+                    <div className="p-3 rounded bg-primary/10 border border-primary/20 group-hover:scale-110 transition-transform duration-300">
                       <Scale className="text-primary" size={22} />
                     </div>
                     <div className="min-w-0">
@@ -125,7 +125,7 @@ const Summary = () => {
               <Card className="group animate-fade-in border-border/50 shadow-sm hover:shadow-lg hover:border-info/30 transition-all duration-300" style={{ animationDelay: '0.25s' }}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-xl bg-gradient-to-br from-info/20 to-info/5 border border-info/20 group-hover:scale-110 transition-transform duration-300">
+                    <div className="p-3 rounded bg-info/10 border border-info/20 group-hover:scale-110 transition-transform duration-300">
                       <CheckCircle className="text-info" size={22} />
                     </div>
                     <div className="min-w-0">
@@ -149,10 +149,10 @@ const Summary = () => {
                   <ArrowRight size={16} />
                 </Button>
               </div>
-              
+
               <div className="space-y-3">
                 {groupExpenseSummary.map((summary, index) => (
-                  <Card 
+                  <Card
                     key={summary.group.id}
                     onClick={() => navigate(`/group/${summary.group.id}`)}
                     className="cursor-pointer border-border/50 shadow-sm hover:shadow-lg hover:border-primary/30 transition-all duration-300 animate-fade-in group"
@@ -188,7 +188,7 @@ const Summary = () => {
               {groupExpenseSummary.length === 0 && (
                 <Card className="border-border/50 shadow-sm">
                   <CardContent className="p-8 sm:p-12 text-center">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-muted/80 to-muted/40 flex items-center justify-center mx-auto mb-4">
+                    <div className="w-16 h-16 rounded bg-muted/50 flex items-center justify-center mx-auto mb-4">
                       <PieChart className="text-muted-foreground" size={32} />
                     </div>
                     <h3 className="font-display font-semibold text-lg text-foreground mb-2">No data yet</h3>
@@ -207,7 +207,7 @@ const Summary = () => {
           <aside className="hidden lg:block lg:col-span-4 xl:col-span-3">
             <div className="sticky top-24 space-y-6">
               {/* Net Balance Card */}
-              <Card className={`border-2 shadow-md animate-fade-in overflow-hidden ${netBalance >= 0 ? 'border-success/30 bg-gradient-to-br from-success/5 to-transparent' : 'border-destructive/30 bg-gradient-to-br from-destructive/5 to-transparent'}`} style={{ animationDelay: '0.35s' }}>
+              <Card className={`border-2 shadow-md animate-fade-in overflow-hidden ${netBalance >= 0 ? 'border-success/30 bg-muted/30' : 'border-destructive/30 bg-muted/30'}`} style={{ animationDelay: '0.35s' }}>
                 <CardContent className="p-5">
                   <div className="text-center">
                     <div className={`inline-flex p-4 rounded-2xl ${netBalance >= 0 ? 'bg-success/20 border border-success/30' : 'bg-destructive/20 border border-destructive/30'} mb-4`}>

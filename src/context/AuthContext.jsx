@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import apiClient from '../lib/apiClient';
 import { initializePushNotifications, unsubscribeFromPush } from '../utils/registerServiceWorker';
+import { initializeSocket, disconnectSocket } from '../lib/socketClient';
 
 // Create the context with default values
 const AuthContext = createContext(undefined);
@@ -38,6 +39,22 @@ export const AuthProvider = ({ children }) => {
     
     return session;
   };
+
+  // Socket lifecycle management - single owner pattern
+  // AuthContext owns the socket connection, initializes on login, disconnects on logout
+  const socketInitializedRef = useRef(false);
+  
+  useEffect(() => {
+    if (user && !socketInitializedRef.current) {
+      // Initialize socket after successful login
+      initializeSocket();
+      socketInitializedRef.current = true;
+    } else if (!user && socketInitializedRef.current) {
+      // Disconnect socket on logout
+      disconnectSocket();
+      socketInitializedRef.current = false;
+    }
+  }, [user]);
 
   // Load user session on mount
   useEffect(() => {

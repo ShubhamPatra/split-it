@@ -12,77 +12,46 @@ export const ThemeProvider = ({ children }) => {
   const [theme, setTheme] = useState(() => {
     // Check localStorage first
     const stored = localStorage.getItem('splitit_theme');
-    if (stored && ['light', 'dark', 'system'].includes(stored)) {
+    if (stored && ['light', 'dark'].includes(stored)) {
       return stored;
     }
-    // Default to system preference
-    return 'system';
-  });
-
-  const [resolvedTheme, setResolvedTheme] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
+    // Default to light theme
     return 'light';
   });
 
-  // Listen for system theme changes
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    
-    const handleChange = (e) => {
-      if (theme === 'system') {
-        setResolvedTheme(e.matches ? 'dark' : 'light');
-      }
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [theme]);
+  const [resolvedTheme, setResolvedTheme] = useState('light');
 
   // Update resolved theme and apply class
   useEffect(() => {
-    let effectiveTheme;
-    
-    if (theme === 'system') {
-      effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    } else {
-      effectiveTheme = theme;
-    }
-    
-    setResolvedTheme(effectiveTheme);
-    
+    setResolvedTheme(theme);
+
     // Apply or remove dark class from document
     const root = document.documentElement;
-    if (effectiveTheme === 'dark') {
+    if (theme === 'dark') {
       root.classList.add('dark');
     } else {
       root.classList.remove('dark');
     }
-    
+
     // Store preference
     localStorage.setItem('splitit_theme', theme);
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme(prev => {
-      if (prev === 'light') return 'dark';
-      if (prev === 'dark') return 'system';
-      return 'light';
-    });
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
 
   const setThemeValue = (newTheme) => {
-    if (['light', 'dark', 'system'].includes(newTheme)) {
+    if (['light', 'dark'].includes(newTheme)) {
       setTheme(newTheme);
     }
   };
 
   return (
-    <ThemeContext.Provider value={{ 
-      theme, 
-      resolvedTheme, 
-      toggleTheme, 
+    <ThemeContext.Provider value={{
+      theme,
+      resolvedTheme,
+      toggleTheme,
       setTheme: setThemeValue,
       isDark: resolvedTheme === 'dark',
     }}>

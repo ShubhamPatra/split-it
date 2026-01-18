@@ -24,8 +24,9 @@ export const ChatProvider = ({ children }) => {
   
   const { user } = useAuth();
   const typingTimeoutRef = useRef({});
-  // Use ref to track subscribed groups to avoid dependency issues
-  const subscribedGroupsRef = useRef(new Set());
+  // Comment 4: Use Map<groupId, count> for reference-counted subscriptions
+  // This prevents leave:group from being emitted when multiple components subscribe to same group
+  const subscribedGroupsRef = useRef(new Map()); // Map<groupId, subscriptionCount>
   // Track group access order for LRU eviction
   const groupAccessOrderRef = useRef([]);
   // Deduplication for unread count fetches
@@ -459,37 +460,51 @@ export const ChatProvider = ({ children }) => {
   }, [user]);
 
   // Subscribe to a group's chat events
+  // Comment 4: Reference-counted subscriptions - increments count if already subscribed
   const subscribeToGroup = useCallback((groupId) => {
-    if (!groupId || subscribedGroupsRef.current.has(groupId)) return;
+    if (!groupId) return;
     
-    const socket = initializeSocket();
-    if (!socket) return;
+    const currentCount = subscribedGroupsRef.current.get(groupId) || 0;
+    subscribedGroupsRef.current.set(groupId, currentCount + 1);
     
-    // Join the group room
-    socket.emit('join:group', groupId);
-    
-    subscribedGroupsRef.current.add(groupId);
-    
-    // Fetch initial unread count
-    fetchUnreadCount(groupId);
+    // Only emit join:group if this is the first subscription
+    if (currentCount === 0) {
+      const socket = initializeSocket();
+      if (!socket) return;
+      
+      // Join the group room
+      socket.emit('join:group', groupId);
+      
+      // Fetch initial unread count
+      fetchUnreadCount(groupId);
+    }
   }, [fetchUnreadCount]);
 
   // Unsubscribe from a group's chat events
+  // Comment 4: Reference-counted subscriptions - only emits leave:group when count reaches 0
   const unsubscribeFromGroup = useCallback((groupId) => {
     if (!groupId) return;
     
-    const socket = getSocket();
-    if (socket) {
-      socket.emit('leave:group', groupId);
-    }
+    const currentCount = subscribedGroupsRef.current.get(groupId) || 0;
     
-    // Clear typing timeout
-    if (typingTimeoutRef.current[groupId]) {
-      clearTimeout(typingTimeoutRef.current[groupId]);
-      delete typingTimeoutRef.current[groupId];
+    if (currentCount <= 1) {
+      // Last subscription, actually leave the group
+      subscribedGroupsRef.current.delete(groupId);
+      
+      const socket = getSocket();
+      if (socket) {
+        socket.emit('leave:group', groupId);
+      }
+      
+      // Clear typing timeout
+      if (typingTimeoutRef.current[groupId]) {
+        clearTimeout(typingTimeoutRef.current[groupId]);
+        delete typingTimeoutRef.current[groupId];
+      }
+    } else {
+      // Decrement count, don't actually leave
+      subscribedGroupsRef.current.set(groupId, currentCount - 1);
     }
-    
-    subscribedGroupsRef.current.delete(groupId);
   }, []);
 
   // Socket event listeners
@@ -686,8 +701,11 @@ export const ChatProvider = ({ children }) => {
     // Handle reconnection - rejoin all subscribed groups
     const handleReconnect = () => {
       console.log('Socket reconnected, rejoining groups...');
-      subscribedGroupsRef.current.forEach(groupId => {
-        socket.emit('join:group', groupId);
+      // Comment 4: Iterate over Map keys instead of Set
+      subscribedGroupsRef.current.forEach((count, groupId) => {
+        if (count > 0) {
+          socket.emit('join:group', groupId);
+        }
       });
     };
     socket.on('connect', handleReconnect);
@@ -714,7 +732,7 @@ export const ChatProvider = ({ children }) => {
       setTypingUsers({});
       setOnlineUsers({});
       setHasMoreMessages({});
-      subscribedGroupsRef.current.clear();
+      subscribedGroupsRef.current.clear(); // Works for both Set and Map
     }
   }, [user]);
 

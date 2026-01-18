@@ -1,76 +1,86 @@
-# name: Deploy to EC2
+name: Deploy to EC2
 
-# on:
-#   push:
-#     branches:
-#       - master
-#       - main
+on:
+  push:
+    branches:
+      - master
+      - main
 
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
     
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v3
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       
-#       - name: Deploy to EC2
-#         env:
-#           EC2_HOST: ${{ secrets.EC2_HOST }}
-#           EC2_USER: ${{ secrets.EC2_USER }}
-#           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-#           EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT || 22 }}
-#         run: |
-#           # Create SSH key file
-#           mkdir -p ~/.ssh
-#           echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
-#           chmod 600 ~/.ssh/deploy_key
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
+        run: |
+          # Set default port if not specified
+          EC2_SSH_PORT="${EC2_SSH_PORT:-22}"
           
-#           # Add EC2 to known_hosts
-#           ssh-keyscan -p $EC2_SSH_PORT $EC2_HOST >> ~/.ssh/known_hosts 2>/dev/null
+          # Create SSH key file
+          mkdir -p ~/.ssh
+          echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
           
-#           # Deploy via SSH
-#           ssh -i ~/.ssh/deploy_key -p $EC2_SSH_PORT $EC2_USER@$EC2_HOST << 'EOF'
-#             cd ~/split-it
-            
-#             echo "=== Backing up env files ==="
-#             cp deploy/env/.env.production /tmp/.env.production.server.backup 2>/dev/null || true
-#             cp .env.production /tmp/.env.production.frontend.backup 2>/dev/null || true
-            
-#             echo "=== Pulling latest code ==="
-#             # Stash any local changes and handle untracked files
-#             git stash --include-untracked || true
-#             git fetch origin
-#             git reset --hard origin/master || git reset --hard origin/main
-            
-#             echo "=== Restoring env files ==="
-#             mkdir -p deploy/env
-#             cp /tmp/.env.production.server.backup deploy/env/.env.production 2>/dev/null || echo "Warning: No server env backup found"
-#             cp /tmp/.env.production.frontend.backup .env.production 2>/dev/null || echo "Warning: No frontend env backup found"
-            
-#             echo "=== Building frontend ==="
-#             npm run build
-            
-#             echo "=== Stopping containers ==="
-#             docker-compose -f deploy/docker/docker-compose.production.yml down
-            
-#             echo "=== Clearing nginx cache ==="
-#             docker system prune -f || true
-            
-#             echo "=== Starting containers ==="
-#             docker-compose -f deploy/docker/docker-compose.production.yml --env-file deploy/env/.env.production up -d --force-recreate
-            
-#             echo "=== Waiting for services to start ==="
-#             sleep 10
-            
-#             echo "=== Checking container status ==="
-#             docker-compose -f deploy/docker/docker-compose.production.yml ps
-            
-#             echo "=== Checking API health ==="
-#             curl -s https://split-it.live/api/health | jq . || echo "Health check failed"
-            
-#             echo "=== Deployment complete ==="
-#           EOF
+          # Add EC2 to known_hosts
+          ssh-keyscan -p $EC2_SSH_PORT $EC2_HOST >> ~/.ssh/known_hosts 2>/dev/null
           
-#           # Cleanup
-#           rm ~/.ssh/deploy_key
+          # Deploy via SSH
+          ssh -i ~/.ssh/deploy_key -p $EC2_SSH_PORT $EC2_USER@$EC2_HOST << 'EOF'
+            set -e  # Exit on any error
+            cd ~/split-it
+            
+            echo "=== Backing up .env file ==="
+            if [ -f .env ]; then
+              cp .env ~/.env.split-it.backup
+              echo "Backup created at ~/.env.split-it.backup"
+            else
+              echo "Warning: No .env file found to backup"
+            fi
+            
+            echo "=== Pulling latest code ==="
+            git stash --include-untracked || true
+            git fetch origin
+            git reset --hard origin/$(git remote show origin | grep 'HEAD branch' | awk '{print $NF}')
+            
+            echo "=== Restoring .env file ==="
+            if [ -f ~/.env.split-it.backup ]; then
+              cp ~/.env.split-it.backup .env
+              echo ".env restored successfully"
+            else
+              echo "ERROR: No .env backup found! Deployment may fail."
+              exit 1
+            fi
+            
+            echo "=== Installing dependencies ==="
+            npm install --legacy-peer-deps
+            cd server && npm install && cd ..
+            
+            echo "=== Building frontend ==="
+            npm run build
+            
+            echo "=== Restarting containers ==="
+            docker compose down
+            docker compose up -d --build
+            
+            echo "=== Waiting for services to start ==="
+            sleep 15
+            
+            echo "=== Checking container status ==="
+            docker compose ps
+            
+            echo "=== Checking API health ==="
+            curl -sf http://localhost:5000/api/health | jq . || echo "Health check failed - check logs with: docker compose logs api"
+            
+            echo "=== Deployment complete ==="
+          EOF
+          
+          # Cleanup
+          rm -f ~/.ssh/deploy_key

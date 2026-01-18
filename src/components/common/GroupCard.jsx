@@ -24,14 +24,14 @@ const GroupCard = React.memo(({ group }) => {
   const { getTotalExpenses, deleteGroup, getGroupSettlements, getUserProfile } = useGroups();
   const { getUnreadCount } = useChat();
   const { toast } = useToast();
-  
+
   // Memoize expensive calculations
   // Note: expenses are lazy-loaded per group, so count may be 0 until group is visited
   const totalExpenses = useMemo(() => getTotalExpenses(group.id), [group.id, getTotalExpenses]);
   const settlementCount = useMemo(() => getGroupSettlements(group.id).length, [group.id, getGroupSettlements]);
   const formattedDate = useMemo(() => new Date(group.createdAt).toLocaleDateString(), [group.createdAt]);
   const unreadCount = getUnreadCount(group.id);
-  
+
   // Only creator can delete the group
   const isCreator = user?.id === group.createdBy;
 
@@ -44,11 +44,10 @@ const GroupCard = React.memo(({ group }) => {
   const handleCardClick = () => navigate(`/group/${group.id}`);
 
   return (
-    <div 
-      onClick={handleCardClick} 
-      className="relative overflow-hidden bg-card rounded-xl p-5 border border-border/50 shadow-sm cursor-pointer group/card animate-fade-in w-full
-        hover:shadow-xl hover:border-primary/30 hover:scale-[1.02] transition-all duration-300
-        before:absolute before:inset-0 before:bg-gradient-to-br before:from-primary/5 before:via-transparent before:to-success/5 before:opacity-0 before:transition-opacity before:duration-500 group-hover/card:before:opacity-100"
+    <div
+      onClick={handleCardClick}
+      className="relative overflow-hidden bg-card rounded p-5 border border-border shadow-sm cursor-pointer group/card animate-fade-in w-full
+        hover:shadow-md hover:border-primary/30 transition-all duration-200"
     >
       <div className="relative z-10">
         <div className="flex items-start justify-between mb-4 gap-2">
@@ -68,10 +67,10 @@ const GroupCard = React.memo(({ group }) => {
             {isCreator && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10" 
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Trash2 size={18} />
@@ -93,7 +92,7 @@ const GroupCard = React.memo(({ group }) => {
           </div>
         </div>
         <div className="flex items-center gap-2 mb-4">
-          <div className="p-2 rounded-lg bg-primary/10">
+          <div className="p-2 rounded bg-primary/10">
             <Users size={16} className="text-primary flex-shrink-0" />
           </div>
           <span className="text-xs sm:text-sm text-muted-foreground">{group.members.length} members</span>
@@ -102,13 +101,13 @@ const GroupCard = React.memo(({ group }) => {
           {group.members.slice(0, 3).map(memberId => {
             const profile = getUserProfile(memberId);
             const displayName = profile?.name?.split(' ')[0] || 'User';
-            return <span key={memberId} className="px-3 py-1 bg-gradient-to-r from-primary/10 to-primary/5 text-primary-dark border border-primary/20 rounded-full text-xs font-medium">{displayName}</span>;
+            return <span key={memberId} className="px-3 py-1 bg-primary/10 text-foreground border border-primary/20 rounded text-xs font-medium">{displayName}</span>;
           })}
-          {group.members.length > 3 && <span className="px-3 py-1 bg-muted text-muted-foreground rounded-full text-xs font-medium">+{group.members.length - 3} more</span>}
+          {group.members.length > 3 && <span className="px-3 py-1 bg-muted text-muted-foreground rounded text-xs font-medium">+{group.members.length - 3} more</span>}
         </div>
-        <div className="pt-4 border-t border-border/50">
+        <div className="pt-4 border-t border-border">
           <p className="text-xs sm:text-sm text-muted-foreground mb-1">Total Expenses</p>
-          <p className="font-display font-bold text-2xl sm:text-3xl bg-gradient-to-r from-primary to-primary-dark bg-clip-text text-transparent truncate">₹{totalExpenses.toLocaleString()}</p>
+          <p className="font-display font-bold text-2xl sm:text-3xl text-foreground truncate">₹{totalExpenses.toLocaleString()}</p>
         </div>
       </div>
     </div>

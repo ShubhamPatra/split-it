@@ -108,7 +108,7 @@ const Analytics = () => {
     return expDate.getMonth() === now.getMonth() && expDate.getFullYear() === now.getFullYear();
   });
   const thisMonthTotal = thisMonthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-  
+
   // Top category calculation
   const topCategory = categoryData.length > 0 ? categoryData[0] : null;
   const topCategoryPercentage = topCategory && totalExpenses > 0 ? (topCategory.value / totalExpenses) * 100 : 0;
@@ -157,7 +157,7 @@ const Analytics = () => {
                 <Card className="group animate-fade-in border-border/50 shadow-sm hover:shadow-lg hover:border-primary/30 transition-all duration-300 min-w-[200px] sm:min-w-0 snap-start" style={{ animationDelay: '0.1s' }}>
                   <CardContent className="p-4 sm:p-5">
                     <div className="flex items-center gap-3">
-                      <div className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 group-hover:scale-110 transition-transform duration-300"><BarChart3 className="text-primary" size={20} /></div>
+                      <div className="p-2.5 sm:p-3 rounded bg-primary/10 border border-primary/20 group-hover:scale-110 transition-transform duration-300"><BarChart3 className="text-primary" size={20} /></div>
                       <div className="min-w-0">
                         <p className="text-xs sm:text-sm text-muted-foreground mb-0.5">Total Expenses</p>
                         <p className="font-display text-xl sm:text-2xl font-bold text-foreground truncate tracking-tight">{formatAmount(totalExpenses)}</p>
@@ -168,7 +168,7 @@ const Analytics = () => {
                 <Card className="group animate-fade-in border-border/50 shadow-sm hover:shadow-lg hover:border-success/30 transition-all duration-300 min-w-[200px] sm:min-w-0 snap-start" style={{ animationDelay: '0.15s' }}>
                   <CardContent className="p-4 sm:p-5">
                     <div className="flex items-center gap-3">
-                      <div className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-success/20 to-success/5 border border-success/20 group-hover:scale-110 transition-transform duration-300"><ArrowUpRight className="text-success" size={20} /></div>
+                      <div className="p-2.5 sm:p-3 rounded bg-success/10 border border-success/20 group-hover:scale-110 transition-transform duration-300"><ArrowUpRight className="text-success" size={20} /></div>
                       <div className="min-w-0">
                         <p className="text-xs sm:text-sm text-muted-foreground mb-0.5">You're Owed</p>
                         <p className="font-display text-xl sm:text-2xl font-bold text-success truncate tracking-tight">{formatAmount(totalOwed)}</p>
@@ -179,7 +179,7 @@ const Analytics = () => {
                 <Card className="group animate-fade-in border-border/50 shadow-sm hover:shadow-lg hover:border-destructive/30 transition-all duration-300 min-w-[200px] sm:min-w-0 snap-start" style={{ animationDelay: '0.2s' }}>
                   <CardContent className="p-4 sm:p-5">
                     <div className="flex items-center gap-3">
-                      <div className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-destructive/20 to-destructive/5 border border-destructive/20 group-hover:scale-110 transition-transform duration-300"><ArrowDownRight className="text-destructive" size={20} /></div>
+                      <div className="p-2.5 sm:p-3 rounded bg-destructive/10 border border-destructive/20 group-hover:scale-110 transition-transform duration-300"><ArrowDownRight className="text-destructive" size={20} /></div>
                       <div className="min-w-0">
                         <p className="text-xs sm:text-sm text-muted-foreground mb-0.5">You Owe</p>
                         <p className="font-display text-xl sm:text-2xl font-bold text-destructive truncate tracking-tight">{formatAmount(totalOwes)}</p>
@@ -190,7 +190,7 @@ const Analytics = () => {
                 <Card className="group animate-fade-in border-border/50 shadow-sm hover:shadow-lg hover:border-warning/30 transition-all duration-300 min-w-[200px] sm:min-w-0 snap-start" style={{ animationDelay: '0.25s' }}>
                   <CardContent className="p-4 sm:p-5">
                     <div className="flex items-center gap-3">
-                      <div className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-br from-warning/20 to-warning/5 border border-warning/20 group-hover:scale-110 transition-transform duration-300"><TrendingUp className="text-warning" size={20} /></div>
+                      <div className="p-2.5 sm:p-3 rounded bg-warning/10 border border-warning/20 group-hover:scale-110 transition-transform duration-300"><TrendingUp className="text-warning" size={20} /></div>
                       <div className="min-w-0">
                         <p className="text-xs sm:text-sm text-muted-foreground mb-0.5">Avg. Expense</p>
                         <p className="font-display text-xl sm:text-2xl font-bold text-foreground truncate tracking-tight">{formatAmount(avgExpense)}</p>
@@ -203,88 +203,88 @@ const Analytics = () => {
 
             {/* Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 lg:mb-8">
-          <Card className="animate-fade-in border-border/50 shadow-sm" style={{ animationDelay: '0.5s' }}>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <div className="p-1.5 rounded-lg bg-primary/10"><PieChartIcon size={16} className="text-primary" /></div>
-                Spending by Category
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {categoryData.length > 0 ? (
-                <div className="h-[280px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={categoryData} cx="50%" cy="50%" outerRadius={100} innerRadius={55} paddingAngle={3} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                        {categoryData.map((_, index) => (<Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="h-[280px] flex flex-col items-center justify-center text-muted-foreground">
-                  <PieChartIcon size={40} className="mb-3 opacity-30" />
-                  <p>No expense data available</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              <Card className="animate-fade-in border-border/50 shadow-sm" style={{ animationDelay: '0.5s' }}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <div className="p-1.5 rounded-lg bg-primary/10"><PieChartIcon size={16} className="text-primary" /></div>
+                    Spending by Category
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {categoryData.length > 0 ? (
+                    <div className="h-[280px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={categoryData} cx="50%" cy="50%" outerRadius={100} innerRadius={55} paddingAngle={3} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                            {categoryData.map((_, index) => (<Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />))}
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="h-[280px] flex flex-col items-center justify-center text-muted-foreground">
+                      <PieChartIcon size={40} className="mb-3 opacity-30" />
+                      <p>No expense data available</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
-          <Card className="animate-fade-in border-border/50 shadow-sm" style={{ animationDelay: '0.6s' }}>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <div className="p-1.5 rounded-lg bg-info/10"><Calendar size={16} className="text-info" /></div>
-                Monthly Spending Trend
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {monthlyData.length > 0 ? (
-                <div className="h-[280px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={monthlyData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} />
-                      <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`} />
-                      <Line type="monotone" dataKey="amount" stroke="hsl(var(--primary))" strokeWidth={3} dot={{ fill: 'hsl(var(--primary))', strokeWidth: 2, r: 4 }} activeDot={{ r: 6 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="h-[280px] flex flex-col items-center justify-center text-muted-foreground">
-                  <Calendar size={40} className="mb-3 opacity-30" />
-                  <p>No monthly data available</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              <Card className="animate-fade-in border-border/50 shadow-sm" style={{ animationDelay: '0.6s' }}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <div className="p-1.5 rounded-lg bg-info/10"><Calendar size={16} className="text-info" /></div>
+                    Monthly Spending Trend
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {monthlyData.length > 0 ? (
+                    <div className="h-[280px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={monthlyData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                          <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`} />
+                          <Line type="monotone" dataKey="amount" stroke="hsl(var(--primary))" strokeWidth={3} dot={{ fill: 'hsl(var(--primary))', strokeWidth: 2, r: 4 }} activeDot={{ r: 6 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="h-[280px] flex flex-col items-center justify-center text-muted-foreground">
+                      <Calendar size={40} className="mb-3 opacity-30" />
+                      <p>No monthly data available</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
-          <Card className="animate-fade-in lg:col-span-2 border-border/50 shadow-sm" style={{ animationDelay: '0.5s' }}>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <div className="p-1.5 rounded-lg bg-warning/10"><BarChart3 size={16} className="text-warning" /></div>
-                Spending by Group
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {groupData.length > 0 ? (
-                <div className="h-[280px] sm:h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={groupData} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis type="number" stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`} />
-                      <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} width={90} />
-                      <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[0, 6, 6, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="h-[280px] flex flex-col items-center justify-center text-muted-foreground">
-                  <BarChart3 size={40} className="mb-3 opacity-30" />
-                  <p>No group data available</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              <Card className="animate-fade-in lg:col-span-2 border-border/50 shadow-sm" style={{ animationDelay: '0.5s' }}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <div className="p-1.5 rounded-lg bg-warning/10"><BarChart3 size={16} className="text-warning" /></div>
+                    Spending by Group
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {groupData.length > 0 ? (
+                    <div className="h-[280px] sm:h-[300px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={groupData} layout="vertical">
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis type="number" stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`} />
+                          <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} width={90} />
+                          <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[0, 6, 6, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="h-[280px] flex flex-col items-center justify-center text-muted-foreground">
+                      <BarChart3 size={40} className="mb-3 opacity-30" />
+                      <p>No group data available</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
 
             {/* Category Breakdown */}
@@ -330,7 +330,7 @@ const Analytics = () => {
           <aside className="hidden lg:block lg:col-span-4 xl:col-span-3">
             <div className="sticky top-24 space-y-6">
               {/* Net Balance Card */}
-              <Card className={`border-2 shadow-md animate-fade-in overflow-hidden ${netBalance >= 0 ? 'border-success/30 bg-gradient-to-br from-success/5 to-transparent' : 'border-destructive/30 bg-gradient-to-br from-destructive/5 to-transparent'}`} style={{ animationDelay: '0.3s' }}>
+              <Card className={`border-2 shadow-md animate-fade-in overflow-hidden ${netBalance >= 0 ? 'border-success/30 bg-muted/30' : 'border-destructive/30 bg-muted/30'}`} style={{ animationDelay: '0.3s' }}>
                 <CardContent className="p-5">
                   <div className="text-center">
                     <div className={`inline-flex p-4 rounded-2xl ${netBalance >= 0 ? 'bg-success/20 border border-success/30' : 'bg-destructive/20 border border-destructive/30'} mb-4`}>

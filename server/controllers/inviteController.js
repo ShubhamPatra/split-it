@@ -380,6 +380,10 @@ export const joinViaInvite = async (req, res) => {
             console.error('Failed to create notification:', notifError);
           }
 
+          // Invalidate socket group membership cache before emitting events
+          // so new member is recognized when joining group room
+          invalidateGroupMembershipCache(group._id.toString());
+
           // Emit socket event
           const io = req.app.get('io');
           if (io) {
@@ -391,13 +395,41 @@ export const joinViaInvite = async (req, res) => {
                 email: req.user.email
               },
             });
+
+            // Emit group:join alias for contract alignment
+            emitToGroup(io, group._id.toString(), 'group:join', {
+              groupId: group._id.toString(),
+              member: {
+                id: req.user._id.toString(),
+                name: req.user.name,
+                email: req.user.email
+              },
+            });
+
+            // Emit group:updated for member list changes
+            emitToGroup(io, group._id.toString(), 'group:updated', populatedGroup);
+            // Comment 3: Emit group:update alias for contract alignment
+            emitToGroup(io, group._id.toString(), 'group:update', populatedGroup);
+
+            // Emit group:created to the joining user's room so other sessions update
+            emitToUser(io, req.user._id.toString(), 'group:created', populatedGroup);
+
+            // Invalidate balance cache and emit fresh balances
+            try {
+              const { invalidateBalanceCache, calculateGroupBalances } = await import('../jobs/balanceService.js');
+              const { emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+              invalidateBalanceCache(group._id.toString());
+              const result = await calculateGroupBalances(group._id.toString());
+              emitBalanceUpdate(io, group._id.toString(), result.balances);
+              // Also emit balance:update to the joining user's room
+              emitToUser(io, req.user._id.toString(), 'balance:update', { groupId: group._id.toString(), balances: result.balances });
+            } catch (balanceError) {
+              console.error('Error emitting balance update for legacy invite join:', balanceError);
+            }
           }
 
           res.setHeader('X-Deprecated', 'true');
           res.setHeader('X-Deprecation-Info', 'Use /api/invites endpoints');
-
-          // Invalidate socket group membership cache
-          invalidateGroupMembershipCache(group._id.toString());
 
           return res.json({
             success: true,
@@ -471,6 +503,10 @@ export const joinViaInvite = async (req, res) => {
       // Don't fail the join operation for notification errors
     }
 
+    // Invalidate socket group membership cache before emitting events
+    // so new member is recognized when joining group room
+    invalidateGroupMembershipCache(group._id.toString());
+
     // Emit socket event
     const io = req.app.get('io');
     if (io) {
@@ -482,10 +518,38 @@ export const joinViaInvite = async (req, res) => {
           email: req.user.email
         },
       });
-    }
 
-    // Invalidate socket group membership cache
-    invalidateGroupMembershipCache(group._id.toString());
+      // Emit group:join alias for contract alignment
+      emitToGroup(io, group._id.toString(), 'group:join', {
+        groupId: group._id.toString(),
+        member: {
+          id: req.user._id.toString(),
+          name: req.user.name,
+          email: req.user.email
+        },
+      });
+
+      // Emit group:updated for member list changes
+      emitToGroup(io, group._id.toString(), 'group:updated', populatedGroup);
+      // Comment 3: Emit group:update alias for contract alignment
+      emitToGroup(io, group._id.toString(), 'group:update', populatedGroup);
+
+      // Emit group:created to the joining user's room so other sessions update
+      emitToUser(io, req.user._id.toString(), 'group:created', populatedGroup);
+
+      // Invalidate balance cache and emit fresh balances
+      try {
+        const { invalidateBalanceCache, calculateGroupBalances } = await import('../jobs/balanceService.js');
+        const { emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        invalidateBalanceCache(group._id.toString());
+        const result = await calculateGroupBalances(group._id.toString());
+        emitBalanceUpdate(io, group._id.toString(), result.balances);
+        // Also emit balance:update to the joining user's room
+        emitToUser(io, req.user._id.toString(), 'balance:update', { groupId: group._id.toString(), balances: result.balances });
+      } catch (balanceError) {
+        console.error('Error emitting balance update for invite join:', balanceError);
+      }
+    }
 
     res.json({
       success: true,

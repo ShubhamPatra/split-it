@@ -66,3 +66,35 @@ export const emitChatTyping = (io, groupId, data) => {
 export const emitChatMessageRead = (io, groupId, data) => {
   io.to(`group:${groupId}`).emit('chat:read', data);
 };
+
+// Emit balance update to group
+export const emitBalanceUpdate = (io, groupId, balances) => {
+  io.to(`group:${groupId}`).emit('balance:update', { groupId, balances });
+};
+
+// Force a user's sockets to leave a group room (when removed from group)
+// Also cleans up presence state so removed members don't appear online/typing
+export const forceLeaveGroupRoom = async (io, userId, groupId) => {
+  // Import presence cleanup functions from socket.js
+  const { removeUserPresence, removeUserTyping } = await import('../config/socket.js');
+  
+  // Clean up presence state before leaving room (async for Redis support)
+  await removeUserPresence(groupId, userId);
+  await removeUserTyping(groupId, userId);
+  
+  // Emit offline event to group so other members see the user go offline
+  io.to(`group:${groupId}`).emit('chat:userOffline', { userId, groupId });
+  
+  // Also emit typing stopped in case they were typing
+  io.to(`group:${groupId}`).emit('chat:typing', {
+    userId,
+    isTyping: false,
+    groupId,
+  });
+  
+  // Force all user's sockets to leave the group room
+  const sockets = await io.in(`user:${userId}`).fetchSockets();
+  for (const socket of sockets) {
+    socket.leave(`group:${groupId}`);
+  }
+};

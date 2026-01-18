@@ -10,24 +10,17 @@ const BalanceCard = memo(({ memberId, balance }) => {
   const userName = getUserProfile(memberId)?.name || 'User';
 
   return (
-    <div className={`relative rounded-xl p-4 animate-fade-in w-full border transition-all duration-200 hover:shadow-md overflow-hidden
-      ${isPositive ? 'bg-gradient-to-br from-success/10 via-success/5 to-transparent border-success/20 hover:border-success/40' : ''}
-      ${isNegative ? 'bg-gradient-to-br from-destructive/10 via-destructive/5 to-transparent border-destructive/20 hover:border-destructive/40' : ''}
-      ${isSettled ? 'bg-card border-border/50' : ''}
+    <div className={`relative rounded p-4 animate-fade-in w-full border transition-colors duration-200
+      ${isPositive ? 'bg-success/5 border-success/20 hover:border-success/40' : ''}
+      ${isNegative ? 'bg-destructive/5 border-destructive/20 hover:border-destructive/40' : ''}
+      ${isSettled ? 'bg-card border-border' : ''}
     `}>
-      {/* Subtle gradient overlay */}
-      {(isPositive || isNegative) && (
-        <div className={`absolute inset-0 opacity-[0.03] pointer-events-none
-          ${isPositive ? 'bg-gradient-to-r from-success to-transparent' : ''}
-          ${isNegative ? 'bg-gradient-to-r from-destructive to-transparent' : ''}
-        `} />
-      )}
-      
+
       <div className="relative flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-sm sm:text-base font-semibold flex-shrink-0 shadow-inner
-            ${isPositive ? 'bg-success/15 text-success' : ''}
-            ${isNegative ? 'bg-destructive/15 text-destructive' : ''}
+          <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded flex items-center justify-center text-sm sm:text-base font-semibold flex-shrink-0
+            ${isPositive ? 'bg-success/10 text-success' : ''}
+            ${isNegative ? 'bg-destructive/10 text-destructive' : ''}
             ${isSettled ? 'bg-muted text-muted-foreground' : ''}
           `}>
             {userName.charAt(0).toUpperCase()}
@@ -41,13 +34,13 @@ const BalanceCard = memo(({ memberId, balance }) => {
             `}>
               {isPositive && <>gets back <ArrowRight size={12} className="opacity-60" /></>}
               {isNegative && <>owes <ArrowRight size={12} className="opacity-60" /></>}
-              {isSettled && 'all settled up ✓'}
+              {isSettled && 'all settled up'}
             </p>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2 flex-shrink-0">
-          <div className={`p-1.5 rounded-lg
+          <div className={`p-1.5 rounded
             ${isPositive ? 'bg-success/10' : ''}
             ${isNegative ? 'bg-destructive/10' : ''}
             ${isSettled ? 'bg-muted' : ''}

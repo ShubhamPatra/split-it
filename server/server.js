@@ -1,13 +1,16 @@
+import dotenv from 'dotenv';
+// Load environment variables FIRST (before any process.env checks)
+dotenv.config();
+
 import express from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import helmet from 'helmet';
 import hpp from 'hpp';
 import connectDB from './config/db.js';
-import { initializeSocket, getSocketIO, stopTypingCleanup } from './config/socket.js';
+import { initializeSocket, getSocketIO, stopTypingCleanup, cleanupRedisConnections } from './config/socket.js';
 import { createIndexes } from './utils/dbIndexes.js';
 import { securityHeaders, sanitizeInput, rateLimiter } from './middleware/security.js';
 import authRoutes from './routes/authRoutes.js';
@@ -27,8 +30,15 @@ import { initializeScheduler, stopScheduler } from './jobs/scheduler.js';
 import { setSocketIO } from './jobs/notificationService.js';
 import { initializeBalanceService, stopBalanceService } from './jobs/balanceService.js';
 
-// Load environment variables
-dotenv.config();
+// Initialize log collector for debug portal (must be early)
+if (process.env.DEBUG_ENABLED === 'true') {
+  import('./internal/debug/logCollector.js').then(({ initializeLogInterception }) => {
+    initializeLogInterception();
+    console.log('Debug portal log interception initialized');
+  }).catch(err => {
+    console.warn('Failed to initialize debug log interception:', err.message);
+  });
+}
 
 // Initialize VAPID for web push notifications
 const vapidInitialized = initializeVapid();
@@ -66,8 +76,8 @@ const initializeServer = async () => {
   await connectDB();
   await createIndexes();
 
-  // Initialize Socket.IO (no Redis adapter - single instance mode)
-  io = initializeSocket(httpServer);
+  // Initialize Socket.IO (with optional Redis adapter for horizontal scaling)
+  io = await initializeSocket(httpServer);
 
   // Store io instance on app for use in controllers
   app.set('io', io);
@@ -177,6 +187,18 @@ const initializeServer = async () => {
     });
   });
 
+  // Debug portal (hidden, secured route)
+  if (process.env.DEBUG_ENABLED === 'true') {
+    try {
+      const { default: debugRoutes } = await import('./internal/debug/debug.routes.js');
+      const debugPath = process.env.DEBUG_PATH || '/__system/debug-portal-92xA';
+      app.use(debugPath, debugRoutes);
+      console.log(`Debug portal enabled at ${debugPath}`);
+    } catch (err) {
+      console.warn('Debug portal failed to initialize:', err.message);
+    }
+  }
+
   // Error handling middleware
   app.use((err, req, res, next) => {
     // Log error details (in production, use proper logging service)
@@ -191,6 +213,13 @@ const initializeServer = async () => {
     } else {
       // In production, log only essential info
       console.error(`Error: ${err.message} - Path: ${req.path}`);
+    }
+
+    // Log to debug portal collector if enabled
+    if (process.env.DEBUG_ENABLED === 'true') {
+      import('./internal/debug/logCollector.js').then(({ logApiError }) => {
+        logApiError(err, { path: req.path, method: req.method, statusCode: err.status || 500 });
+      }).catch(() => {});
     }
 
     // Don't leak error details in production
@@ -247,6 +276,10 @@ const gracefulShutdown = async (signal) => {
     // Stop socket typing cleanup
     stopTypingCleanup();
     console.log('Socket cleanup stopped');
+
+    // Close Redis connections (Comment 5)
+    await cleanupRedisConnections();
+    console.log('Redis connections closed');
 
     // Close Socket.IO connections
     const socketIO = getSocketIO();

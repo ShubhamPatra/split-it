@@ -381,9 +381,9 @@ const EditExpenseDialog = ({ open, onOpenChange, expense, group }) => {
                 <div className="text-xs sm:text-sm text-muted-foreground">
                   {splitConfig.type === 'equal'
                     ? `Each person pays ₹${(
-                        parseFloat(amount) / Object.keys(splitConfig.shares).length
+                        parseFloat(amount) / Object.keys(splitConfig.shares).filter(m => splitConfig.shares[m] > 0).length
                       ).toFixed(2)}`
-                    : `${Object.keys(splitConfig.shares).length} members involved`}
+                    : `${Object.keys(splitConfig.shares).filter(m => splitConfig.shares[m] > 0).length} members involved`}
                 </div>
               )}
             </div>

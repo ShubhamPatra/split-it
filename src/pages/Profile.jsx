@@ -46,13 +46,13 @@ const Profile = () => {
   const handleSave = async () => {
     // Reset errors
     setErrors({});
-    
+
     // Validate inputs
     const newErrors = {};
-    
+
     const trimmedName = name.trim();
     const trimmedUpiId = upiId.trim();
-    
+
     if (!trimmedName) {
       newErrors.name = 'Name is required';
     } else if (trimmedName.length < 2) {
@@ -60,11 +60,11 @@ const Profile = () => {
     } else if (trimmedName.length > 50) {
       newErrors.name = 'Name must be less than 50 characters';
     }
-    
+
     if (trimmedUpiId && !isValidUpiId(trimmedUpiId)) {
       newErrors.upiId = 'Invalid UPI ID format. Should be: username@bankname';
     }
-    
+
     // If there are errors, show them and return
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -75,9 +75,9 @@ const Profile = () => {
       });
       return;
     }
-    
+
     setIsSaving(true);
-    
+
     try {
       const success = await updateUserProfile({
         name: trimmedName,
@@ -106,7 +106,7 @@ const Profile = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
         {/* Desktop Layout */}
         <div className="lg:grid lg:grid-cols-12 lg:gap-8">
@@ -136,7 +136,7 @@ const Profile = () => {
             <Card className="mb-5 animate-fade-in border-border/50 shadow-sm hover:shadow-md transition-shadow" style={{ animationDelay: '0.1s' }}>
               <CardHeader className="pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">
+                  <div className="p-2.5 rounded bg-primary/10 border border-primary/20">
                     <User className="text-primary" size={20} />
                   </div>
                   <div>
@@ -188,7 +188,7 @@ const Profile = () => {
             <Card className="mb-5 animate-fade-in border-border/50 shadow-sm hover:shadow-md transition-shadow" style={{ animationDelay: '0.15s' }}>
               <CardHeader className="pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-success/20 to-success/5 border border-success/20">
+                  <div className="p-2.5 rounded bg-success/10 border border-success/20">
                     <Smartphone className="text-success" size={20} />
                   </div>
                   <div>
@@ -237,7 +237,7 @@ const Profile = () => {
 
                 {/* UPI ID Preview */}
                 {upiId && upiId.includes('@') && (
-                  <div className="p-4 bg-gradient-to-br from-success/10 to-success/5 rounded-xl border border-success/20">
+                  <div className="p-4 bg-success/10 rounded border border-success/20">
                     <div className="flex items-center gap-2 text-success mb-1">
                       <Check size={16} />
                       <span className="text-sm font-medium">Valid UPI ID format</span>
@@ -271,15 +271,15 @@ const Profile = () => {
             </Card>
 
             {/* Notification Settings Link */}
-            <Card 
-              className="mb-5 animate-fade-in border-border/50 shadow-sm hover:shadow-md hover:border-primary/30 transition-all cursor-pointer" 
+            <Card
+              className="mb-5 animate-fade-in border-border/50 shadow-sm hover:shadow-md hover:border-primary/30 transition-all cursor-pointer"
               style={{ animationDelay: '0.2s' }}
               onClick={() => navigate('/settings/notifications')}
             >
               <CardContent className="py-5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-warning/20 to-warning/5 border border-warning/20">
+                    <div className="p-2.5 rounded bg-warning/10 border border-warning/20">
                       <Bell className="text-warning" size={20} />
                     </div>
                     <div>
@@ -295,9 +295,9 @@ const Profile = () => {
             </Card>
 
             {/* Save Button */}
-            <Button 
-              onClick={handleSave} 
-              className="w-full min-h-[52px] h-auto text-base shadow-lg shadow-primary/25 hover:shadow-xl transition-all animate-fade-in" 
+            <Button
+              onClick={handleSave}
+              className="w-full min-h-[52px] h-auto text-base shadow-lg shadow-primary/25 hover:shadow-xl transition-all animate-fade-in"
               size="lg"
               disabled={isSaving}
               style={{ animationDelay: '0.25s' }}
@@ -321,10 +321,10 @@ const Profile = () => {
             <div className="sticky top-24 space-y-6">
               {/* User Profile Card */}
               <Card className="border-border/50 shadow-sm animate-fade-in overflow-hidden" style={{ animationDelay: '0.1s' }}>
-                <div className="h-16 bg-gradient-to-br from-primary/30 to-primary/10" />
+                <div className="h-16 bg-primary/20" />
                 <CardContent className="p-5 -mt-8">
                   <div className="text-center">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center text-2xl font-bold text-primary-foreground mx-auto mb-3 shadow-lg border-4 border-background">
+                    <div className="w-16 h-16 rounded bg-primary flex items-center justify-center text-2xl font-bold text-primary-foreground mx-auto mb-3 shadow-lg border-4 border-background">
                       {user.name.charAt(0).toUpperCase()}
                     </div>
                     <h3 className="font-display font-semibold text-lg text-foreground">{user.name}</h3>
@@ -389,9 +389,9 @@ const Profile = () => {
               </Card>
 
               {/* Logout Button */}
-              <Button 
-                onClick={logout} 
-                variant="outline" 
+              <Button
+                onClick={logout}
+                variant="outline"
                 className="w-full justify-center gap-2 h-11 border-destructive/30 text-destructive hover:bg-destructive/10 animate-fade-in"
                 style={{ animationDelay: '0.25s' }}
               >
@@ -414,9 +414,9 @@ const Profile = () => {
 
         {/* Mobile Sign Out */}
         <div className="lg:hidden mt-6 space-y-4 animate-fade-in" style={{ animationDelay: '0.3s' }}>
-          <Button 
-            onClick={logout} 
-            variant="outline" 
+          <Button
+            onClick={logout}
+            variant="outline"
             className="w-full justify-center gap-2 h-12 border-destructive/30 text-destructive hover:bg-destructive/10"
           >
             <LogOut size={18} />

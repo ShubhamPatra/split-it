@@ -1,21 +1,21 @@
 /**
  * Split-It Email Template System
  * 
- * Modern, responsive, and accessible email templates
- * Consistent with Split-It brand design system
+ * Professional fintech-grade, responsive, and accessible email templates
+ * Aligned with Split-It brand design system
  * 
  * Brand Colors:
- * - Primary: #33CC99 (teal)
- * - Primary Dark: #2AB57F
- * - Primary Light: #5EDEA8
- * - Success: #22C55E
+ * - Primary: #0b1f32 (dark navy)
+ * - Accent: #0d9488 (teal)
+ * - Action: #1a6bff (blue)
+ * - Success: #0d9488 (teal)
  * - Warning: #FBBF24
  * - Danger: #EF4444
- * - Background: #F8FAFC
+ * - Background: #f8f9fa
  * - Card: #FFFFFF
- * - Border: #E2E8F0
- * - Text Primary: #1E293B
- * - Text Muted: #64748B
+ * - Border: #e5e7eb
+ * - Text Primary: #0b1f32
+ * - Text Muted: #9ca3af
  */
 
 // ============================================
@@ -24,7 +24,7 @@
 
 const brand = {
   name: 'Split-It',
-  logo: '💸', // Emoji fallback for email clients
+  logo: '', // Removed emoji for professional look
   // Logo URL - must be publicly accessible. Set LOGO_URL env var to your hosted logo.
   // For production, host the logo on a CDN or your server (e.g., https://yourdomain.com/icon-192.png)
   logoUrl: process.env.LOGO_URL || null,
@@ -32,12 +32,16 @@ const brand = {
   logoWidth: 40,
   logoHeight: 40,
   colors: {
-    primary: '#33CC99',
-    primaryDark: '#2AB57F',
-    primaryLight: '#5EDEA8',
-    success: '#22C55E',
-    successLight: '#DCFCE7',
-    successDark: '#16A34A',
+    primary: '#0b1f32',
+    primaryDark: '#081825',
+    primaryLight: '#0e2538',
+    accent: '#0d9488',
+    accentLight: '#ccfbf1',
+    action: '#1a6bff',
+    actionDark: '#1557d6',
+    success: '#0d9488',
+    successLight: '#ccfbf1',
+    successDark: '#0f766e',
     warning: '#FBBF24',
     warningLight: '#FEF3C7',
     warningDark: '#D97706',
@@ -46,38 +50,40 @@ const brand = {
     dangerDark: '#DC2626',
     info: '#3B82F6',
     infoLight: '#EFF6FF',
-    background: '#F8FAFC',
+    background: '#f8f9fa',
     card: '#FFFFFF',
-    border: '#E2E8F0',
-    borderLight: '#F1F5F9',
-    textPrimary: '#1E293B',
-    textSecondary: '#475569',
-    textMuted: '#64748B',
-    textLight: '#94A3B8',
+    border: '#e5e7eb',
+    borderLight: '#f3f4f6',
+    textPrimary: '#0b1f32',
+    textSecondary: '#6b7280',
+    textMuted: '#9ca3af',
+    textLight: '#9ca3af',
   },
   fonts: {
-    family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif",
+    family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    headingFamily: "'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     sizeSmall: '12px',
-    sizeBase: '14px',
-    sizeMedium: '16px',
-    sizeLarge: '20px',
-    sizeXL: '24px',
-    size2XL: '32px',
-    size3XL: '40px',
+    sizeBase: '13px',
+    sizeMedium: '15px',
+    sizeLarge: '18px',
+    sizeXL: '22px',
+    size2XL: '28px',
+    size3XL: '36px',
+    letterSpacing: '-0.025em',
   },
   spacing: {
     xs: '4px',
-    sm: '8px',
-    md: '12px',
-    lg: '16px',
-    xl: '24px',
-    xxl: '32px',
-    xxxl: '48px',
+    sm: '6px',
+    md: '10px',
+    lg: '14px',
+    xl: '20px',
+    xxl: '28px',
+    xxxl: '40px',
   },
   borderRadius: {
-    sm: '6px',
-    md: '8px',
-    lg: '12px',
+    sm: '4px',
+    md: '6px',
+    lg: '8px',
   },
   email: process.env.SMTP_FROM || 'notifications.splitit@gmail.com',
   supportEmail: 'notifications.splitit@gmail.com',
@@ -101,10 +107,10 @@ const formatCurrency = (amount, currency = 'INR') => {
  * Format date in readable format
  */
 const formatDate = (date, options = {}) => {
-  const defaultOptions = { 
-    day: 'numeric', 
-    month: 'short', 
-    year: 'numeric' 
+  const defaultOptions = {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
   };
   return new Date(date).toLocaleDateString('en-IN', { ...defaultOptions, ...options });
 };
@@ -141,7 +147,14 @@ const emailWrapper = (content) => `
     </xml>
   </noscript>
   <![endif]-->
+  <!-- Google Fonts Import -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
+    /* Font imports for email clients that support @import */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+    
     /* Reset styles */
     body, table, td, p, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
     table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
@@ -150,18 +163,18 @@ const emailWrapper = (content) => `
     
     /* Responsive styles */
     @media screen and (max-width: 600px) {
-      .wrapper { width: 100% !important; padding: 12px !important; }
-      .content { padding: 20px !important; }
-      .header { padding: 20px !important; }
-      .footer { padding: 20px !important; }
+      .wrapper { width: 100% !important; padding: 10px !important; }
+      .content { padding: 18px !important; }
+      .header { padding: 18px !important; }
+      .footer { padding: 18px !important; }
       .button { width: 100% !important; display: block !important; }
       .button-td { padding-left: 0 !important; padding-right: 0 !important; }
-      .stats-table td { display: block !important; width: 100% !important; padding: 12px 0 !important; }
+      .stats-table td { display: block !important; width: 100% !important; padding: 10px 0 !important; }
       .hide-mobile { display: none !important; }
       .stack-mobile { display: block !important; width: 100% !important; }
-      h1 { font-size: 24px !important; }
-      h2 { font-size: 20px !important; }
-      .amount-large { font-size: 32px !important; }
+      h1 { font-size: 22px !important; }
+      h2 { font-size: 18px !important; }
+      .amount-large { font-size: 28px !important; }
     }
   </style>
 </head>
@@ -174,7 +187,7 @@ const emailWrapper = (content) => `
   <!-- Email container -->
   <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: ${brand.colors.background};">
     <tr>
-      <td align="center" style="padding: 24px 16px;">
+      <td align="center" style="padding: 20px 14px;">
         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" class="wrapper" style="max-width: 600px; width: 100%;">
           ${content}
         </table>
@@ -192,21 +205,18 @@ const emailHeader = (options = {}) => {
   const {
     title = '',
     subtitle = '',
-    icon = brand.logo,
-    variant = 'default', // default, success, warning, danger, gradient
+    variant = 'default', // default, success, warning, danger
   } = options;
 
   const variants = {
     default: { bg: brand.colors.primary, text: '#FFFFFF' },
     success: { bg: brand.colors.success, text: '#FFFFFF' },
-    warning: { bg: brand.colors.warning, text: '#1E293B' },
+    warning: { bg: brand.colors.warning, text: '#0b1f32' },
     danger: { bg: brand.colors.danger, text: '#FFFFFF' },
-    gradient: { bg: `linear-gradient(135deg, ${brand.colors.primary} 0%, ${brand.colors.primaryDark} 100%)`, text: '#FFFFFF' },
   };
 
   const v = variants[variant] || variants.default;
-  const isGradient = variant === 'gradient';
-  
+
   return `
   <!-- Header -->
   <tr>
@@ -214,25 +224,28 @@ const emailHeader = (options = {}) => {
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
         <!-- Top accent bar -->
         <tr>
-          <td style="height: 4px; background-color: ${brand.colors.primary}; border-radius: ${brand.borderRadius.lg} ${brand.borderRadius.lg} 0 0;"></td>
+          <td style="height: 2px; background-color: ${v.bg}; border-radius: ${brand.borderRadius.lg} ${brand.borderRadius.lg} 0 0;"></td>
         </tr>
         <!-- Logo row -->
         <tr>
-          <td align="center" style="background-color: ${brand.colors.card}; padding: 24px 32px; border-left: 1px solid ${brand.colors.border}; border-right: 1px solid ${brand.colors.border};">
-            <span style="font-family: ${brand.fonts.family}; font-size: 24px; font-weight: 700; color: ${brand.colors.primary};">
-              ${brand.name}
-            </span>
+          <td align="center" style="background-color: ${v.bg}; padding: 20px 28px;">
+            ${brand.logoUrl ? `
+              <img src="${brand.logoUrl}" alt="${brand.logoAlt}" width="${brand.logoWidth}" height="${brand.logoHeight}" style="display: block; border: 0; outline: none; text-decoration: none;" />
+            ` : `
+              <span style="font-family: ${brand.fonts.headingFamily}; font-size: 22px; font-weight: 600; color: ${v.text}; letter-spacing: ${brand.fonts.letterSpacing};">
+                ${brand.name}
+              </span>
+            `}
           </td>
         </tr>
         <!-- Title section -->
         ${title ? `
         <tr>
-          <td align="center" class="header" style="background-color: ${isGradient ? brand.colors.primary : v.bg}; padding: 32px 32px; ${isGradient ? `background: ${v.bg};` : ''}">
-            ${icon && icon !== brand.logo ? `<div style="font-size: 36px; margin-bottom: 12px;">${icon}</div>` : ''}
-            <h1 style="margin: 0; font-family: ${brand.fonts.family}; font-size: ${brand.fonts.sizeXL}; font-weight: 700; color: ${v.text}; line-height: 1.3;">
+          <td align="center" class="header" style="background-color: ${brand.colors.card}; padding: 24px 28px; border-left: 1px solid ${brand.colors.border}; border-right: 1px solid ${brand.colors.border};">
+            <h1 style="margin: 0; font-family: ${brand.fonts.headingFamily}; font-size: ${brand.fonts.sizeXL}; font-weight: 600; color: ${brand.colors.textPrimary}; line-height: 1.3; letter-spacing: ${brand.fonts.letterSpacing};">
               ${title}
             </h1>
-            ${subtitle ? `<p style="margin: 8px 0 0; font-size: ${brand.fonts.sizeMedium}; color: ${v.text}; opacity: 0.9;">${subtitle}</p>` : ''}
+            ${subtitle ? `<p style="margin: 6px 0 0; font-size: ${brand.fonts.sizeMedium}; color: ${brand.colors.textSecondary};">${subtitle}</p>` : ''}
           </td>
         </tr>
         ` : ''}
@@ -248,7 +261,7 @@ const emailHeader = (options = {}) => {
 const emailContent = (content) => `
   <!-- Content -->
   <tr>
-    <td class="content" style="background-color: ${brand.colors.card}; padding: 32px; border-left: 1px solid ${brand.colors.border}; border-right: 1px solid ${brand.colors.border};">
+    <td class="content" style="background-color: ${brand.colors.card}; padding: 28px; border-left: 1px solid ${brand.colors.border}; border-right: 1px solid ${brand.colors.border};">
       ${content}
     </td>
   </tr>
@@ -267,28 +280,28 @@ const emailFooter = (options = {}) => {
   return `
   <!-- Footer -->
   <tr>
-    <td style="background-color: ${brand.colors.borderLight}; padding: 24px 32px; border: 1px solid ${brand.colors.border}; border-top: none; border-radius: 0 0 ${brand.borderRadius.lg} ${brand.borderRadius.lg};">
+    <td style="background-color: ${brand.colors.borderLight}; padding: 20px 28px; border: 1px solid ${brand.colors.border}; border-top: none; border-radius: 0 0 ${brand.borderRadius.lg} ${brand.borderRadius.lg};">
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
         <tr>
           <td align="center">
             ${showPreferences ? `
-            <p style="margin: 0 0 12px; font-size: ${brand.fonts.sizeSmall}; color: ${brand.colors.textMuted};">
-              <a href="${brand.clientUrl}/settings/notifications" style="color: ${brand.colors.primary}; text-decoration: none;">Manage email preferences</a>
+            <p style="margin: 0 0 10px; font-size: ${brand.fonts.sizeSmall}; color: ${brand.colors.textMuted};">
+              <a href="${brand.clientUrl}/settings/notifications" style="color: ${brand.colors.action}; text-decoration: none;">Manage email preferences</a>
             </p>
             ` : ''}
             ${showSupport ? `
-            <p style="margin: 0 0 12px; font-size: ${brand.fonts.sizeSmall}; color: ${brand.colors.textMuted};">
+            <p style="margin: 0 0 10px; font-size: ${brand.fonts.sizeSmall}; color: ${brand.colors.textMuted};">
               Need help? Contact us at 
-              <a href="mailto:${brand.supportEmail}" style="color: ${brand.colors.primary}; text-decoration: none;">${brand.supportEmail}</a>
+              <a href="mailto:${brand.supportEmail}" style="color: ${brand.colors.action}; text-decoration: none;">${brand.supportEmail}</a>
             </p>
             ` : ''}
             ${showUnsubscribe ? `
-            <p style="margin: 0 0 12px; font-size: ${brand.fonts.sizeSmall}; color: ${brand.colors.textLight};">
+            <p style="margin: 0 0 10px; font-size: ${brand.fonts.sizeSmall}; color: ${brand.colors.textLight};">
               <a href="${brand.clientUrl}/unsubscribe" style="color: ${brand.colors.textMuted}; text-decoration: underline;">Unsubscribe</a>
             </p>
             ` : ''}
-            <p style="margin: 12px 0 0; font-size: ${brand.fonts.sizeSmall}; color: ${brand.colors.textLight};">
-              © ${getCurrentYear()} ${brand.name}. All rights reserved.
+            <p style="margin: 10px 0 0; font-size: ${brand.fonts.sizeSmall}; color: ${brand.colors.textLight};">
+              ${getCurrentYear()} ${brand.name}. All rights reserved.
             </p>
           </td>
         </tr>
@@ -309,18 +322,18 @@ const buttonComponent = (text, url, options = {}) => {
   } = options;
 
   const variants = {
-    primary: { bg: brand.colors.primary, text: '#FFFFFF', border: brand.colors.primary },
+    primary: { bg: brand.colors.action, text: '#FFFFFF', border: brand.colors.action },
     secondary: { bg: brand.colors.textPrimary, text: '#FFFFFF', border: brand.colors.textPrimary },
     success: { bg: brand.colors.success, text: '#FFFFFF', border: brand.colors.success },
-    warning: { bg: brand.colors.warning, text: '#1E293B', border: brand.colors.warning },
+    warning: { bg: brand.colors.warning, text: '#0b1f32', border: brand.colors.warning },
     danger: { bg: brand.colors.danger, text: '#FFFFFF', border: brand.colors.danger },
-    outline: { bg: 'transparent', text: brand.colors.primary, border: brand.colors.primary },
+    outline: { bg: 'transparent', text: brand.colors.action, border: brand.colors.action },
   };
 
   const sizes = {
-    small: { padding: '10px 20px', fontSize: brand.fonts.sizeBase },
-    medium: { padding: '14px 28px', fontSize: brand.fonts.sizeMedium },
-    large: { padding: '16px 36px', fontSize: brand.fonts.sizeMedium },
+    small: { padding: '8px 18px', fontSize: brand.fonts.sizeBase },
+    medium: { padding: '12px 24px', fontSize: brand.fonts.sizeMedium },
+    large: { padding: '14px 32px', fontSize: brand.fonts.sizeMedium },
   };
 
   const v = variants[variant] || variants.primary;
@@ -329,8 +342,8 @@ const buttonComponent = (text, url, options = {}) => {
   return `
   <table role="presentation" cellspacing="0" cellpadding="0" border="0" ${fullWidth ? 'width="100%"' : ''} style="margin: 0 auto;">
     <tr>
-      <td class="button-td" style="border-radius: ${brand.borderRadius.md}; background-color: ${v.bg}; border: 2px solid ${v.border};">
-        <a href="${url}" class="button" target="_blank" style="display: inline-block; padding: ${s.padding}; font-family: ${brand.fonts.family}; font-size: ${s.fontSize}; font-weight: 600; color: ${v.text}; text-decoration: none; border-radius: ${brand.borderRadius.md}; ${fullWidth ? 'width: 100%; text-align: center; box-sizing: border-box;' : ''}">
+      <td class="button-td" style="border-radius: ${brand.borderRadius.md}; background-color: ${v.bg}; border: 1px solid ${v.border};">
+        <a href="${url}" class="button" target="_blank" style="display: inline-block; padding: ${s.padding}; font-family: ${brand.fonts.family}; font-size: ${s.fontSize}; font-weight: 500; color: ${v.text}; text-decoration: none; border-radius: ${brand.borderRadius.md}; ${fullWidth ? 'width: 100%; text-align: center; box-sizing: border-box;' : ''}">
           ${text}
         </a>
       </td>
@@ -349,24 +362,24 @@ const cardComponent = (content, options = {}) => {
   } = options;
 
   const variants = {
-    default: { bg: brand.colors.borderLight, border: brand.colors.border },
-    success: { bg: brand.colors.successLight, border: '#BBF7D0' },
-    warning: { bg: brand.colors.warningLight, border: '#FDE68A' },
-    danger: { bg: brand.colors.dangerLight, border: '#FECACA' },
-    info: { bg: brand.colors.infoLight, border: '#BFDBFE' },
+    default: { bg: brand.colors.card, border: brand.colors.border },
+    success: { bg: brand.colors.card, border: brand.colors.border },
+    warning: { bg: brand.colors.card, border: brand.colors.border },
+    danger: { bg: brand.colors.card, border: brand.colors.border },
+    info: { bg: brand.colors.card, border: brand.colors.border },
   };
 
   const paddings = {
-    small: '12px 16px',
-    medium: '16px 20px',
-    large: '20px 24px',
+    small: '10px 14px',
+    medium: '14px 18px',
+    large: '18px 22px',
   };
 
   const v = variants[variant] || variants.default;
   const p = paddings[padding] || paddings.medium;
 
   return `
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 16px 0;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 14px 0;">
     <tr>
       <td style="background-color: ${v.bg}; border: 1px solid ${v.border}; border-radius: ${brand.borderRadius.md}; padding: ${p};">
         ${content}
@@ -382,31 +395,24 @@ const cardComponent = (content, options = {}) => {
 const alertComponent = (message, options = {}) => {
   const {
     variant = 'info', // success, warning, danger, info
-    icon = null,
   } = options;
 
   const variants = {
-    success: { bg: brand.colors.successLight, border: '#BBF7D0', text: '#166534', icon: '✅' },
-    warning: { bg: brand.colors.warningLight, border: '#FDE68A', text: '#92400E', icon: '⚠️' },
-    danger: { bg: brand.colors.dangerLight, border: '#FECACA', text: '#991B1B', icon: '🚨' },
-    info: { bg: brand.colors.infoLight, border: '#BFDBFE', text: '#1E40AF', icon: 'ℹ️' },
+    success: { bg: '#f0fdf4', border: brand.colors.success, text: '#166534' },
+    warning: { bg: '#fffbeb', border: brand.colors.warning, text: '#92400E' },
+    danger: { bg: '#fef2f2', border: brand.colors.danger, text: '#991B1B' },
+    info: { bg: '#eff6ff', border: brand.colors.info, text: '#1E40AF' },
   };
 
   const v = variants[variant] || variants.info;
-  const displayIcon = icon || v.icon;
 
   return `
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 16px 0;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 14px 0;">
     <tr>
-      <td style="background-color: ${v.bg}; border: 1px solid ${v.border}; border-radius: ${brand.borderRadius.md}; padding: 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-          <tr>
-            <td style="font-size: 18px; padding-right: 12px; vertical-align: top;">${displayIcon}</td>
-            <td style="font-family: ${brand.fonts.family}; font-size: ${brand.fonts.sizeBase}; color: ${v.text}; line-height: 1.5;">
-              ${message}
-            </td>
-          </tr>
-        </table>
+      <td style="background-color: ${v.bg}; border-left: 4px solid ${v.border}; border-radius: ${brand.borderRadius.md}; padding: 14px 16px;">
+        <p style="margin: 0; font-family: ${brand.fonts.family}; font-size: ${brand.fonts.sizeBase}; color: ${v.text}; line-height: 1.5;">
+          ${message}
+        </p>
       </td>
     </tr>
   </table>
@@ -420,10 +426,10 @@ const infoRowComponent = (label, value, options = {}) => {
   const { highlight = false } = options;
   return `
   <tr>
-    <td style="padding: 10px 0; font-size: ${brand.fonts.sizeBase}; color: ${brand.colors.textMuted}; border-bottom: 1px solid ${brand.colors.borderLight};">
+    <td style="padding: 8px 0; font-size: ${brand.fonts.sizeBase}; color: ${brand.colors.textMuted}; border-bottom: 1px solid ${brand.colors.borderLight};">
       ${label}
     </td>
-    <td style="padding: 10px 0; font-size: ${brand.fonts.sizeBase}; font-weight: ${highlight ? '700' : '600'}; color: ${highlight ? brand.colors.primary : brand.colors.textPrimary}; text-align: right; border-bottom: 1px solid ${brand.colors.borderLight};">
+    <td style="padding: 8px 0; font-size: ${brand.fonts.sizeBase}; font-weight: ${highlight ? '600' : '500'}; color: ${highlight ? brand.colors.accent : brand.colors.textPrimary}; text-align: right; border-bottom: 1px solid ${brand.colors.borderLight}; font-variant-numeric: tabular-nums;">
       ${value}
     </td>
   </tr>
@@ -437,7 +443,7 @@ const tableComponent = (headers, rows, options = {}) => {
   const { variant = 'default' } = options;
 
   const headerHtml = headers.map((h, i) => `
-    <th style="padding: 12px 16px; text-align: ${i === 0 ? 'left' : 'right'}; font-size: ${brand.fonts.sizeSmall}; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted}; background-color: ${brand.colors.borderLight}; border-bottom: 2px solid ${brand.colors.border};">
+    <th style="padding: 10px 14px; text-align: ${i === 0 ? 'left' : 'right'}; font-size: ${brand.fonts.sizeSmall}; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted}; background-color: ${brand.colors.borderLight}; border-bottom: 1px solid ${brand.colors.border};">
       ${h}
     </th>
   `).join('');
@@ -445,7 +451,7 @@ const tableComponent = (headers, rows, options = {}) => {
   const rowsHtml = rows.map(row => `
     <tr>
       ${row.map((cell, i) => `
-        <td style="padding: 12px 16px; text-align: ${i === 0 ? 'left' : 'right'}; font-size: ${brand.fonts.sizeBase}; color: ${brand.colors.textPrimary}; border-bottom: 1px solid ${brand.colors.borderLight};">
+        <td style="padding: 10px 14px; text-align: ${i === 0 ? 'left' : 'right'}; font-size: ${brand.fonts.sizeBase}; color: ${brand.colors.textPrimary}; border-bottom: 1px solid ${brand.colors.borderLight};">
           ${cell}
         </td>
       `).join('')}
@@ -453,7 +459,7 @@ const tableComponent = (headers, rows, options = {}) => {
   `).join('');
 
   return `
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 16px 0; border-collapse: collapse;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 14px 0; border-collapse: collapse;">
     <thead>
       <tr>${headerHtml}</tr>
     </thead>
@@ -477,7 +483,7 @@ const amountDisplayComponent = (amount, options = {}) => {
 
   const variants = {
     default: brand.colors.textPrimary,
-    success: brand.colors.success,
+    success: brand.colors.accent,
     danger: brand.colors.danger,
     primary: brand.colors.primary,
   };
@@ -486,11 +492,11 @@ const amountDisplayComponent = (amount, options = {}) => {
   const formattedAmount = formatCurrency(amount, currency);
 
   return `
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 16px 0;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 14px 0;">
     <tr>
       <td align="center">
         ${label ? `<p style="margin: 0 0 4px; font-size: ${brand.fonts.sizeSmall}; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted};">${label}</p>` : ''}
-        <p class="amount-large" style="margin: 0; font-size: ${brand.fonts.size2XL}; font-weight: 700; color: ${color};">
+        <p class="amount-large" style="margin: 0; font-size: ${brand.fonts.size2XL}; font-weight: 600; color: ${color}; font-variant-numeric: tabular-nums;">
           ${formattedAmount}
         </p>
         ${sublabel ? `<p style="margin: 4px 0 0; font-size: ${brand.fonts.sizeBase}; color: ${brand.colors.textMuted};">${sublabel}</p>` : ''}
@@ -510,7 +516,7 @@ const progressBarComponent = (percentage, options = {}) => {
   } = options;
 
   const variants = {
-    primary: brand.colors.primary,
+    primary: brand.colors.accent,
     success: brand.colors.success,
     warning: brand.colors.warning,
     danger: brand.colors.danger,
@@ -520,16 +526,16 @@ const progressBarComponent = (percentage, options = {}) => {
   const clampedPercentage = Math.min(Math.max(percentage, 0), 100);
 
   return `
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 12px 0;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 10px 0;">
     <tr>
       <td>
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: ${brand.colors.border}; border-radius: 4px; overflow: hidden;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: ${brand.colors.border}; border-radius: ${brand.borderRadius.sm}; overflow: hidden;">
           <tr>
-            <td style="height: 8px; width: ${clampedPercentage}%; background-color: ${color}; border-radius: 4px;"></td>
-            <td style="height: 8px;"></td>
+            <td style="height: 6px; width: ${clampedPercentage}%; background-color: ${color}; border-radius: ${brand.borderRadius.sm};"></td>
+            <td style="height: 6px;"></td>
           </tr>
         </table>
-        ${showLabel ? `<p style="margin: 6px 0 0; font-size: ${brand.fonts.sizeSmall}; font-weight: 600; color: ${color}; text-align: center;">${percentage}% used</p>` : ''}
+        ${showLabel ? `<p style="margin: 4px 0 0; font-size: ${brand.fonts.sizeSmall}; font-weight: 500; color: ${color}; text-align: center;">${percentage}% used</p>` : ''}
       </td>
     </tr>
   </table>
@@ -541,7 +547,7 @@ const progressBarComponent = (percentage, options = {}) => {
  */
 const dividerComponent = (options = {}) => {
   const { spacing = 'medium' } = options;
-  const spacings = { small: '12px', medium: '24px', large: '32px' };
+  const spacings = { small: '10px', medium: '20px', large: '28px' };
   const s = spacings[spacing] || spacings.medium;
   return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: ${s} 0;"><tr><td style="border-top: 1px solid ${brand.colors.border};"></td></tr></table>`;
 };
@@ -556,21 +562,21 @@ const textComponent = (text, options = {}) => {
   } = options;
 
   const variants = {
-    body: { size: brand.fonts.sizeMedium, color: brand.colors.textPrimary, weight: 'normal' },
-    muted: { size: brand.fonts.sizeBase, color: brand.colors.textMuted, weight: 'normal' },
-    small: { size: brand.fonts.sizeSmall, color: brand.colors.textLight, weight: 'normal' },
-    heading: { size: brand.fonts.sizeLarge, color: brand.colors.textPrimary, weight: '600' },
+    body: { size: brand.fonts.sizeMedium, color: brand.colors.textPrimary, weight: 'normal', fontFamily: brand.fonts.family },
+    muted: { size: brand.fonts.sizeBase, color: brand.colors.textMuted, weight: 'normal', fontFamily: brand.fonts.family },
+    small: { size: brand.fonts.sizeSmall, color: brand.colors.textLight, weight: 'normal', fontFamily: brand.fonts.family },
+    heading: { size: brand.fonts.sizeLarge, color: brand.colors.textPrimary, weight: '600', fontFamily: brand.fonts.headingFamily },
   };
 
   const v = variants[variant] || variants.body;
-  return `<p style="margin: 0 0 16px; font-family: ${brand.fonts.family}; font-size: ${v.size}; font-weight: ${v.weight}; color: ${v.color}; text-align: ${align}; line-height: 1.6;">${text}</p>`;
+  return `<p style="margin: 0 0 14px; font-family: ${v.fontFamily}; font-size: ${v.size}; font-weight: ${v.weight}; color: ${v.color}; text-align: ${align}; line-height: 1.6;">${text}</p>`;
 };
 
 /**
  * Greeting component
  */
 const greetingComponent = (name) => {
-  return `<p style="margin: 0 0 16px; font-family: ${brand.fonts.family}; font-size: ${brand.fonts.sizeMedium}; color: ${brand.colors.textPrimary}; line-height: 1.6;">Hi <strong>${name}</strong>,</p>`;
+  return `<p style="margin: 0 0 14px; font-family: ${brand.fonts.family}; font-size: ${brand.fonts.sizeMedium}; color: ${brand.colors.textPrimary}; line-height: 1.6;">Hi <strong>${name}</strong>,</p>`;
 };
 
 /**
@@ -578,14 +584,14 @@ const greetingComponent = (name) => {
  */
 const statsRowComponent = (stats) => {
   const statsHtml = stats.map(stat => `
-    <td align="center" class="stack-mobile" style="padding: 16px; background-color: ${stat.bg || brand.colors.borderLight}; border-radius: ${brand.borderRadius.md}; width: ${100 / stats.length}%;">
-      <p style="margin: 0 0 4px; font-size: ${brand.fonts.sizeSmall}; text-transform: uppercase; letter-spacing: 0.5px; color: ${stat.labelColor || brand.colors.textMuted};">${stat.label}</p>
-      <p style="margin: 0; font-size: ${brand.fonts.sizeXL}; font-weight: 700; color: ${stat.valueColor || brand.colors.textPrimary};">${stat.value}</p>
+    <td align="center" class="stack-mobile" style="padding: 14px; background-color: ${brand.colors.card}; border: 1px solid ${brand.colors.border}; border-radius: ${brand.borderRadius.md}; width: ${100 / stats.length}%;">
+      <p style="margin: 0 0 4px; font-size: ${brand.fonts.sizeSmall}; text-transform: uppercase; letter-spacing: 0.5px; color: ${brand.colors.textMuted};">${stat.label}</p>
+      <p style="margin: 0; font-size: ${brand.fonts.sizeXL}; font-weight: 600; color: ${stat.valueColor || brand.colors.textPrimary}; font-variant-numeric: tabular-nums;">${stat.value}</p>
     </td>
-  `).join('<td style="width: 12px;"></td>');
+  `).join('<td style="width: 10px;"></td>');
 
   return `
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="stats-table" style="margin: 16px 0;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="stats-table" style="margin: 14px 0;">
     <tr>${statsHtml}</tr>
   </table>
   `;
@@ -596,17 +602,17 @@ const statsRowComponent = (stats) => {
  */
 const badgeComponent = (text, options = {}) => {
   const { variant = 'default' } = options;
-  
+
   const variants = {
     default: { bg: brand.colors.borderLight, text: brand.colors.textPrimary },
-    primary: { bg: '#E0F7EF', text: brand.colors.primaryDark },
+    primary: { bg: brand.colors.accentLight, text: brand.colors.success },
     success: { bg: brand.colors.successLight, text: brand.colors.successDark },
     warning: { bg: brand.colors.warningLight, text: brand.colors.warningDark },
     danger: { bg: brand.colors.dangerLight, text: brand.colors.dangerDark },
   };
 
   const v = variants[variant] || variants.default;
-  return `<span style="display: inline-block; background-color: ${v.bg}; color: ${v.text}; padding: 4px 12px; border-radius: 16px; font-size: ${brand.fonts.sizeSmall}; font-weight: 500;">${text}</span>`;
+  return `<span style="display: inline-block; background-color: ${v.bg}; color: ${v.text}; padding: 4px 10px; border-radius: ${brand.borderRadius.sm}; font-size: ${brand.fonts.sizeSmall}; font-weight: 500;">${text}</span>`;
 };
 
 // ============================================
@@ -631,18 +637,18 @@ const buildEmail = (headerOptions, contentHtml, footerOptions = {}) => {
 export {
   // Configuration
   brand,
-  
+
   // Helpers
   formatCurrency,
   formatDate,
   getCurrentYear,
-  
+
   // Core components
   emailWrapper,
   emailHeader,
   emailContent,
   emailFooter,
-  
+
   // UI components
   buttonComponent,
   cardComponent,
@@ -656,7 +662,7 @@ export {
   greetingComponent,
   statsRowComponent,
   badgeComponent,
-  
+
   // Full email builder
   buildEmail,
 };

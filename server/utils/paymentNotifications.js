@@ -86,8 +86,9 @@ export const notifyUpiSetupRequired = async ({ userId, context = 'receive paymen
       userId,
       type: 'info',
       title: 'Set Up UPI for Quick Payments',
-      message: `Add your UPI ID to ${context} quickly and easily. Go to Profile → UPI Settings.`,
-      actionType: 'setup_upi',
+      message: `Add your UPI ID to ${context} quickly and easily.`,
+      actionType: 'navigate',
+      data: { url: '/profile' },
       actionCompleted: false,
     });
 

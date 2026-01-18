@@ -14,7 +14,7 @@ const JoinGroup = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user, loading: authLoading } = useAuth();
   const { joinGroupByInvite } = useGroups();
-  
+
   const [status, setStatus] = useState('loading'); // loading, preview, joining, success, error, auth-required
   const [message, setMessage] = useState('');
   const [groupPreview, setGroupPreview] = useState(null);
@@ -25,7 +25,7 @@ const JoinGroup = () => {
   // Query params are kept for backward compatibility
   const isToken = (value) => value && /^[a-f0-9]{64}$/i.test(value);
   const pathParamIsToken = isToken(paramCode);
-  
+
   const code = pathParamIsToken ? searchParams.get('code') : (paramCode || searchParams.get('code'));
   const token = pathParamIsToken ? paramCode : searchParams.get('token');
 
@@ -45,7 +45,7 @@ const JoinGroup = () => {
 
     const validateInvite = async () => {
       validateAttemptedRef.current = true;
-      
+
       if (!code && !token) {
         setStatus('error');
         setMessage('Invalid invite link');
@@ -55,12 +55,12 @@ const JoinGroup = () => {
       try {
         setStatus('loading');
         setMessage('Validating invite...');
-        
+
         const response = await apiClient.post('/invites/validate', {
           code: code || undefined,
           token: token || undefined,
         });
-        
+
         if (response.valid) {
           setGroupPreview({
             id: response.group.id,
@@ -69,7 +69,7 @@ const JoinGroup = () => {
             invitedEmail: response.invite?.invitedEmail,
             legacy: response.legacy || false,
           });
-          
+
           // If authenticated, show preview. If not, show auth-required with preview.
           if (isAuthenticated) {
             setStatus('preview');
@@ -85,7 +85,7 @@ const JoinGroup = () => {
       } catch (error) {
         setStatus('error');
         const errorMessage = error.message || 'Invalid or expired invite link';
-        
+
         if (errorMessage.includes('expired')) {
           setMessage('This invite has expired. Please request a new one.');
         } else if (errorMessage.includes('not found') || errorMessage.includes('Invalid')) {
@@ -111,12 +111,12 @@ const JoinGroup = () => {
     try {
       setStatus('joining');
       setMessage('Joining group...');
-      
+
       await joinGroupByInvite(code, token);
-      
+
       setStatus('success');
       setMessage('Successfully joined the group!');
-      
+
       // Redirect to groups page after 2 seconds
       setTimeout(() => {
         navigate('/groups');
@@ -124,7 +124,7 @@ const JoinGroup = () => {
     } catch (error) {
       setStatus('error');
       const errorMessage = error.message || 'Failed to join group';
-      
+
       if (errorMessage.includes('already a member')) {
         setMessage('You are already a member of this group');
       } else if (errorMessage.includes('different email')) {
@@ -160,13 +160,13 @@ const JoinGroup = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
             {(status === 'loading' || status === 'joining') && <Loader2 className="w-8 h-8 text-primary animate-spin" />}
-            {status === 'success' && <CheckCircle className="w-8 h-8 text-green-500" />}
-            {status === 'error' && <AlertCircle className="w-8 h-8 text-red-500" />}
+            {status === 'success' && <CheckCircle className="w-8 h-8 text-success" />}
+            {status === 'error' && <AlertCircle className="w-8 h-8 text-destructive" />}
             {(status === 'auth-required' || status === 'preview') && <Users className="w-8 h-8 text-primary" />}
           </div>
           <CardTitle className="text-2xl">
@@ -208,7 +208,7 @@ const JoinGroup = () => {
               </Button>
             </div>
           )}
-          
+
           {status === 'preview' && groupPreview && (
             <div className="space-y-4">
               {/* Group Preview Card */}
@@ -225,30 +225,30 @@ const JoinGroup = () => {
                   </div>
                 </div>
               </div>
-              
+
               {/* Email verification notice for email invites */}
               {groupPreview.invitedEmail && (
-                <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg">
-                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                <div className="p-3 bg-info/10 border border-info/20 rounded">
+                  <p className="text-sm text-info">
                     This invite was sent to <strong>{groupPreview.invitedEmail}</strong>
-                    {user?.email?.toLowerCase() === groupPreview.invitedEmail?.toLowerCase() 
+                    {user?.email?.toLowerCase() === groupPreview.invitedEmail?.toLowerCase()
                       ? " - you're all set!"
                       : ". Make sure you're logged in with the correct account."}
                   </p>
                 </div>
               )}
-              
+
               <Button onClick={handleJoinGroup} className="w-full" size="lg">
                 <UserPlus className="w-4 h-4 mr-2" />
                 Join {groupPreview.name}
               </Button>
-              
+
               <Button onClick={() => navigate('/groups')} variant="ghost" className="w-full">
                 Cancel
               </Button>
             </div>
           )}
-          
+
           {status === 'error' && (
             <div className="space-y-3">
               <Button onClick={() => navigate('/groups')} className="w-full">
@@ -256,7 +256,7 @@ const JoinGroup = () => {
               </Button>
             </div>
           )}
-          
+
           {status === 'success' && (
             <div className="text-center text-sm text-muted-foreground">
               Redirecting to your groups...

@@ -1,14 +1,14 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Users, Receipt, PieChart, ArrowRight, Sparkles, Shield, Zap, CheckCircle, Smartphone, Globe, CreditCard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
-import { Card, CardContent } from '../components/ui/card';
 import Logo from '../components/common/Logo';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../components/ui/collapsible';
 
 const Index = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const [showFloatingCTA, setShowFloatingCTA] = useState(false);
 
   // Redirect to dashboard if already logged in
   useEffect(() => {
@@ -17,273 +17,785 @@ const Index = () => {
     }
   }, [isAuthenticated, navigate]);
 
-  const features = [
-    {
-      icon: Users,
-      title: 'Create Groups',
-      description: 'Organize expenses with friends, family, or roommates',
-      gradient: 'from-blue-500/20 to-blue-600/10'
-    },
-    {
-      icon: Receipt,
-      title: 'Track Expenses',
-      description: 'Add and manage shared expenses easily',
-      gradient: 'from-primary/20 to-primary/10'
-    },
-    {
-      icon: PieChart,
-      title: 'Split Equally',
-      description: 'Automatically calculate who owes what',
-      gradient: 'from-purple-500/20 to-purple-600/10'
-    }
-  ];
-
-  const benefits = [
-    'No sign-up fees',
-    'Works offline',
-    'Bank-level security',
-    'UPI integration',
-  ];
+  // Show floating CTA when scrolled past hero
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowFloatingCTA(window.scrollY > 500);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   return (
-    <div className="min-h-screen bg-background relative overflow-hidden">
-      {/* Background gradient effects */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
-        <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tr from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-card/95 backdrop-blur-sm border-b border-border">
+        <div className="flex items-center justify-between px-4 py-3 max-w-screen-xl mx-auto">
+          <Logo size="sm" />
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              onClick={() => navigate('/login')}
+              size="sm"
+              className="min-h-[40px] text-sm text-muted-foreground hover:text-foreground"
+            >
+              Login
+            </Button>
+            <Button
+              onClick={() => navigate('/signup')}
+              size="sm"
+              className="min-h-[40px] text-sm"
+            >
+              Join
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Announcement Banner */}
+      <div className="bg-accent/5 border-b border-accent/20">
+        <div className="px-4 py-2 max-w-screen-xl mx-auto flex items-center justify-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"></span>
+          <p className="text-xs text-accent font-medium">New: Instant UPI settlements now live</p>
+        </div>
       </div>
 
       {/* Hero Section */}
-      <div className="container mx-auto px-4 py-4 sm:py-8 relative">
-        {/* Header */}
-        <header className="flex items-center justify-between mb-8 sm:mb-16">
-          <Logo size="sm" />
-          <div className="flex items-center gap-2 sm:gap-3">
-            <Button variant="ghost" onClick={() => navigate('/login')} size="sm" className="min-h-[44px] h-auto text-sm hover:bg-primary/10">
-              Sign In
-            </Button>
-            <Button onClick={() => navigate('/signup')} size="sm" className="min-h-[44px] h-auto text-sm shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
-              Get Started
-            </Button>
-          </div>
-        </header>
+      <section className="bg-gradient-to-b from-card to-background border-b border-border">
+        <div className="px-4 py-16 lg:py-20 max-w-screen-xl mx-auto">
+          <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:gap-16">
+            {/* Hero Text */}
+            <div className="flex flex-col gap-4 lg:flex-1">
+              <h1 className="font-display text-4xl lg:text-5xl font-bold leading-[1.1] text-foreground max-w-[340px]">
+                Shared money, handled properly.
+              </h1>
+              <p className="text-muted-foreground text-base leading-relaxed max-w-[360px]">
+                The platform for group expenses. No spreadsheets, no awkward conversations, just clarity.
+              </p>
+              <div className="mt-2">
+                <Button
+                  onClick={() => navigate('/signup')}
+                  className="text-sm font-medium px-6 py-3 h-auto"
+                >
+                  Get Started
+                </Button>
+              </div>
+            </div>
 
-        {/* Hero Content - Desktop: Two Column, Mobile: Stacked */}
-        <div className="py-8 sm:py-12 lg:py-20 animate-fade-in">
-          <div className="lg:grid lg:grid-cols-2 lg:gap-12 lg:items-center">
-            {/* Left Column - Text Content */}
-            <div className="text-center lg:text-left mb-10 lg:mb-0">
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 rounded-full mb-6 shadow-sm">
-                <Sparkles size={14} className="text-primary" />
-                <span className="text-xs sm:text-sm font-medium text-primary">
-                  Simple Expense Splitting
+            {/* Product Mockup */}
+            <div className="mt-4 lg:mt-0 lg:flex-1">
+              <div className="bg-card border border-border rounded overflow-hidden max-w-sm mx-auto lg:ml-auto">
+                {/* Card Header */}
+                <div className="px-4 py-3 border-b border-border flex justify-between items-center">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Goa Trip - Dec 2024</span>
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-accent">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent"></span>
+                    Active
+                  </span>
+                </div>
+
+                {/* Expense Rows */}
+                <div className="divide-y divide-border">
+                  <div className="px-4 py-3 flex justify-between items-center">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Swiggy Order</p>
+                      <p className="text-xs text-muted-foreground">Paid by Priya · 2 hours ago</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-foreground">₹575.00</p>
+                      <p className="text-xs text-accent font-medium">You owe ₹287.50</p>
+                    </div>
+                  </div>
+
+                  <div className="px-4 py-3 flex justify-between items-center">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Rent (January)</p>
+                      <p className="text-xs text-muted-foreground">Paid by You · Yesterday</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-foreground">₹36,000.00</p>
+                      <p className="text-xs text-muted-foreground font-medium">Owed to you ₹18,000.00</p>
+                    </div>
+                  </div>
+
+                  <div className="px-4 py-3 flex justify-between items-center bg-muted/30">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Electricity Bill</p>
+                      <p className="text-xs text-muted-foreground">Paid by Arjun · 3 days ago</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-foreground">₹1,236.99</p>
+                      <p className="text-xs text-accent font-medium">You owe ₹412.33</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Footer */}
+                <div className="px-4 py-3 bg-primary flex justify-between items-center">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-primary-foreground/60">Net Balance</p>
+                    <p className="text-lg font-bold text-primary-foreground">+₹17,300.17</p>
+                  </div>
+                  <button className="bg-accent text-accent-foreground px-4 py-2 rounded text-sm font-medium hover:opacity-90 transition-opacity">
+                    Settle Now
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Trust Indicators Section */}
+      <section className="bg-background border-b border-border">
+        <div className="px-4 py-8 max-w-screen-xl mx-auto">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-4 border border-border rounded bg-card text-center">
+              <p className="text-2xl font-bold text-foreground">10,000+</p>
+              <p className="text-xs text-muted-foreground">Groups Created</p>
+            </div>
+            <div className="p-4 border border-border rounded bg-card text-center">
+              <p className="text-2xl font-bold text-foreground">₹50L+</p>
+              <p className="text-xs text-muted-foreground">Settled</p>
+            </div>
+            <div className="p-4 border border-border rounded bg-card text-center">
+              <p className="text-2xl font-bold text-foreground">99.9%</p>
+              <p className="text-xs text-muted-foreground">Uptime</p>
+            </div>
+            <div className="p-4 border border-border rounded bg-card text-center">
+              <p className="text-2xl font-bold text-foreground">4.8★</p>
+              <p className="text-xs text-muted-foreground">User Rating</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Problem Section */}
+      <section className="bg-card border-b border-border">
+        <div className="px-4 py-12 lg:py-16 max-w-screen-xl mx-auto">
+          <div className="flex flex-col gap-10">
+            <div className="flex flex-col gap-3">
+              <h2 className="font-display text-2xl lg:text-3xl font-bold text-foreground">
+                Spreadsheets aren't for friends.
+              </h2>
+              <p className="text-muted-foreground text-sm leading-relaxed max-w-md">
+                Manual tracking creates friction, awkward conversations, and calculation errors. Stop being the unpaid group accountant.
+              </p>
+            </div>
+
+            {/* Feature Cards - Expanded to 6 */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="p-5 border border-border rounded bg-card">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded bg-accent/10 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-1">Real-time Balances</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">Every expense logged is immediately reconciled. No waiting for end-of-month summaries.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 border border-border rounded bg-card">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded bg-accent/10 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-1">Instant Settlement</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">Integrated UPI payments for one-tap settlement. Clear your debt before you leave the restaurant.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 border border-border rounded bg-card">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded bg-accent/10 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-1">Audit-style Clarity</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">Full transaction history with receipt attachments. Professional reporting for peace of mind.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* New Feature Cards */}
+              <div className="p-5 border border-border rounded bg-card">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded bg-accent/10 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-1">Smart Split Algorithms</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">Percentage, exact amount, or custom splits. Handle any expense scenario with precision.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 border border-border rounded bg-card">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded bg-accent/10 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-1">Receipt Scanning</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">OCR technology for automatic expense entry. Just snap a photo and we do the rest.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 border border-border rounded bg-card">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded bg-accent/10 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-1">Multi-Currency Support</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">Handle international trips and expenses. Automatic conversion at real-time rates.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* How It Works Section */}
+      <section className="bg-background border-b border-border">
+        <div className="px-4 py-12 lg:py-16 max-w-screen-xl mx-auto">
+          <p className="text-xs font-semibold uppercase tracking-wider text-accent mb-8">How it works</p>
+
+          <div className="flex flex-col gap-6 max-w-xl">
+            {/* Step 1 */}
+            <div className="flex gap-4">
+              <div className="flex flex-col items-center">
+                <div className="w-8 h-8 rounded-full border border-foreground flex items-center justify-center text-sm font-semibold text-foreground bg-card">1</div>
+                <div className="w-px bg-border flex-1 mt-2"></div>
+              </div>
+              <div className="pb-6">
+                <h3 className="text-base font-semibold text-foreground mb-1">Create Group</h3>
+                <p className="text-sm text-muted-foreground">Create a shared space for trips, rent, or recurring house bills in under 30 seconds.</p>
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div className="flex gap-4">
+              <div className="flex flex-col items-center">
+                <div className="w-8 h-8 rounded-full border border-foreground flex items-center justify-center text-sm font-semibold text-foreground bg-card">2</div>
+                <div className="w-px bg-border flex-1 mt-2"></div>
+              </div>
+              <div className="pb-6">
+                <h3 className="text-base font-semibold text-foreground mb-1">Add Expenses</h3>
+                <p className="text-sm text-muted-foreground">Log expenses quickly. Split equally or customize per person. Add receipts too.</p>
+              </div>
+            </div>
+
+            {/* Step 3 */}
+            <div className="flex gap-4">
+              <div className="flex flex-col items-center">
+                <div className="w-8 h-8 rounded-full border border-foreground flex items-center justify-center text-sm font-semibold text-foreground bg-card">3</div>
+                <div className="w-px bg-border flex-1 mt-2"></div>
+              </div>
+              <div className="pb-6">
+                <h3 className="text-base font-semibold text-foreground mb-1">Track Balances</h3>
+                <p className="text-sm text-muted-foreground">Watch the ledger update in real-time. Everyone sees who's paid and who owes.</p>
+              </div>
+            </div>
+
+            {/* Step 4 */}
+            <div className="flex gap-4">
+              <div className="flex flex-col items-center">
+                <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center">
+                  <svg className="w-4 h-4 text-accent-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-foreground mb-1">Settle Up</h3>
+                <p className="text-sm text-muted-foreground">Settle via UPI with one tap. Debts cleared, friendships intact.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Use Cases Section */}
+      <section className="bg-card border-b border-border">
+        <div className="px-4 py-12 lg:py-16 max-w-screen-xl mx-auto">
+          <div className="flex flex-col gap-8">
+            <div className="flex flex-col gap-3">
+              <h2 className="font-display text-2xl lg:text-3xl font-bold text-foreground">
+                Built for every shared expense scenario
+              </h2>
+              <p className="text-muted-foreground text-sm leading-relaxed max-w-md">
+                Whether it's daily bills or once-in-a-lifetime trips, Split-It adapts to your needs.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-6 border border-border rounded bg-background">
+                <div className="w-10 h-10 rounded bg-accent/10 flex items-center justify-center mb-4">
+                  <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                  </svg>
+                </div>
+                <h3 className="text-base font-semibold text-foreground mb-2">Roommate Expenses</h3>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  <li>• Monthly rent splitting</li>
+                  <li>• Utility bills tracking</li>
+                  <li>• Shared grocery costs</li>
+                </ul>
+              </div>
+
+              <div className="p-6 border border-border rounded bg-background">
+                <div className="w-10 h-10 rounded bg-accent/10 flex items-center justify-center mb-4">
+                  <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <h3 className="text-base font-semibold text-foreground mb-2">Trip Planning</h3>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  <li>• Group vacations</li>
+                  <li>• Weekend getaways</li>
+                  <li>• International travel</li>
+                </ul>
+              </div>
+
+              <div className="p-6 border border-border rounded bg-background">
+                <div className="w-10 h-10 rounded bg-accent/10 flex items-center justify-center mb-4">
+                  <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <h3 className="text-base font-semibold text-foreground mb-2">Event Management</h3>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  <li>• Birthday parties & celebrations</li>
+                  <li>• Group dinners</li>
+                  <li>• Office team outings</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Stats Section - Enhanced */}
+      <section className="bg-background border-b border-border">
+        <div className="px-4 py-10 lg:py-12 max-w-screen-xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Audit Standard Card */}
+            <div className="border border-border rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-5">
+                <svg className="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <h2 className="text-sm font-semibold text-foreground">The Audit Standard</h2>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="p-4 bg-muted/30 rounded border border-border">
+                  <p className="text-[10px] uppercase font-semibold text-muted-foreground mb-1">Exports</p>
+                  <p className="text-xl font-bold text-foreground">CSV/PDF</p>
+                  <p className="text-xs text-accent font-medium mt-1">Ready anytime</p>
+                </div>
+                <div className="p-4 bg-muted/30 rounded border border-border">
+                  <p className="text-[10px] uppercase font-semibold text-muted-foreground mb-1">Accuracy</p>
+                  <p className="text-xl font-bold text-foreground">100.0%</p>
+                  <p className="text-xs text-accent font-medium mt-1">Precise splits</p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-muted/30 rounded border border-border flex justify-between items-center">
+                <div>
+                  <p className="text-[10px] uppercase font-semibold text-muted-foreground">Weekly Summary</p>
+                  <p className="text-sm font-semibold text-foreground">Automated Ledger</p>
+                </div>
+                <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </div>
+            </div>
+
+            {/* Platform Metrics Card */}
+            <div className="border border-border rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-5">
+                <svg className="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+                <h2 className="text-sm font-semibold text-foreground">Platform Metrics</h2>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="p-4 bg-muted/30 rounded border border-border">
+                  <p className="text-[10px] uppercase font-semibold text-muted-foreground mb-1">Active Users</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xl font-bold text-foreground">5,234</p>
+                    <span className="text-xs text-accent font-medium flex items-center gap-0.5">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                      </svg>
+                      12%
+                    </span>
+                  </div>
+                </div>
+                <div className="p-4 bg-muted/30 rounded border border-border">
+                  <p className="text-[10px] uppercase font-semibold text-muted-foreground mb-1">Avg. Settlement</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xl font-bold text-foreground">2.3s</p>
+                    <span className="text-xs text-accent font-medium flex items-center gap-0.5">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                      </svg>
+                      Fast
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-muted/30 rounded border border-border flex justify-between items-center">
+                <div>
+                  <p className="text-[10px] uppercase font-semibold text-muted-foreground">This Month</p>
+                  <p className="text-sm font-semibold text-foreground">847 New Groups</p>
+                </div>
+                <span className="text-xs text-accent font-medium flex items-center gap-0.5">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                  </svg>
+                  23%
                 </span>
               </div>
-              
-              <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold text-foreground mb-6 leading-[1.1] tracking-tight">
-                Split expenses with friends,{' '}
-                <span className="text-gradient-primary">effortlessly</span>
-              </h1>
-              
-              <p className="text-base sm:text-lg lg:text-xl text-muted-foreground mb-8 max-w-xl mx-auto lg:mx-0 leading-relaxed">
-                Keep track of shared expenses, split bills fairly, and settle up with ease. 
-                No more awkward money conversations.
-              </p>
-              
-              <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 sm:gap-4 mb-8">
-                <Button size="lg" onClick={() => navigate('/signup')} className="gap-2 min-h-[52px] w-full sm:w-auto text-base shadow-xl shadow-primary/25 hover:shadow-2xl hover:shadow-primary/30 hover:-translate-y-0.5 transition-all">
-                  Get Started Free
-                  <ArrowRight size={18} />
-                </Button>
-                <Button size="lg" variant="outline" onClick={() => navigate('/login')} className="min-h-[52px] w-full sm:w-auto text-base">
-                  Sign In
-                </Button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Comparison Section */}
+      <section className="bg-card border-b border-border">
+        <div className="px-4 py-12 lg:py-16 max-w-screen-xl mx-auto">
+          <div className="flex flex-col gap-8">
+            <h2 className="font-display text-2xl lg:text-3xl font-bold text-foreground">
+              Why Split-It?
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Manual Tracking */}
+              <div className="p-6 border border-border rounded bg-background">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">Manual Tracking</h3>
+                <ul className="space-y-3">
+                  <li className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <svg className="w-4 h-4 text-muted-foreground/50 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Spreadsheets get outdated quickly
+                  </li>
+                  <li className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <svg className="w-4 h-4 text-muted-foreground/50 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Calculator errors cause disputes
+                  </li>
+                  <li className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <svg className="w-4 h-4 text-muted-foreground/50 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Awkward payment reminders
+                  </li>
+                  <li className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <svg className="w-4 h-4 text-muted-foreground/50 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    No receipt or history tracking
+                  </li>
+                  <li className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <svg className="w-4 h-4 text-muted-foreground/50 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Settlement delays
+                  </li>
+                </ul>
               </div>
 
-              {/* Benefits list */}
-              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-6 gap-y-2 text-sm text-muted-foreground">
-                {benefits.map((benefit, i) => (
-                  <div key={i} className="flex items-center gap-1.5">
-                    <CheckCircle size={14} className="text-success" />
-                    <span>{benefit}</span>
-                  </div>
-                ))}
+              {/* Split-It */}
+              <div className="p-6 border border-accent/30 rounded bg-accent/5">
+                <h3 className="text-sm font-semibold text-accent uppercase tracking-wide mb-4">Split-It</h3>
+                <ul className="space-y-3">
+                  <li className="flex items-start gap-3 text-sm text-foreground">
+                    <svg className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Real-time sync across all members
+                  </li>
+                  <li className="flex items-start gap-3 text-sm text-foreground">
+                    <svg className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    100% accurate split calculations
+                  </li>
+                  <li className="flex items-start gap-3 text-sm text-foreground">
+                    <svg className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Automated polite reminders
+                  </li>
+                  <li className="flex items-start gap-3 text-sm text-foreground">
+                    <svg className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Full audit trail with receipts
+                  </li>
+                  <li className="flex items-start gap-3 text-sm text-foreground">
+                    <svg className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    One-tap UPI settlement
+                  </li>
+                </ul>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
 
-            {/* Right Column - Visual Preview (Desktop only) */}
-            <div className="hidden lg:block relative">
-              <div className="relative">
-                {/* Main preview card */}
-                <Card className="border-border/50 shadow-2xl bg-card/95 backdrop-blur-sm">
-                  <CardContent className="p-6">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center text-white font-bold">S</div>
-                      <div>
-                        <p className="font-semibold text-foreground">Weekend Trip</p>
-                        <p className="text-xs text-muted-foreground">4 members</p>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-warning/10 rounded-lg"><Receipt size={16} className="text-warning" /></div>
-                          <div>
-                            <p className="text-sm font-medium">Dinner at Restaurant</p>
-                            <p className="text-xs text-muted-foreground">You paid</p>
-                          </div>
-                        </div>
-                        <p className="font-semibold text-foreground">₹2,400</p>
-                      </div>
-                      <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-info/10 rounded-lg"><CreditCard size={16} className="text-info" /></div>
-                          <div>
-                            <p className="text-sm font-medium">Hotel Booking</p>
-                            <p className="text-xs text-muted-foreground">Alex paid</p>
-                          </div>
-                        </div>
-                        <p className="font-semibold text-foreground">₹8,500</p>
-                      </div>
-                    </div>
-                    <div className="mt-6 pt-4 border-t border-border/50">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Your share</span>
-                        <span className="text-lg font-bold text-success">+₹1,225 owed to you</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Floating elements */}
-                <div className="absolute -top-4 -right-4 p-3 bg-success/10 border border-success/20 rounded-xl shadow-lg animate-fade-in" style={{ animationDelay: '0.3s' }}>
-                  <CheckCircle className="text-success" size={24} />
+      {/* Testimonial Section - Expanded */}
+      <section className="bg-primary">
+        <div className="px-4 py-16 lg:py-20 max-w-screen-xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Testimonial 1 */}
+            <div className="text-center">
+              <div className="flex justify-center mb-4">
+                <svg className="w-6 h-6 text-primary-foreground opacity-40" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z" />
+                </svg>
+              </div>
+              <p className="text-primary-foreground text-base font-medium leading-relaxed mb-4">
+                "Split-It provides clarity over conversation. We no longer have to 'discuss' money; the app just tells us the truth."
+              </p>
+              <div className="flex flex-col items-center">
+                <div className="w-10 h-10 bg-primary-foreground/20 rounded-full mb-2 flex items-center justify-center text-primary-foreground font-semibold text-sm">
+                  AM
                 </div>
-                <div className="absolute -bottom-6 -left-6 p-4 bg-card border border-border/50 rounded-xl shadow-xl animate-fade-in" style={{ animationDelay: '0.5s' }}>
-                  <div className="flex items-center gap-2">
-                    <Smartphone size={18} className="text-primary" />
-                    <span className="text-sm font-medium">UPI Ready</span>
-                  </div>
+                <p className="text-primary-foreground font-medium text-sm">Asish Mohanty</p>
+                <p className="text-primary-foreground/60 text-xs">Cuttack</p>
+              </div>
+            </div>
+
+            {/* Testimonial 2 */}
+            <div className="text-center">
+              <div className="flex justify-center mb-4">
+                <svg className="w-6 h-6 text-primary-foreground opacity-40" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z" />
+                </svg>
+              </div>
+              <p className="text-primary-foreground text-base font-medium leading-relaxed mb-4">
+                "Our Goa trip had 15 people and 50+ expenses. Split-It made it effortless. We settled up before landing back home."
+              </p>
+              <div className="flex flex-col items-center">
+                <div className="w-10 h-10 bg-primary-foreground/20 rounded-full mb-2 flex items-center justify-center text-primary-foreground font-semibold text-sm">
+                  SS
                 </div>
+                <p className="text-primary-foreground font-medium text-sm">Subham Sethy</p>
+                <p className="text-primary-foreground/60 text-xs">Bhubaneswar</p>
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* Features */}
-        <div className="py-12 sm:py-16 lg:py-20">
-          <div className="text-center mb-10 lg:mb-12">
-            <h2 className="font-display text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground mb-4">Everything you need to split expenses</h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto">Powerful features that make expense splitting simple and stress-free</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 max-w-5xl mx-auto">
-            {features.map((feature, index) => {
-              const Icon = feature.icon;
-              return (
-                <Card 
-                  key={index}
-                  className="group relative border-border/50 shadow-sm hover:shadow-xl hover:border-primary/30 hover:-translate-y-1 transition-all duration-300 overflow-hidden"
-                  style={{ animationDelay: `${0.1 * (index + 1)}s` }}
-                >
-                  <div className={`absolute inset-0 bg-gradient-to-br ${feature.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`} />
-                  <CardContent className="relative p-6 text-center">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center mx-auto mb-4 group-hover:scale-110 group-hover:shadow-lg transition-all duration-300">
-                      <Icon className="text-primary" size={24} />
-                    </div>
-                    <h3 className="font-display font-semibold text-lg text-foreground mb-2">
-                      {feature.title}
-                    </h3>
-                    <p className="text-muted-foreground text-sm leading-relaxed">
-                      {feature.description}
-                    </p>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Additional features row */}
-        <div className="max-w-4xl mx-auto py-8 lg:py-12">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            <div className="flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md hover:border-success/30 transition-all">
-              <div className="p-2 rounded-lg bg-success/10">
-                <Shield size={18} className="text-success" />
+            {/* Testimonial 3 */}
+            <div className="text-center">
+              <div className="flex justify-center mb-4">
+                <svg className="w-6 h-6 text-primary-foreground opacity-40" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z" />
+                </svg>
               </div>
-              <span className="text-sm font-medium text-foreground">Secure & Private</span>
-            </div>
-            <div className="flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md hover:border-info/30 transition-all">
-              <div className="p-2 rounded-lg bg-info/10">
-                <Zap size={18} className="text-info" />
-              </div>
-              <span className="text-sm font-medium text-foreground">Real-time Sync</span>
-            </div>
-            <div className="flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md hover:border-warning/30 transition-all">
-              <div className="p-2 rounded-lg bg-warning/10">
-                <Receipt size={18} className="text-warning" />
-              </div>
-              <span className="text-sm font-medium text-foreground">Receipt Scanning</span>
-            </div>
-            <div className="flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md hover:border-primary/30 transition-all">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <Globe size={18} className="text-primary" />
-              </div>
-              <span className="text-sm font-medium text-foreground">Works Offline</span>
-            </div>
-          </div>
-        </div>
-
-        {/* About Section - App Purpose */}
-        <div className="py-12 lg:py-16 max-w-4xl mx-auto">
-          <Card className="border-border/50 shadow-sm">
-            <CardContent className="p-6 sm:p-8">
-              <h2 className="font-display text-xl sm:text-2xl font-bold text-foreground mb-4">About Split-It</h2>
-              <p className="text-muted-foreground leading-relaxed mb-4">
-                <strong className="text-foreground">Split-It</strong> is a free expense splitting application designed to help groups of friends, roommates, couples, and travelers easily track and settle shared expenses. Whether you're splitting rent, sharing dinner bills, or managing trip costs, Split-It makes it simple to keep track of who owes what.
+              <p className="text-primary-foreground text-base font-medium leading-relaxed mb-4">
+                "As a student, every rupee matters. Split-It helps our hostel friends stay fair without any drama."
               </p>
-              <p className="text-muted-foreground leading-relaxed mb-4">
-                Our app calculates fair splits automatically, sends reminders for pending settlements, and integrates with UPI for quick payments in India. With features like receipt scanning, multiple currencies, real-time sync, and offline support, Split-It is the modern solution for group expense management.
-              </p>
-              <p className="text-muted-foreground leading-relaxed">
-                We prioritize your privacy and security. Your financial data is encrypted and never sold to third parties. Read our{' '}
-                <Link to="/privacy-policy" className="text-primary hover:underline font-medium">Privacy Policy</Link>
-                {' '}and{' '}
-                <Link to="/terms-of-service" className="text-primary hover:underline font-medium">Terms of Service</Link>
-                {' '}for more information.
-              </p>
-            </CardContent>
-          </Card>
+              <div className="flex flex-col items-center">
+                <div className="w-10 h-10 bg-primary-foreground/20 rounded-full mb-2 flex items-center justify-center text-primary-foreground font-semibold text-sm">
+                  SJ
+                </div>
+                <p className="text-primary-foreground font-medium text-sm">Sumit Kumar Jena</p>
+                <p className="text-primary-foreground/60 text-xs">Bhubaneswar</p>
+              </div>
+            </div>
+          </div>
         </div>
+      </section>
 
-        {/* Footer CTA */}
-        <div className="text-center py-12 lg:py-16">
-          <Card className="max-w-2xl mx-auto border-border/50 shadow-lg bg-gradient-to-br from-primary/5 to-transparent">
-            <CardContent className="p-8 sm:p-10">
-              <h3 className="font-display text-xl sm:text-2xl font-bold text-foreground mb-3">Ready to simplify expense sharing?</h3>
-              <p className="text-muted-foreground mb-6">Join thousands of users who trust Split-It for their group expenses</p>
-              <Button size="lg" onClick={() => navigate('/signup')} className="gap-2 min-h-[52px] text-base shadow-xl shadow-primary/25">
-                Get Started Free
-                <ArrowRight size={18} />
+      {/* FAQ Section */}
+      <section className="bg-card border-b border-border">
+        <div className="px-4 py-12 max-w-screen-xl mx-auto">
+          <h2 className="font-display text-2xl lg:text-3xl font-bold text-foreground mb-8">
+            Frequently Asked Questions
+          </h2>
+
+          <div className="max-w-2xl space-y-4">
+            <Collapsible>
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-4 text-left border border-border rounded bg-background hover:bg-muted/30 transition-colors">
+                <span className="text-sm font-semibold text-foreground">Is Split-It free to use?</span>
+                <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="px-4 py-3 text-sm text-muted-foreground border-x border-b border-border rounded-b">
+                Yes, Split-It is completely free for personal use. Create unlimited groups, add unlimited expenses, and settle with no transaction fees.
+              </CollapsibleContent>
+            </Collapsible>
+
+            <Collapsible>
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-4 text-left border border-border rounded bg-background hover:bg-muted/30 transition-colors">
+                <span className="text-sm font-semibold text-foreground">How secure is my financial data?</span>
+                <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="px-4 py-3 text-sm text-muted-foreground border-x border-b border-border rounded-b">
+                We use bank-grade encryption for all data. Your UPI transactions go directly through your bank's secure gateway. We never store payment credentials.
+              </CollapsibleContent>
+            </Collapsible>
+
+            <Collapsible>
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-4 text-left border border-border rounded bg-background hover:bg-muted/30 transition-colors">
+                <span className="text-sm font-semibold text-foreground">Can I use Split-It offline?</span>
+                <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="px-4 py-3 text-sm text-muted-foreground border-x border-b border-border rounded-b">
+                You can view your existing groups and balances offline. New expenses sync automatically when you're back online.
+              </CollapsibleContent>
+            </Collapsible>
+
+            <Collapsible>
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-4 text-left border border-border rounded bg-background hover:bg-muted/30 transition-colors">
+                <span className="text-sm font-semibold text-foreground">How do UPI settlements work?</span>
+                <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="px-4 py-3 text-sm text-muted-foreground border-x border-b border-border rounded-b">
+                When you settle, we generate a UPI payment link with the exact amount. Tap to pay via any UPI app (GPay, PhonePe, Paytm). The transaction is instant.
+              </CollapsibleContent>
+            </Collapsible>
+
+            <Collapsible>
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-4 text-left border border-border rounded bg-background hover:bg-muted/30 transition-colors">
+                <span className="text-sm font-semibold text-foreground">What if someone doesn't have Split-It?</span>
+                <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="px-4 py-3 text-sm text-muted-foreground border-x border-b border-border rounded-b">
+                You can add anyone to a group using their email. They'll receive an invite to sign up. Until then, you can still track their share of expenses.
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer - Enhanced */}
+      <footer className="bg-card border-t border-border">
+        <div className="px-4 py-10 max-w-screen-xl mx-auto">
+          <div className="flex flex-col gap-8">
+            {/* Brand */}
+            <div className="flex flex-col gap-2">
+              <Logo size="sm" />
+              <p className="text-muted-foreground text-xs">Engineered for financial transparency between friends.</p>
+            </div>
+
+            {/* Links */}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+              <div className="flex flex-col gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</p>
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Features</Link>
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Security</Link>
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Pricing</Link>
+              </div>
+              <div className="flex flex-col gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Company</p>
+                <Link to="/privacy-policy" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
+                <Link to="/terms-of-service" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
+              </div>
+              <div className="flex flex-col gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Resources</p>
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Blog</Link>
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Help Center</Link>
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">API Docs</Link>
+              </div>
+            </div>
+
+            {/* Newsletter */}
+            <div className="flex flex-col gap-3 pt-4 border-t border-border">
+              <p className="text-sm font-medium text-foreground">Stay updated</p>
+              <div className="flex gap-2 max-w-sm">
+                <input
+                  type="email"
+                  placeholder="Enter your email"
+                  className="flex-1 px-3 py-2 text-sm border border-border rounded bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                <Button size="sm" className="text-sm">Subscribe</Button>
+              </div>
+            </div>
+
+            {/* Social Links */}
+            <div className="flex items-center gap-4">
+              <a href="#" className="text-muted-foreground hover:text-foreground transition-colors">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+                </svg>
+              </a>
+              <a href="#" className="text-muted-foreground hover:text-foreground transition-colors">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                </svg>
+              </a>
+              <a href="#" className="text-muted-foreground hover:text-foreground transition-colors">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+                </svg>
+              </a>
+            </div>
+
+            {/* CTA */}
+            <div className="pt-6 border-t border-border">
+              <p className="text-sm font-medium text-foreground mb-3">Ready to automate your group finances?</p>
+              <Button
+                onClick={() => navigate('/signup')}
+                className="w-full sm:w-auto text-sm"
+              >
+                Get Started for Free
               </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Footer */}
-        <footer className="py-8 border-t border-border/50">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
-            <p>© 2026 Split-It. All rights reserved.</p>
-            <nav className="flex items-center gap-6">
-              <Link to="/terms-of-service" className="hover:text-primary transition-colors">
-                Terms of Service
-              </Link>
-              <Link to="/privacy-policy" className="hover:text-primary transition-colors">
-                Privacy Policy
-              </Link>
-            </nav>
+              <p className="text-[10px] text-muted-foreground text-center sm:text-left mt-4">© 2026 Split-It. All rights reserved.</p>
+            </div>
           </div>
-        </footer>
-      </div>
+        </div>
+      </footer>
+
+      {/* Floating CTA Button - Mobile Only */}
+      {showFloatingCTA && (
+        <div className="fixed bottom-6 left-4 right-4 md:hidden z-40 safe-area-inset-bottom">
+          <Button
+            onClick={() => navigate('/signup')}
+            className="w-full shadow-lg text-sm font-medium py-3 h-auto"
+          >
+            Get Started
+          </Button>
+        </div>
+      )}
     </div>
   );
 };

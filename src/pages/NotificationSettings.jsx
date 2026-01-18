@@ -9,10 +9,10 @@ import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { useToast } from '../hooks/use-toast';
 import apiClient from '../lib/apiClient';
-import { 
-  initializePushNotifications, 
+import {
+  initializePushNotifications,
   getPushNotificationStatus,
-  unsubscribeFromPush 
+  unsubscribeFromPush
 } from '../utils/registerServiceWorker';
 
 const NotificationSettings = () => {
@@ -62,7 +62,7 @@ const NotificationSettings = () => {
           apiClient.get('/users/budget-settings'),
           getPushNotificationStatus(),
         ]);
-        
+
         setEmailPreferences(prev => ({ ...prev, ...emailPrefs }));
         setBudgetSettings(prev => ({ ...prev, ...budgetPrefs }));
         setPushStatus(prev => ({ ...prev, ...pushStatusResult }));
@@ -94,11 +94,11 @@ const NotificationSettings = () => {
     try {
       const result = await initializePushNotifications();
       if (result.success) {
-        setPushStatus(prev => ({ 
-          ...prev, 
-          subscribed: true, 
+        setPushStatus(prev => ({
+          ...prev,
+          subscribed: true,
           permission: 'granted',
-          loading: false 
+          loading: false
         }));
         toast({
           title: 'Push notifications enabled',
@@ -126,10 +126,10 @@ const NotificationSettings = () => {
     setPushStatus(prev => ({ ...prev, loading: true }));
     try {
       await unsubscribeFromPush();
-      setPushStatus(prev => ({ 
-        ...prev, 
+      setPushStatus(prev => ({
+        ...prev,
         subscribed: false,
-        loading: false 
+        loading: false
       }));
       toast({
         title: 'Push notifications disabled',
@@ -168,7 +168,7 @@ const NotificationSettings = () => {
         apiClient.put('/users/email-preferences', emailPreferences),
         apiClient.put('/users/budget-settings', budgetSettings),
       ]);
-      
+
       toast({
         title: 'Preferences saved',
         description: 'Your notification settings have been updated.',
@@ -208,11 +208,10 @@ const NotificationSettings = () => {
       </div>
       <button
         onClick={onChange}
-        className={`text-sm font-medium transition-colors ${
-          checked 
-            ? 'text-destructive hover:text-destructive/80' 
+        className={`text-sm font-medium transition-colors ${checked
+            ? 'text-destructive hover:text-destructive/80'
             : 'text-primary hover:text-primary/80'
-        }`}
+          }`}
       >
         {checked ? 'Unsubscribe' : 'Subscribe'}
       </button>
@@ -222,7 +221,7 @@ const NotificationSettings = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8 max-w-2xl mx-auto">
         {/* Back Button */}
         <button
@@ -247,7 +246,7 @@ const NotificationSettings = () => {
         <Card className="mb-6 animate-fade-in border-border/50 shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">
+              <div className="p-2.5 rounded bg-primary/10 border border-primary/20">
                 <Smartphone className="text-primary" size={20} />
               </div>
               <div>
@@ -329,7 +328,7 @@ const NotificationSettings = () => {
         <Card className="mb-6 animate-fade-in border-border/50 shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">
+              <div className="p-2.5 rounded bg-primary/10 border border-primary/20">
                 <Calendar className="text-primary" size={20} />
               </div>
               <div>
@@ -360,7 +359,7 @@ const NotificationSettings = () => {
         <Card className="mb-6 animate-fade-in border-border/50 shadow-sm" style={{ animationDelay: '0.1s' }}>
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-success/20 to-success/5 border border-success/20">
+              <div className="p-2.5 rounded bg-success/10 border border-success/20">
                 <Mail className="text-success" size={20} />
               </div>
               <div>
@@ -397,7 +396,7 @@ const NotificationSettings = () => {
         <Card className="mb-6 animate-fade-in border-border/50 shadow-sm" style={{ animationDelay: '0.2s' }}>
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-warning/20 to-warning/5 border border-warning/20">
+              <div className="p-2.5 rounded bg-warning/10 border border-warning/20">
                 <Bell className="text-warning" size={20} />
               </div>
               <div>
@@ -428,7 +427,7 @@ const NotificationSettings = () => {
         <Card className="mb-6 animate-fade-in border-border/50 shadow-sm" style={{ animationDelay: '0.3s' }}>
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-info/20 to-info/5 border border-info/20">
+              <div className="p-2.5 rounded bg-info/10 border border-info/20">
                 <Bell className="text-info" size={20} />
               </div>
               <div>
@@ -459,7 +458,7 @@ const NotificationSettings = () => {
         <Card className="mb-6 animate-fade-in border-border/50 shadow-sm" style={{ animationDelay: '0.4s' }}>
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-destructive/20 to-destructive/5 border border-destructive/20">
+              <div className="p-2.5 rounded bg-destructive/10 border border-destructive/20">
                 <PiggyBank className="text-destructive" size={20} />
               </div>
               <div>
@@ -490,7 +489,7 @@ const NotificationSettings = () => {
         <Card className="mb-6 animate-fade-in border-border/50 shadow-sm" style={{ animationDelay: '0.5s' }}>
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">
+              <div className="p-2.5 rounded bg-primary/10 border border-primary/20">
                 <FileText className="text-primary" size={20} />
               </div>
               <div>
@@ -518,7 +517,7 @@ const NotificationSettings = () => {
                 Set to 0 to disable monthly budget alerts
               </p>
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="alertThreshold">Alert Threshold (%)</Label>
               <Input
@@ -538,9 +537,9 @@ const NotificationSettings = () => {
         </Card>
 
         {/* Save Button */}
-        <Button 
-          onClick={handleSave} 
-          className="w-full min-h-[52px] h-auto text-base shadow-lg shadow-primary/25 hover:shadow-xl transition-all" 
+        <Button
+          onClick={handleSave}
+          className="w-full min-h-[52px] h-auto text-base shadow-lg shadow-primary/25 hover:shadow-xl transition-all"
           size="lg"
           disabled={saving}
         >

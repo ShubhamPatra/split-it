@@ -6,9 +6,9 @@ import { useToast } from '../../hooks/use-toast';
 import { useIsMobile } from '../../hooks/use-mobile';
 import { Badge } from '../ui/badge';
 import QRCode from 'qrcode';
-import { 
-  validateUpiId, 
-  generateUpiUrl, 
+import {
+  validateUpiId,
+  generateUpiUrl,
   getUpiProviderIcon,
   generateTransactionRef,
   validatePaymentAmount
@@ -43,7 +43,7 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
       note,
       transactionId: transactionRef,
     };
-    
+
     if (appScheme) {
       return generateUpiUrl({ ...params, scheme: appScheme });
     }
@@ -52,9 +52,9 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
 
   const generateQRCode = useCallback(async () => {
     if (!canvasRef.current || !upiValidation.isValid) return;
-    
+
     const upiUrl = getUpiUrl();
-    
+
     try {
       // Generate QR code locally using qrcode library - NO external API calls
       await QRCode.toCanvas(canvasRef.current, upiUrl, {
@@ -79,10 +79,10 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
       ctx.fillStyle = '#000000';
       ctx.font = '14px system-ui';
       ctx.textAlign = 'center';
-      ctx.fillText('QR Code Generation Failed', size/2, size/2 - 30);
+      ctx.fillText('QR Code Generation Failed', size / 2, size / 2 - 30);
       ctx.font = '12px system-ui';
-      ctx.fillText('Please use UPI app option', size/2, size/2);
-      ctx.fillText('or copy UPI ID manually', size/2, size/2 + 20);
+      ctx.fillText('Please use UPI app option', size / 2, size / 2);
+      ctx.fillText('or copy UPI ID manually', size / 2, size / 2 + 20);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receiverUpiId, receiverName, amount, note, transactionRef, upiValidation.isValid]);
@@ -95,19 +95,19 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
 
   const handlePayNow = () => {
     if (!upiValidation.isValid) {
-      toast({ 
-        title: "Invalid UPI ID", 
+      toast({
+        title: "Invalid UPI ID",
         description: upiValidation.error,
-        variant: "destructive" 
+        variant: "destructive"
       });
       return;
     }
 
     if (!amountValidation.isValid) {
-      toast({ 
-        title: "Invalid Amount", 
+      toast({
+        title: "Invalid Amount",
         description: amountValidation.error,
-        variant: "destructive" 
+        variant: "destructive"
       });
       return;
     }
@@ -116,15 +116,15 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
       // On mobile, try to open default UPI app
       window.location.href = getUpiUrl();
       setPaymentInitiated(true);
-      toast({ 
-        title: "Opening UPI app...", 
-        description: `Transaction ID: ${transactionRef}` 
+      toast({
+        title: "Opening UPI app...",
+        description: `Transaction ID: ${transactionRef}`
       });
     } else {
       // On desktop, show QR code dialog
       setShowPaymentDialog(true);
     }
-    
+
     if (onPaymentInitiated) {
       onPaymentInitiated({
         transactionRef,
@@ -135,14 +135,14 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
   };
 
   const copyUpiId = async () => {
-    try { 
-      await navigator.clipboard.writeText(receiverUpiId); 
-      setCopied(true); 
-      setTimeout(() => setCopied(false), 2000); 
-      toast({ title: "UPI ID copied!" }); 
+    try {
+      await navigator.clipboard.writeText(receiverUpiId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast({ title: "UPI ID copied!" });
     }
-    catch { 
-      toast({ title: "Failed to copy", variant: "destructive" }); 
+    catch {
+      toast({ title: "Failed to copy", variant: "destructive" });
     }
   };
 
@@ -167,9 +167,9 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
 
   return (
     <>
-      <Button 
-        variant={variant} 
-        size={size} 
+      <Button
+        variant={variant}
+        size={size}
         className={className}
         onClick={handlePayNow}
       >
@@ -189,15 +189,15 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
               Scan QR code with any UPI app to complete payment
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="flex flex-col items-center space-y-4 py-4">
-            <div className="p-4 bg-white rounded-lg shadow-lg border-2 border-primary/20">
+            <div className="p-4 bg-white rounded border border-border">
               <canvas ref={canvasRef} className="max-w-full h-auto" />
             </div>
-            
+
             {/* Payment Info Card */}
             <div className="w-full space-y-3">
-              <div className="p-4 bg-primary/10 rounded-lg border border-primary/20">
+              <div className="p-4 bg-primary/10 rounded border border-primary/20">
                 <p className="text-sm text-muted-foreground mb-1">Amount to Pay</p>
                 <p className="font-display text-3xl font-bold text-primary">
                   ₹{amount.toLocaleString()}
@@ -208,13 +208,13 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
                   </p>
                 )}
               </div>
-              
-              <div className="p-4 bg-secondary rounded-lg border">
+
+              <div className="p-4 bg-secondary rounded border border-border">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs text-muted-foreground">Pay to</p>
                   {upiValidation.provider && (
                     <Badge variant="outline" className="text-xs">
-                      {providerIcon} {upiValidation.provider}
+                      {upiValidation.provider}
                     </Badge>
                   )}
                 </div>
@@ -229,15 +229,15 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
                   <p className="text-xs text-muted-foreground mt-1">{upiValidation.bank}</p>
                 )}
               </div>
-              
-              <div className="p-3 bg-info/10 rounded-lg border border-info/20">
+
+              <div className="p-3 bg-info/10 rounded border border-info/20">
                 <p className="text-xs text-info flex items-center gap-2">
                   <AlertCircle size={14} />
                   Open any UPI app on your device and scan this QR code
                 </p>
               </div>
             </div>
-            
+
             <Button onClick={downloadQRCode} variant="outline" size="sm" className="w-full">
               <Download size={16} className="mr-2" />
               Download QR Code

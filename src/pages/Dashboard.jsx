@@ -24,12 +24,12 @@ const Dashboard = () => {
   // Load expenses for all user groups when Dashboard mounts
   useEffect(() => {
     if (!user || loading || groups.length === 0) return;
-    
+
     // Load expenses for all groups the user is a member of
     const userGroupIds = groups
       .filter(g => g.members.includes(user.id))
       .map(g => g.id);
-    
+
     // Load expenses for each group (they will be cached after first load)
     userGroupIds.forEach(groupId => {
       loadGroupExpenses(groupId);
@@ -41,7 +41,7 @@ const Dashboard = () => {
     () => groups.filter(g => g.members.includes(user?.id || '')),
     [groups, user?.id]
   );
-  
+
   const totalExpenses = useMemo(
     () => expenses.reduce((sum, exp) => sum + exp.amount, 0),
     [expenses]
@@ -93,7 +93,7 @@ const Dashboard = () => {
     // Calculate from expenses
     expenses.forEach(expense => {
       const shares = expense.splitConfig?.shares || {};
-      
+
       if (expense.paidBy === userId) {
         // User paid - others owe them their shares
         Object.entries(shares).forEach(([memberId, amount]) => {
@@ -144,18 +144,18 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       {/* Mobile Floating Action Button */}
       <div className="sm:hidden fixed bottom-20 right-4 z-40 animate-fade-in" style={{ animationDelay: '0.7s' }}>
-        <Button 
-          onClick={() => navigate('/add-expense')} 
+        <Button
+          onClick={() => navigate('/add-expense')}
           size="lg"
           className="h-14 w-14 rounded-full shadow-xl shadow-primary/30 hover:shadow-2xl hover:shadow-primary/40 transition-all active:scale-95"
         >
           <Plus size={24} />
         </Button>
       </div>
-      
+
       <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
         {/* Desktop Layout: Two Column */}
         <div className="lg:grid lg:grid-cols-12 lg:gap-8">
@@ -165,12 +165,9 @@ const Dashboard = () => {
             <div className="mb-6 lg:mb-8 animate-fade-in">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground">
-                      Hello, {user?.name?.split(' ')[0]}!
-                    </h1>
-                    <span className="text-2xl sm:text-3xl">👋</span>
-                  </div>
+                  <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground">
+                    Hello, {user?.name?.split(' ')[0]}!
+                  </h1>
                   <p className="text-muted-foreground flex items-center gap-2 text-sm">
                     <Calendar size={14} />
                     <span>{currentMonth}</span>
@@ -178,8 +175,8 @@ const Dashboard = () => {
                     <span className="hidden sm:inline">Here's your expense overview</span>
                   </p>
                 </div>
-                <Button 
-                  onClick={() => navigate('/add-expense')} 
+                <Button
+                  onClick={() => navigate('/add-expense')}
                   className="hidden sm:flex gap-2 shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all"
                 >
                   <Plus size={18} />
@@ -194,7 +191,7 @@ const Dashboard = () => {
               <Card className="group border-border/50 shadow-sm hover:shadow-xl hover:border-primary/30 transition-all duration-300 animate-fade-in overflow-hidden" style={{ animationDelay: '0.1s' }}>
                 <CardContent className="p-5 lg:p-6">
                   <div className="flex items-start justify-between mb-4">
-                    <div className="p-3 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 group-hover:scale-110 transition-transform duration-300">
+                    <div className="p-3 rounded bg-primary/10 border border-primary/20 group-hover:scale-110 transition-transform duration-300">
                       <Wallet className="text-primary" size={24} />
                     </div>
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
@@ -220,7 +217,7 @@ const Dashboard = () => {
               <Card className="group border-border/50 shadow-sm hover:shadow-xl hover:border-success/30 transition-all duration-300 animate-fade-in overflow-hidden" style={{ animationDelay: '0.15s' }}>
                 <CardContent className="p-5 lg:p-6">
                   <div className="flex items-start justify-between mb-4">
-                    <div className="p-3 rounded-xl bg-gradient-to-br from-success/20 to-success/5 border border-success/20 group-hover:scale-110 transition-transform duration-300">
+                    <div className="p-3 rounded bg-success/10 border border-success/20 group-hover:scale-110 transition-transform duration-300">
                       <Target className="text-success" size={24} />
                     </div>
                     <div className="text-xs text-muted-foreground flex items-center gap-1">
@@ -246,7 +243,7 @@ const Dashboard = () => {
               <Card className="group border-border/50 shadow-sm hover:shadow-xl hover:border-warning/30 transition-all duration-300 animate-fade-in sm:col-span-2 xl:col-span-1 overflow-hidden" style={{ animationDelay: '0.2s' }}>
                 <CardContent className="p-5 lg:p-6">
                   <div className="flex items-start justify-between mb-4">
-                    <div className="p-3 rounded-xl bg-gradient-to-br from-warning/20 to-warning/5 border border-warning/20 group-hover:scale-110 transition-transform duration-300">
+                    <div className="p-3 rounded bg-warning/10 border border-warning/20 group-hover:scale-110 transition-transform duration-300">
                       <Zap className="text-warning" size={24} />
                     </div>
                   </div>
@@ -287,7 +284,7 @@ const Dashboard = () => {
                 <Card className="group border-border/50 shadow-sm hover:shadow-lg hover:border-success/30 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.25s' }}>
                   <CardContent className="p-4 lg:p-5">
                     <div className="flex items-center gap-3">
-                      <div className="p-2.5 rounded-xl bg-gradient-to-br from-success/20 to-success/5 border border-success/20 group-hover:scale-110 transition-transform duration-300">
+                      <div className="p-2.5 rounded bg-success/10 border border-success/20 group-hover:scale-110 transition-transform duration-300">
                         <ArrowDownRight className="text-success" size={18} />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -303,7 +300,7 @@ const Dashboard = () => {
                 <Card className="group border-border/50 shadow-sm hover:shadow-lg hover:border-destructive/30 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.3s' }}>
                   <CardContent className="p-4 lg:p-5">
                     <div className="flex items-center gap-3">
-                      <div className="p-2.5 rounded-xl bg-gradient-to-br from-destructive/20 to-destructive/5 border border-destructive/20 group-hover:scale-110 transition-transform duration-300">
+                      <div className="p-2.5 rounded bg-destructive/10 border border-destructive/20 group-hover:scale-110 transition-transform duration-300">
                         <ArrowUpRight className="text-destructive" size={18} />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -319,7 +316,7 @@ const Dashboard = () => {
                 <Card className="group border-border/50 shadow-sm hover:shadow-lg hover:border-primary/30 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.35s' }}>
                   <CardContent className="p-4 lg:p-5">
                     <div className="flex items-center gap-3">
-                      <div className="p-2.5 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 group-hover:scale-110 transition-transform duration-300">
+                      <div className="p-2.5 rounded bg-primary/10 border border-primary/20 group-hover:scale-110 transition-transform duration-300">
                         <Scale className="text-primary" size={18} />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -335,7 +332,7 @@ const Dashboard = () => {
                 <Card className="group border-border/50 shadow-sm hover:shadow-lg hover:border-info/30 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.4s' }}>
                   <CardContent className="p-4 lg:p-5">
                     <div className="flex items-center gap-3">
-                      <div className="p-2.5 rounded-xl bg-gradient-to-br from-info/20 to-info/5 border border-info/20 group-hover:scale-110 transition-transform duration-300">
+                      <div className="p-2.5 rounded bg-info/10 border border-info/20 group-hover:scale-110 transition-transform duration-300">
                         <HandCoins className="text-info" size={18} />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -352,7 +349,7 @@ const Dashboard = () => {
               {/* Mobile: Horizontal scrolling cards */}
               <div className="sm:hidden -mx-4 px-4">
                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
-                  <Card className="flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-gradient-to-br from-success/5 to-transparent">
+                  <Card className="flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-muted/30">
                     <CardContent className="p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <div className="p-1.5 rounded-lg bg-success/20">
@@ -366,7 +363,7 @@ const Dashboard = () => {
                     </CardContent>
                   </Card>
 
-                  <Card className="flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-gradient-to-br from-destructive/5 to-transparent">
+                  <Card className="flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-muted/30">
                     <CardContent className="p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <div className="p-1.5 rounded-lg bg-destructive/20">
@@ -380,7 +377,7 @@ const Dashboard = () => {
                     </CardContent>
                   </Card>
 
-                  <Card className={`flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-gradient-to-br ${balanceSummary.netBalance >= 0 ? 'from-success/5' : 'from-destructive/5'} to-transparent`}>
+                  <Card className={`flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-muted/30`}>
                     <CardContent className="p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <div className={`p-1.5 rounded-lg ${balanceSummary.netBalance >= 0 ? 'bg-success/20' : 'bg-destructive/20'}`}>
@@ -394,7 +391,7 @@ const Dashboard = () => {
                     </CardContent>
                   </Card>
 
-                  <Card className="flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-gradient-to-br from-info/5 to-transparent">
+                  <Card className="flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-muted/30">
                     <CardContent className="p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <div className="p-1.5 rounded-lg bg-info/20">
@@ -435,7 +432,7 @@ const Dashboard = () => {
               ) : (
                 <Card className="border-border/50 shadow-sm">
                   <CardContent className="p-8 sm:p-12 text-center">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center mx-auto mb-4">
+                    <div className="w-16 h-16 rounded bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-4">
                       <Users className="text-primary" size={28} />
                     </div>
                     <h3 className="font-display font-semibold text-lg text-foreground mb-2">
@@ -466,8 +463,8 @@ const Dashboard = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => navigate('/add-expense')}
                     className="w-full justify-start gap-3 h-12 hover:bg-primary/10 hover:border-primary/40 hover:text-primary transition-all"
                   >
@@ -476,8 +473,8 @@ const Dashboard = () => {
                     </div>
                     Add Expense
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => navigate('/groups')}
                     className="w-full justify-start gap-3 h-12 hover:bg-success/10 hover:border-success/40 hover:text-success transition-all"
                   >
@@ -486,8 +483,8 @@ const Dashboard = () => {
                     </div>
                     Create Group
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => navigate('/analytics')}
                     className="w-full justify-start gap-3 h-12 hover:bg-info/10 hover:border-info/40 hover:text-info transition-all"
                   >
@@ -496,8 +493,8 @@ const Dashboard = () => {
                     </div>
                     View Analytics
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => navigate('/summary')}
                     className="w-full justify-start gap-3 h-12 hover:bg-warning/10 hover:border-warning/40 hover:text-warning transition-all"
                   >
@@ -523,8 +520,8 @@ const Dashboard = () => {
                       {recentActivities.map((expense, index) => {
                         const group = groups.find(g => g.id === expense.groupId);
                         return (
-                          <div 
-                            key={expense.id} 
+                          <div
+                            key={expense.id}
                             className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group/item"
                             onClick={() => navigate(`/group/${expense.groupId}`)}
                           >
@@ -564,7 +561,7 @@ const Dashboard = () => {
               </Card>
 
               {/* Monthly Overview Mini Card */}
-              <Card className="border-border/50 shadow-sm animate-fade-in bg-gradient-to-br from-primary/5 to-transparent" style={{ animationDelay: '0.6s' }}>
+              <Card className="border-border/50 shadow-sm animate-fade-in bg-muted/30" style={{ animationDelay: '0.6s' }}>
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between mb-4">
                     <span className="text-sm font-medium text-foreground">Monthly Overview</span>
@@ -602,8 +599,8 @@ const Dashboard = () => {
               Quick Actions
             </h2>
             <div className="grid grid-cols-4 gap-2">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => navigate('/add-expense')}
                 className="h-auto py-3 flex-col gap-1.5 hover:bg-primary/10 hover:border-primary/40 hover:text-primary transition-all"
               >
@@ -612,8 +609,8 @@ const Dashboard = () => {
                 </div>
                 <span className="text-[10px] font-medium">Expense</span>
               </Button>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => navigate('/groups')}
                 className="h-auto py-3 flex-col gap-1.5 hover:bg-success/10 hover:border-success/40 hover:text-success transition-all"
               >
@@ -622,8 +619,8 @@ const Dashboard = () => {
                 </div>
                 <span className="text-[10px] font-medium">Group</span>
               </Button>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => navigate('/analytics')}
                 className="h-auto py-3 flex-col gap-1.5 hover:bg-info/10 hover:border-info/40 hover:text-info transition-all"
               >
@@ -632,8 +629,8 @@ const Dashboard = () => {
                 </div>
                 <span className="text-[10px] font-medium">Analytics</span>
               </Button>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => navigate('/summary')}
                 className="h-auto py-3 flex-col gap-1.5 hover:bg-warning/10 hover:border-warning/40 hover:text-warning transition-all"
               >
@@ -646,7 +643,7 @@ const Dashboard = () => {
           </div>
 
           {/* Mobile Monthly Overview */}
-          <Card className="border-border/50 shadow-sm animate-fade-in bg-gradient-to-br from-primary/5 to-transparent" style={{ animationDelay: '0.55s' }}>
+          <Card className="border-border/50 shadow-sm animate-fade-in bg-muted/30" style={{ animationDelay: '0.55s' }}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -693,8 +690,8 @@ const Dashboard = () => {
                   {recentActivities.slice(0, 4).map((expense) => {
                     const group = groups.find(g => g.id === expense.groupId);
                     return (
-                      <div 
-                        key={expense.id} 
+                      <div
+                        key={expense.id}
                         className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/30 active:bg-muted/50 transition-colors cursor-pointer"
                         onClick={() => navigate(`/group/${expense.groupId}`)}
                       >
@@ -732,7 +729,7 @@ const Dashboard = () => {
           </Card>
 
           {/* Mobile Net Balance Highlight */}
-          <Card className={`border-2 shadow-md animate-fade-in overflow-hidden ${balanceSummary.netBalance >= 0 ? 'border-success/30 bg-gradient-to-br from-success/5 to-transparent' : 'border-destructive/30 bg-gradient-to-br from-destructive/5 to-transparent'}`} style={{ animationDelay: '0.65s' }}>
+          <Card className={`border-2 shadow-md animate-fade-in overflow-hidden ${balanceSummary.netBalance >= 0 ? 'border-success/30 bg-muted/30' : 'border-destructive/30 bg-muted/30'}`} style={{ animationDelay: '0.65s' }}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">

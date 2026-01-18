@@ -16,7 +16,7 @@ cp .env.example .env
 nano .env  # Fill in your values
 
 # 3. Update nginx.conf with your domain
-sed -i 's/YOUR_DOMAIN/yourdomain.com/g' nginx.conf
+sed -i 's/YOUR_DOMAIN/split-it.live/g' nginx.conf
 
 # 4. Build frontend
 npm install

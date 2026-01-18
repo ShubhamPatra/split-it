@@ -3,15 +3,11 @@ import Message from '../models/Message.js';
 import Group from '../models/Group.js';
 import { notifyUsers } from '../jobs/notificationService.js';
 import { emitToGroup } from '../utils/socketEmitter.js';
+import { checkRateLimit } from '../utils/rateLimiter.js';
 
 // Cache TTL constants
 const CACHE_TTL_MESSAGES = 60; // 60 seconds
 const CACHE_TTL_UNREAD = 30; // 30 seconds
-
-// Rate limiting tracking (in-memory)
-const MESSAGE_RATE_LIMIT = 100; // messages per minute per user per group
-const RATE_LIMIT_WINDOW = 60; // seconds
-const rateLimitMap = new Map();
 
 // In-memory caches (replacing Redis)
 const messageCache = new Map();
@@ -30,23 +26,6 @@ const sanitizeContent = (content) => {
     .replace(/on\w+\s*=/gi, '')
     .replace(/<[^>]*>/g, '') // Strip all HTML tags
     .trim();
-};
-
-/**
- * Check rate limit for user in group (in-memory)
- */
-const checkRateLimit = (userId, groupId) => {
-  const key = `${groupId}:${userId}`;
-  const now = Date.now();
-  const entry = rateLimitMap.get(key);
-
-  if (!entry || now - entry.timestamp > RATE_LIMIT_WINDOW * 1000) {
-    rateLimitMap.set(key, { count: 1, timestamp: now });
-    return true;
-  }
-
-  entry.count++;
-  return entry.count <= MESSAGE_RATE_LIMIT;
 };
 
 /**
@@ -71,13 +50,6 @@ const startCacheCleanup = () => {
 
   cacheCleanupInterval = setInterval(() => {
     const now = Date.now();
-
-    // Clean up expired rate limit entries
-    for (const [key, entry] of rateLimitMap) {
-      if (now - entry.timestamp > RATE_LIMIT_WINDOW * 1000) {
-        rateLimitMap.delete(key);
-      }
-    }
 
     // Clean up expired message cache entries
     for (const [key, entry] of messageCache) {

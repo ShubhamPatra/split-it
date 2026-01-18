@@ -52,18 +52,18 @@ export const validateUpiId = (upiId) => {
   }
 
   const trimmed = upiId.trim().toLowerCase();
-  
+
   // Basic format validation: username@handle
   const upiRegex = /^([a-z0-9._-]+)@([a-z0-9.-]+)$/i;
   const match = trimmed.match(upiRegex);
-  
+
   if (!match) {
     result.error = 'Invalid UPI ID format. Expected: username@handle';
     return result;
   }
 
   const [, username, handle] = match;
-  
+
   // Username validation
   if (username.length < 3 || username.length > 50) {
     result.error = 'Username must be between 3-50 characters';
@@ -71,8 +71,8 @@ export const validateUpiId = (upiId) => {
   }
 
   // Check for invalid patterns
-  if (username.startsWith('.') || username.endsWith('.') || 
-      username.includes('..') || handle.includes('..')) {
+  if (username.startsWith('.') || username.endsWith('.') ||
+    username.includes('..') || handle.includes('..')) {
     result.error = 'Invalid characters or pattern in UPI ID';
     return result;
   }
@@ -113,13 +113,13 @@ export const validateUpiId = (upiId) => {
  * @param {Object} params - Payment parameters
  * @returns {string} UPI URL
  */
-export const generateUpiUrl = ({ 
-  receiverUpiId, 
-  receiverName, 
-  amount, 
-  note = '', 
+export const generateUpiUrl = ({
+  receiverUpiId,
+  receiverName,
+  amount,
+  note = '',
   transactionId = '',
-  scheme = 'upi://pay' 
+  scheme = 'upi://pay'
 }) => {
   const params = new URLSearchParams({
     pa: receiverUpiId,
@@ -158,7 +158,7 @@ export const detectDeviceAndApps = () => {
   const isIOS = /iphone|ipad|ipod/i.test(userAgent);
 
   const recommendedApps = [];
-  
+
   if (isAndroid) {
     recommendedApps.push('gpay', 'phonepe', 'paytm', 'bhim');
   } else if (isIOS) {
@@ -183,12 +183,12 @@ export const detectDeviceAndApps = () => {
  */
 export const formatUpiIdForDisplay = (upiId) => {
   if (!upiId) return '';
-  
+
   const validation = validateUpiId(upiId);
   if (validation.displayName) {
     return validation.displayName;
   }
-  
+
   return upiId;
 };
 
@@ -204,26 +204,26 @@ export const getUpiUsername = (upiId) => {
 };
 
 /**
- * Get UPI provider icon/emoji
+ * Get UPI provider icon key (non-emoji)
  * @param {string} upiId - UPI ID
- * @returns {string} Icon emoji
+ * @returns {string|null} Icon key or null
  */
 export const getUpiProviderIcon = (upiId) => {
   const validation = validateUpiId(upiId);
-  
+
   const iconMap = {
-    'Google Pay': '💚',
-    'PhonePe': '💜',
-    'Paytm': '💙',
-    'BHIM': '🧡',
-    'Amazon Pay': '🧡',
-    'WhatsApp Pay': '💚',
-    'CRED': '🖤',
-    'Freecharge': '💛',
-    'MobiKwik': '💙',
+    'Google Pay': 'gpay',
+    'PhonePe': 'phonepe',
+    'Paytm': 'paytm',
+    'BHIM': 'bhim',
+    'Amazon Pay': 'amazon',
+    'WhatsApp Pay': 'whatsapp',
+    'CRED': 'cred',
+    'Freecharge': 'freecharge',
+    'MobiKwik': 'mobikwik',
   };
 
-  return iconMap[validation.provider] || '💰';
+  return iconMap[validation.provider] || null;
 };
 
 /**

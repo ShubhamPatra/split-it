@@ -359,39 +359,57 @@ export const createExpense = async (req, res) => {
     // Emit socket event to group members
     const io = req.app.get('io');
     if (io) {
-      const { emitToGroup, emitAnalyticsUpdate } = await import('../utils/socketEmitter.js');
-      emitToGroup(io, groupId, 'expense:created', populatedExpense);
-
-      // Emit analytics update
-      emitAnalyticsUpdate(io, groupId, {
-        action: 'expenseAdded',
-        amount,
-        category,
-        totalExpenses: await Expense.countDocuments({ groupId }),
-      });
-
-      // Create system message for chat
       try {
-        const systemMessage = await Message.create({
-          groupId,
-          senderId: req.user._id,
-          content: `${populatedExpense.paidBy?.name || 'Someone'} added expense "${description}" for ${currency || 'INR'}${amount}`,
-          type: 'system',
-          metadata: {
-            expenseId: expense._id,
-            action: 'created',
-          },
-          readBy: [req.user._id],
+        const { emitToGroup, emitAnalyticsUpdate, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        // Emit canonical event
+        emitToGroup(io, groupId, 'expense:created', populatedExpense);
+        // Emit alias event for contract alignment with clients expecting expense:add
+        emitToGroup(io, groupId, 'expense:add', populatedExpense);
+
+        // Emit analytics update
+        emitAnalyticsUpdate(io, groupId, {
+          action: 'expenseAdded',
+          amount,
+          category,
+          totalExpenses: await Expense.countDocuments({ groupId }),
         });
 
-        const populatedSystemMessage = await Message.findById(systemMessage._id)
-          .populate('senderId', 'name email')
-          .lean();
+        // Emit balance update
+        try {
+          const { calculateGroupBalances } = await import('../jobs/balanceService.js');
+          const result = await calculateGroupBalances(groupId);
+          emitBalanceUpdate(io, groupId, result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for expense creation:', balanceError);
+          // Don't fail the request if balance emission fails
+        }
 
-        emitToGroup(io, groupId, 'chat:new', populatedSystemMessage);
-      } catch (msgError) {
-        console.error('Error creating system message for expense:', msgError);
-        // Don't fail the request if message creation fails
+        // Create system message for chat
+        try {
+          const systemMessage = await Message.create({
+            groupId,
+            senderId: req.user._id,
+            content: `${populatedExpense.paidBy?.name || 'Someone'} added expense "${description}" for ${currency || 'INR'}${amount}`,
+            type: 'system',
+            metadata: {
+              expenseId: expense._id,
+              action: 'created',
+            },
+            readBy: [req.user._id],
+          });
+
+          const populatedSystemMessage = await Message.findById(systemMessage._id)
+            .populate('senderId', 'name email')
+            .lean();
+
+          emitToGroup(io, groupId, 'chat:new', populatedSystemMessage);
+        } catch (msgError) {
+          console.error('Error creating system message for expense:', msgError);
+          // Don't fail the request if message creation fails
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket events for expense creation:', socketError);
+        // Don't fail the request if socket emission fails
       }
     }
 
@@ -504,15 +522,32 @@ export const updateExpense = async (req, res) => {
     // Emit socket event to group members
     const io = req.app.get('io');
     if (io) {
-      const { emitToGroup, emitAnalyticsUpdate } = await import('../utils/socketEmitter.js');
-      emitToGroup(io, expense.groupId._id.toString(), 'expense:updated', updatedExpense);
+      try {
+        const { emitToGroup, emitAnalyticsUpdate, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, expense.groupId._id.toString(), 'expense:updated', updatedExpense);
+        // Emit alias event for contract alignment
+        emitToGroup(io, expense.groupId._id.toString(), 'expense:update', updatedExpense);
 
-      // Emit analytics update
-      emitAnalyticsUpdate(io, expense.groupId._id.toString(), {
-        action: 'expenseUpdated',
-        amount: updatedExpense.amount,
-        category: updatedExpense.category,
-      });
+        // Emit analytics update
+        emitAnalyticsUpdate(io, expense.groupId._id.toString(), {
+          action: 'expenseUpdated',
+          amount: updatedExpense.amount,
+          category: updatedExpense.category,
+        });
+
+        // Emit balance update
+        try {
+          const { calculateGroupBalances } = await import('../jobs/balanceService.js');
+          const result = await calculateGroupBalances(expense.groupId._id.toString());
+          emitBalanceUpdate(io, expense.groupId._id.toString(), result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for expense update:', balanceError);
+          // Don't fail the request if balance emission fails
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket events for expense update:', socketError);
+        // Don't fail the request if socket emission fails
+      }
     }
 
     res.json(updatedExpense);
@@ -554,14 +589,31 @@ export const deleteExpense = async (req, res) => {
     // Emit socket event to group members
     const io = req.app.get('io');
     if (io) {
-      const { emitToGroup, emitAnalyticsUpdate } = await import('../utils/socketEmitter.js');
-      emitToGroup(io, groupId.toString(), 'expense:deleted', { expenseId: req.params.id });
+      try {
+        const { emitToGroup, emitAnalyticsUpdate, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, groupId.toString(), 'expense:deleted', { expenseId: req.params.id, groupId: groupId.toString() });
+        // Emit alias event for contract alignment
+        emitToGroup(io, groupId.toString(), 'expense:delete', { expenseId: req.params.id, groupId: groupId.toString() });
 
-      // Emit analytics update
-      emitAnalyticsUpdate(io, groupId.toString(), {
-        action: 'expenseRemoved',
-        expenseId: req.params.id,
-      });
+        // Emit analytics update
+        emitAnalyticsUpdate(io, groupId.toString(), {
+          action: 'expenseRemoved',
+          expenseId: req.params.id,
+        });
+
+        // Emit balance update
+        try {
+          const { calculateGroupBalances } = await import('../jobs/balanceService.js');
+          const result = await calculateGroupBalances(groupId.toString());
+          emitBalanceUpdate(io, groupId.toString(), result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for expense deletion:', balanceError);
+          // Don't fail the request if balance emission fails
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket events for expense deletion:', socketError);
+        // Don't fail the request if socket emission fails
+      }
     }
 
     res.json({ message: 'Expense deleted successfully', success: true });

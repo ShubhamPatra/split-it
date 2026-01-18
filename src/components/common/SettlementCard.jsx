@@ -34,14 +34,13 @@ const SettlementCard = memo(({ settlement }) => {
   };
 
   const getPaymentMethodLabel = () => {
-    if (isUpi && providerIcon) return `${providerIcon} UPI`;
     return settlement.paymentMethod?.toUpperCase() || 'CASH';
   };
 
   return (
-    <div className={`glass-card rounded-lg sm:rounded-xl p-3 sm:p-4 animate-slide-in border-l-4 ${isPending ? 'border-warning' : 'border-success'} group w-full`}>
+    <div className={`glass-card rounded p-3 sm:p-4 animate-slide-in border-l-4 ${isPending ? 'border-warning' : 'border-success'} group w-full`}>
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
-        <div className={`p-2.5 sm:p-3 rounded-lg flex-shrink-0 ${isPending ? 'bg-warning/10' : 'bg-success/10'}`}>
+        <div className={`p-2.5 sm:p-3 rounded flex-shrink-0 ${isPending ? 'bg-warning/10' : 'bg-success/10'}`}>
           {isPending ? <Clock className="text-warning" size={20} /> : <CheckCircle className="text-success" size={20} />}
         </div>
         <div className="flex-1 min-w-0 w-full sm:w-auto">
@@ -81,27 +80,27 @@ const SettlementCard = memo(({ settlement }) => {
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             {isPending && isUpi && receiver?.upiId && isCurrentUserPayer && (
-              <UpiPaymentButton 
-                amount={settlement.amount} 
-                receiverName={receiver.name} 
-                receiverUpiId={receiver.upiId} 
+              <UpiPaymentButton
+                amount={settlement.amount}
+                receiverName={receiver.name}
+                receiverUpiId={receiver.upiId}
                 note={`Settlement payment - ${settlement.groupId || 'Split-It'}`}
                 onPaymentInitiated={(data) => {
-                  toast({ 
+                  toast({
                     title: 'Payment Initiated',
                     description: `Transaction: ${data.transactionRef}`
                   });
                 }}
-                variant="ghost" 
+                variant="ghost"
                 size="sm"
                 className="min-h-[44px] min-w-[44px]"
               />
             )}
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
+                <Button
+                  variant="ghost"
+                  size="icon"
                   className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-destructive"
                 >
                   <Trash2 size={18} />

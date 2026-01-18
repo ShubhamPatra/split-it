@@ -4,7 +4,9 @@ let socket = null;
 let joinedRooms = new Set(); // Track joined rooms for reconnection
 
 export const initializeSocket = () => {
-  if (socket?.connected) return socket;
+  // Return existing socket if already created (connecting or connected)
+  // This prevents multiple socket instances across providers
+  if (socket) return socket;
 
   socket = io(process.env.REACT_APP_API_URL || 'http://localhost:5000', {
     // Use cookie-based auth instead of token in auth header
@@ -52,6 +54,8 @@ export const leaveGroup = (groupId) => {
 // Join group room and track for reconnection
 export const joinGroupRoom = (groupId) => {
   if (!groupId) return;
+  // Guard: skip if already joined to prevent duplicate room joins and repeated presence broadcasts
+  if (joinedRooms.has(groupId)) return;
   joinedRooms.add(groupId);
   socket?.emit('join:group', groupId);
 };
@@ -59,6 +63,8 @@ export const joinGroupRoom = (groupId) => {
 // Leave group room and stop tracking
 export const leaveGroupRoom = (groupId) => {
   if (!groupId) return;
+  // Guard: skip if not in room to prevent duplicate leave events and unnecessary socket traffic
+  if (!joinedRooms.has(groupId)) return;
   joinedRooms.delete(groupId);
   socket?.emit('leave:group', groupId);
 };
@@ -140,13 +146,17 @@ export const subscribeToExpenseEvents = (groupId, callback) => {
         callback({ type: 'created', expense });
       }
     },
+    // NOTE: expense:add alias listener removed to prevent duplicate analytics refreshes (Comment 2)
     'expense:updated': (expense) => {
       if (expense.groupId === groupId || expense.groupId?._id === groupId) {
         callback({ type: 'updated', expense });
       }
     },
     'expense:deleted': (data) => {
-      callback({ type: 'deleted', expenseId: data.expenseId });
+      // Filter by groupId to avoid processing deletions from other groups
+      if (data.groupId === groupId) {
+        callback({ type: 'deleted', expenseId: data.expenseId });
+      }
     },
   };
 

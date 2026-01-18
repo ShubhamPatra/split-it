@@ -64,31 +64,49 @@ const ExpenseAnalytics = ({ expenses, group, onExpenseChange }) => {
     const topSpender = Object.entries(perPersonSpending)
       .sort((a, b) => b[1] - a[1])[0];
 
+    // Calculate unique participants across all expenses (for accurate per-person average)
+    const uniqueParticipants = new Set();
+    expenses.forEach(exp => {
+      // Add paidBy user
+      if (exp.paidBy) {
+        const paidById = typeof exp.paidBy === 'object' ? exp.paidBy._id : exp.paidBy;
+        uniqueParticipants.add(paidById);
+      }
+      // Add all members in splitAmong
+      if (exp.splitAmong && Array.isArray(exp.splitAmong)) {
+        exp.splitAmong.forEach(member => {
+          const memberId = typeof member === 'object' ? member._id : member;
+          uniqueParticipants.add(memberId);
+        });
+      }
+    });
+    const participantCount = uniqueParticipants.size || 1;
+
     // Time-based analytics
     const now = new Date();
     const thisMonth = expenses.filter(exp => {
       const expDate = new Date(exp.date);
-      return expDate.getMonth() === now.getMonth() && 
-             expDate.getFullYear() === now.getFullYear();
+      return expDate.getMonth() === now.getMonth() &&
+        expDate.getFullYear() === now.getFullYear();
     });
     const thisMonthTotal = thisMonth.reduce((sum, exp) => sum + exp.amount, 0);
 
     const lastMonth = expenses.filter(exp => {
       const expDate = new Date(exp.date);
       const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1);
-      return expDate.getMonth() === lastMonthDate.getMonth() && 
-             expDate.getFullYear() === lastMonthDate.getFullYear();
+      return expDate.getMonth() === lastMonthDate.getMonth() &&
+        expDate.getFullYear() === lastMonthDate.getFullYear();
     });
     const lastMonthTotal = lastMonth.reduce((sum, exp) => sum + exp.amount, 0);
 
-    const monthlyTrend = lastMonthTotal > 0 
-      ? ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100 
+    const monthlyTrend = lastMonthTotal > 0
+      ? ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100
       : 0;
 
     // Recent activity (last 7 days)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const recentExpenses = expenses.filter(exp => 
+    const recentExpenses = expenses.filter(exp =>
       new Date(exp.date) >= sevenDaysAgo
     );
 
@@ -104,7 +122,7 @@ const ExpenseAnalytics = ({ expenses, group, onExpenseChange }) => {
         userId: topSpender[0],
         amount: topSpender[1]
       } : null,
-      perPersonAverage: total / (group?.members?.length || 1),
+      perPersonAverage: total / participantCount,
       thisMonthTotal,
       lastMonthTotal,
       monthlyTrend,
@@ -180,7 +198,7 @@ const ExpenseAnalytics = ({ expenses, group, onExpenseChange }) => {
               ₹{analytics.perPersonAverage.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
             </p>
             <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">
-              Average per member
+              Average per participant
             </p>
           </CardContent>
         </Card>
@@ -197,9 +215,8 @@ const ExpenseAnalytics = ({ expenses, group, onExpenseChange }) => {
               ₹{analytics.thisMonthTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
             </p>
             {analytics.monthlyTrend !== 0 && (
-              <p className={`text-[10px] sm:text-xs mt-1 flex items-center gap-1 ${
-                analytics.monthlyTrend > 0 ? 'text-destructive' : 'text-success'
-              }`}>
+              <p className={`text-[10px] sm:text-xs mt-1 flex items-center gap-1 ${analytics.monthlyTrend > 0 ? 'text-destructive' : 'text-success'
+                }`}>
                 <TrendingUp size={12} className={analytics.monthlyTrend < 0 ? 'rotate-180' : ''} />
                 {Math.abs(analytics.monthlyTrend).toFixed(0)}% vs last month
               </p>
@@ -235,8 +252,8 @@ const ExpenseAnalytics = ({ expenses, group, onExpenseChange }) => {
                       </span>
                     </div>
                     <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-primary to-primary/60 transition-all duration-500"
+                      <div
+                        className="h-full bg-primary transition-all duration-500"
                         style={{ width: `${percentage}%` }}
                       />
                     </div>

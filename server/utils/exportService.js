@@ -166,7 +166,7 @@ export async function generateAndEmailReport(userId, options = {}) {
 
     // Queue email with attachment using the new template system
     const emailHtml = buildEmail(
-      { title: 'Export Ready', subtitle: 'Your report is attached to this email', icon: '📄', variant: 'gradient' },
+      { title: 'Export Ready', subtitle: 'Your report is attached to this email', variant: 'default' },
       `
         ${greetingComponent(user.name)}
         ${textComponent(`Your <strong>${reportType}</strong> export is attached to this email.`)}
@@ -187,13 +187,13 @@ export async function generateAndEmailReport(userId, options = {}) {
           </td></tr>
         </table>
         
-        ${textComponent('📎 The export file is attached to this email.', { variant: 'muted', align: 'center' })}
+        ${textComponent('The export file is attached to this email.', { variant: 'muted', align: 'center' })}
       `
     );
 
     await sendEmailWithRetry({
       to: user.email,
-      subject: `📄 Your ${reportType} export for ${groupName || 'all groups'} is ready`,
+      subject: `Your ${reportType} Export for ${groupName || 'All Groups'} is Ready`,
       html: emailHtml,
       attachments: [
         {

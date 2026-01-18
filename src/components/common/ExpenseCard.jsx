@@ -17,7 +17,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
   const { deleteExpense, updateExpense, getGroupById, getUserProfile } = useGroups();
   const { addNotification } = useNotifications();
   const { toast } = useToast();
-  
+
   // Memoize expensive calculations
   const splitAmount = useMemo(() => expense.amount / expense.splitAmong.length, [expense.amount, expense.splitAmong.length]);
   const category = useMemo(() => getCategoryById(expense.category), [expense.category]);
@@ -30,10 +30,10 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
   const [editCategory, setEditCategory] = useState(expense.category);
   const [editPaidBy, setEditPaidBy] = useState(expense.paidBy);
   const [editDate, setEditDate] = useState(expense.date);
-  
+
   // State for expanded details (Comment 5 & 6)
   const [showDetails, setShowDetails] = useState(false);
-  
+
   // Check for line items and receipts
   const hasLineItems = expense.lineItems && expense.lineItems.length > 0;
   const hasReceipts = (expense.receipts && expense.receipts.length > 0) || expense.receiptUrl;
@@ -62,9 +62,9 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
 
   return (
     <>
-      <div className="relative bg-card rounded-xl p-4 border border-border/50 shadow-sm animate-slide-in group w-full hover:shadow-md hover:border-primary/20 transition-all duration-200">
+      <div className="relative bg-card rounded p-4 border border-border shadow-sm animate-slide-in group w-full hover:border-primary/20 transition-colors duration-200">
         <div className="flex items-start gap-3 sm:gap-4">
-          <div className="p-3 rounded-xl bg-gradient-to-br from-accent to-accent/50 shadow-inner flex-shrink-0">
+          <div className="p-3 rounded bg-accent/10 flex-shrink-0">
             <CategoryIcon className={category.color} size={20} />
           </div>
           <div className="flex-1 min-w-0">
@@ -125,10 +125,10 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                   <p className="text-[10px] sm:text-xs text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full whitespace-nowrap">₹{splitAmount.toFixed(0)}/person</p>
                 </div>
                 {canEdit && (
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-primary hover:bg-primary/10" 
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-primary hover:bg-primary/10"
                     onClick={openEditDialog}
                   >
                     <Pencil size={18} />
@@ -137,9 +137,9 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                 {canDelete && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       >
                         <Trash2 size={18} />
@@ -171,7 +171,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
             </div>
             <div className="flex items-center justify-between mt-2">
               <p className="text-xs sm:text-sm text-muted-foreground">{new Date(expense.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
-              
+
               {/* Expand/collapse button for details */}
               {(hasLineItems || hasReceipts) && (
                 <Button
@@ -188,7 +188,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                 </Button>
               )}
             </div>
-            
+
             {/* Expandable details section (Comment 5 & 6) */}
             {showDetails && (hasLineItems || hasReceipts) && (
               <div className="mt-3 pt-3 border-t border-border/50 space-y-3">
@@ -200,7 +200,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                     </p>
                     <div className="space-y-1.5">
                       {expense.lineItems.map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between text-xs p-2.5 bg-card-elevated rounded-lg border border-border/30">
+                        <div key={idx} className="flex items-center justify-between text-xs p-2.5 bg-muted/30 rounded border border-border">
                           <div className="flex-1 min-w-0">
                             <span className="truncate block font-medium">{item.description || `Item ${idx + 1}`}</span>
                             {item.assignedTo && item.assignedTo.length > 0 && (
@@ -222,7 +222,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                     </div>
                   </div>
                 )}
-                
+
                 {/* Receipts display */}
                 {hasReceipts && (
                   <div className="space-y-2">
@@ -236,7 +236,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                           href={receipt.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1.5 px-3 py-2 bg-card-elevated rounded-lg text-xs border border-border/30 hover:border-primary/50 hover:shadow-sm transition-all"
+                          className="flex items-center gap-1.5 px-3 py-2 bg-muted/30 rounded text-xs border border-border hover:border-primary/30 transition-colors"
                         >
                           <Image size={12} />
                           <span className="truncate max-w-[100px]">{receipt.filename || `Receipt ${idx + 1}`}</span>
@@ -249,7 +249,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                           href={expense.receiptUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1.5 px-3 py-2 bg-card-elevated rounded-lg text-xs border border-border/30 hover:border-primary/50 hover:shadow-sm transition-all"
+                          className="flex items-center gap-1.5 px-3 py-2 bg-muted/30 rounded text-xs border border-border hover:border-primary/30 transition-colors"
                         >
                           <Image size={12} />
                           <span>View Receipt</span>

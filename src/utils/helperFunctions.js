@@ -40,38 +40,43 @@ export const formatDate = (date) => {
  * Calculate split amounts based on split configuration
  * @param {number} totalAmount - Total expense amount
  * @param {object} splitConfig - Split configuration object
- * @param {Array} members - Array of member IDs
+ * @param {Array} members - Array of member IDs to split among (participants, not all group members)
  * @returns {object} Object mapping member IDs to their share amounts
  */
 export const calculateSplitShares = (totalAmount, splitConfig, members) => {
   const { type, shares = {} } = splitConfig;
   const result = {};
+  
+  // Filter to only members with positive shares if shares exist
+  const participatingMembers = Object.keys(shares).length > 0 
+    ? members.filter(m => shares[m] > 0 || type === 'equal')
+    : members;
 
   switch (type) {
     case 'equal':
-      const equalShare = totalAmount / members.length;
-      members.forEach((memberId) => {
+      const equalShare = totalAmount / participatingMembers.length;
+      participatingMembers.forEach((memberId) => {
         result[memberId] = equalShare;
       });
       break;
 
     case 'percentage':
-      members.forEach((memberId) => {
+      participatingMembers.forEach((memberId) => {
         const percentage = shares[memberId] || 0;
         result[memberId] = (percentage / 100) * totalAmount;
       });
       break;
 
     case 'exact':
-      members.forEach((memberId) => {
+      participatingMembers.forEach((memberId) => {
         result[memberId] = shares[memberId] || 0;
       });
       break;
 
     default:
       // Default to equal split
-      const defaultShare = totalAmount / members.length;
-      members.forEach((memberId) => {
+      const defaultShare = totalAmount / participatingMembers.length;
+      participatingMembers.forEach((memberId) => {
         result[memberId] = defaultShare;
       });
   }

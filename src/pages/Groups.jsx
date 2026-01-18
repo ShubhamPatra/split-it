@@ -71,7 +71,7 @@ const Groups = () => {
   }, [isAuthenticated, groups, user?.id, fetchUnreadCountsForGroups]);
 
   // Filter groups for current user
-  const userGroups = useMemo(() => 
+  const userGroups = useMemo(() =>
     groups.filter(g => g.members.includes(user?.id || '')),
     [groups, user?.id]
   );
@@ -84,7 +84,7 @@ const Groups = () => {
   }, [userGroups, searchQuery]);
 
   // Calculate stats
-  const totalMembers = useMemo(() => 
+  const totalMembers = useMemo(() =>
     userGroups.reduce((sum, g) => sum + g.members.length, 0),
     [userGroups]
   );
@@ -108,7 +108,7 @@ const Groups = () => {
       const memberCount = selectedMembers.length;
       toast({
         title: "Group created!",
-        description: memberCount > 0 
+        description: memberCount > 0
           ? `${groupName} has been created with ${memberCount + 1} members.`
           : `${groupName} has been created successfully. You can add members from the group settings.`,
       });
@@ -163,7 +163,7 @@ const Groups = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
         {/* Desktop Layout */}
         <div className={`lg:grid lg:gap-8 ${userGroups.length > 0 ? 'lg:grid-cols-12' : ''}`}>
@@ -179,166 +179,166 @@ const Groups = () => {
                   {userGroups.length} group{userGroups.length !== 1 ? 's' : ''} • {totalMembers} total members
                 </p>
               </div>
-              
-              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            {/* Join Group Dialog */}
-            <Dialog open={isJoinDialogOpen} onOpenChange={setIsJoinDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="lg" className="min-h-[48px] h-auto w-full sm:w-auto">
-                  <UserPlus size={18} />
-                  Join Group
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-xl bg-primary/10 border border-primary/20">
-                      <UserPlus className="text-primary" size={20} />
-                    </div>
-                    <div>
-                      <DialogTitle className="text-xl">Join a Group</DialogTitle>
-                      <DialogDescription>
-                        Enter a code or scan a QR invite
-                      </DialogDescription>
-                    </div>
-                  </div>
-                </DialogHeader>
-                
-                <Tabs defaultValue="code" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="code" className="flex items-center gap-2">
-                      <Keyboard className="h-4 w-4" />
-                      Enter Code
-                    </TabsTrigger>
-                    <TabsTrigger value="scan" className="flex items-center gap-2">
-                      <QrCode className="h-4 w-4" />
-                      Scan QR
-                    </TabsTrigger>
-                  </TabsList>
 
-                  <TabsContent value="code" className="mt-4">
-                    <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                {/* Join Group Dialog */}
+                <Dialog open={isJoinDialogOpen} onOpenChange={setIsJoinDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="lg" className="min-h-[48px] h-auto w-full sm:w-auto">
+                      <UserPlus size={18} />
+                      Join Group
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-xl bg-primary/10 border border-primary/20">
+                          <UserPlus className="text-primary" size={20} />
+                        </div>
+                        <div>
+                          <DialogTitle className="text-xl">Join a Group</DialogTitle>
+                          <DialogDescription>
+                            Enter a code or scan a QR invite
+                          </DialogDescription>
+                        </div>
+                      </div>
+                    </DialogHeader>
+
+                    <Tabs defaultValue="code" className="w-full">
+                      <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="code" className="flex items-center gap-2">
+                          <Keyboard className="h-4 w-4" />
+                          Enter Code
+                        </TabsTrigger>
+                        <TabsTrigger value="scan" className="flex items-center gap-2">
+                          <QrCode className="h-4 w-4" />
+                          Scan QR
+                        </TabsTrigger>
+                      </TabsList>
+
+                      <TabsContent value="code" className="mt-4">
+                        <div className="space-y-6">
+                          <div className="space-y-2">
+                            <Label htmlFor="inviteCode" className="text-sm font-medium">Invite Code or Link</Label>
+                            <Input
+                              id="inviteCode"
+                              value={inviteCode}
+                              onChange={(e) => setInviteCode(e.target.value)}
+                              placeholder="ABC123XY or https://..."
+                              className="h-12 font-mono"
+                              onKeyDown={(e) => e.key === 'Enter' && handleJoinGroup()}
+                            />
+                          </div>
+
+                          <div className="p-3 rounded bg-muted/50 border border-border/50">
+                            <p className="text-xs text-muted-foreground">
+                              <span className="font-medium">Tip:</span> Ask a group member to share their invite code or link with you.
+                            </p>
+                          </div>
+
+                          <Button
+                            onClick={handleJoinGroup}
+                            className="w-full min-h-[48px] h-auto shadow-md"
+                            disabled={joinLoading}
+                          >
+                            {joinLoading ? (
+                              <>
+                                <Loader2 size={18} className="animate-spin" />
+                                Joining...
+                              </>
+                            ) : (
+                              'Join Group'
+                            )}
+                          </Button>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="scan" className="mt-4">
+                        <div className="space-y-4">
+                          <QRScanner
+                            onScan={(scannedData) => {
+                              // Extract code from scanned URL or use directly
+                              let code = scannedData;
+                              if (scannedData.includes('/join/')) {
+                                code = scannedData.split('/join/').pop();
+                              }
+                              setInviteCode(code);
+                              // Auto-join after scanning
+                              handleJoinGroup(code);
+                            }}
+                            onError={(err) => {
+                              console.error('QR scan error:', err);
+                            }}
+                          />
+
+                          {joinLoading && (
+                            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                              <Loader2 size={16} className="animate-spin" />
+                              Joining group...
+                            </div>
+                          )}
+                        </div>
+                      </TabsContent>
+                    </Tabs>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Create Group Dialog */}
+                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="lg" className="min-h-[48px] h-auto w-full sm:w-auto shadow-lg shadow-primary/25 hover:shadow-xl transition-all">
+                      <Plus size={18} />
+                      New Group
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-xl bg-primary/10 border border-primary/20">
+                          <Users className="text-primary" size={20} />
+                        </div>
+                        <div>
+                          <DialogTitle className="text-xl">Create New Group</DialogTitle>
+                          <DialogDescription>
+                            Start splitting expenses with friends
+                          </DialogDescription>
+                        </div>
+                      </div>
+                    </DialogHeader>
+
+                    <div className="space-y-6 py-4">
                       <div className="space-y-2">
-                        <Label htmlFor="inviteCode" className="text-sm font-medium">Invite Code or Link</Label>
+                        <Label htmlFor="groupName" className="text-sm font-medium">Group Name</Label>
                         <Input
-                          id="inviteCode"
-                          value={inviteCode}
-                          onChange={(e) => setInviteCode(e.target.value)}
-                          placeholder="ABC123XY or https://..."
-                          className="h-12 font-mono"
-                          onKeyDown={(e) => e.key === 'Enter' && handleJoinGroup()}
+                          id="groupName"
+                          value={groupName}
+                          onChange={(e) => setGroupName(e.target.value)}
+                          placeholder="Weekend Trip, Roommates, etc."
+                          className="h-12"
                         />
                       </div>
 
-                      <div className="p-3 rounded-lg bg-muted/50 border border-border/50">
+                      {/* Past Collaborators Selector */}
+                      <PastCollaboratorsSelector
+                        selectedMembers={selectedMembers}
+                        onSelectionChange={setSelectedMembers}
+                        excludeIds={[user?.id || '']}
+                      />
+
+                      <div className="p-3 rounded bg-muted/50 border border-border/50">
                         <p className="text-xs text-muted-foreground">
-                          💡 Ask a group member to share their invite code or link with you.
+                          <span className="font-medium">Tip:</span> You can also add more members after creating the group.
                         </p>
                       </div>
 
-                      <Button 
-                        onClick={handleJoinGroup} 
-                        className="w-full min-h-[48px] h-auto shadow-md"
-                        disabled={joinLoading}
-                      >
-                        {joinLoading ? (
-                          <>
-                            <Loader2 size={18} className="animate-spin" />
-                            Joining...
-                          </>
-                        ) : (
-                          'Join Group'
-                        )}
+                      <Button onClick={handleCreateGroup} className="w-full min-h-[48px] h-auto shadow-md">
+                        Create Group {selectedMembers.length > 0 && `with ${selectedMembers.length + 1} members`}
                       </Button>
                     </div>
-                  </TabsContent>
-
-                  <TabsContent value="scan" className="mt-4">
-                    <div className="space-y-4">
-                      <QRScanner 
-                        onScan={(scannedData) => {
-                          // Extract code from scanned URL or use directly
-                          let code = scannedData;
-                          if (scannedData.includes('/join/')) {
-                            code = scannedData.split('/join/').pop();
-                          }
-                          setInviteCode(code);
-                          // Auto-join after scanning
-                          handleJoinGroup(code);
-                        }}
-                        onError={(err) => {
-                          console.error('QR scan error:', err);
-                        }}
-                      />
-                      
-                      {joinLoading && (
-                        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                          <Loader2 size={16} className="animate-spin" />
-                          Joining group...
-                        </div>
-                      )}
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              </DialogContent>
-            </Dialog>
-
-            {/* Create Group Dialog */}
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-              <DialogTrigger asChild>
-                <Button size="lg" className="min-h-[48px] h-auto w-full sm:w-auto shadow-lg shadow-primary/25 hover:shadow-xl transition-all">
-                  <Plus size={18} />
-                  New Group
-                </Button>
-              </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-primary/10 border border-primary/20">
-                    <Users className="text-primary" size={20} />
-                  </div>
-                  <div>
-                    <DialogTitle className="text-xl">Create New Group</DialogTitle>
-                    <DialogDescription>
-                      Start splitting expenses with friends
-                    </DialogDescription>
-                  </div>
-                </div>
-              </DialogHeader>
-              
-              <div className="space-y-6 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="groupName" className="text-sm font-medium">Group Name</Label>
-                  <Input
-                    id="groupName"
-                    value={groupName}
-                    onChange={(e) => setGroupName(e.target.value)}
-                    placeholder="Weekend Trip, Roommates, etc."
-                    className="h-12"
-                  />
-                </div>
-
-                {/* Past Collaborators Selector */}
-                <PastCollaboratorsSelector
-                  selectedMembers={selectedMembers}
-                  onSelectionChange={setSelectedMembers}
-                  excludeIds={[user?.id || '']}
-                />
-
-                <div className="p-3 rounded-lg bg-muted/50 border border-border/50">
-                  <p className="text-xs text-muted-foreground">
-                    💡 You can also add more members after creating the group.
-                  </p>
-                </div>
-
-                <Button onClick={handleCreateGroup} className="w-full min-h-[48px] h-auto shadow-md">
-                  Create Group {selectedMembers.length > 0 && `with ${selectedMembers.length + 1} members`}
-                </Button>
+                  </DialogContent>
+                </Dialog>
               </div>
-            </DialogContent>
-          </Dialog>
-        </div>
-        </div>
+            </div>
 
             {/* Search and View Toggle - Desktop */}
             {userGroups.length > 0 && (
@@ -374,54 +374,54 @@ const Groups = () => {
               </div>
             )}
 
-        {/* Groups Grid */}
-        {filteredGroups.length > 0 ? (
-          <div className={viewMode === 'grid' 
-            ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" 
-            : "space-y-3"
-          }>
-            {filteredGroups.map((group, index) => (
-              <div key={group.id} className="animate-fade-in" style={{ animationDelay: `${0.03 * index}s` }}>
-                <GroupCard group={group} />
+            {/* Groups Grid */}
+            {filteredGroups.length > 0 ? (
+              <div className={viewMode === 'grid'
+                ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+                : "space-y-3"
+              }>
+                {filteredGroups.map((group, index) => (
+                  <div key={group.id} className="animate-fade-in" style={{ animationDelay: `${0.03 * index}s` }}>
+                    <GroupCard group={group} />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        ) : searchQuery ? (
-          <Card className="border-border/50 shadow-sm">
-            <CardContent className="p-8 sm:p-12 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
-                <Search className="text-muted-foreground" size={28} />
-              </div>
-              <h3 className="font-display font-semibold text-lg text-foreground mb-2">
-                No groups found
-              </h3>
-              <p className="text-muted-foreground mb-4">
-                No groups match "{searchQuery}"
-              </p>
-              <Button variant="outline" onClick={() => setSearchQuery('')}>
-                Clear search
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="border-border/50 shadow-sm animate-fade-in">
-            <CardContent className="p-8 sm:p-12 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center mx-auto mb-4">
-                <Users className="text-primary" size={28} />
-              </div>
-              <h3 className="font-display font-semibold text-lg text-foreground mb-2">
-                No groups yet
-              </h3>
-              <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
-                Create your first group to start splitting expenses with friends and family
-              </p>
-              <Button onClick={() => setIsDialogOpen(true)} className="min-h-[48px] h-auto shadow-lg shadow-primary/25">
-                <Plus size={18} />
-                Create Your First Group
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+            ) : searchQuery ? (
+              <Card className="border-border/50 shadow-sm">
+                <CardContent className="p-8 sm:p-12 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
+                    <Search className="text-muted-foreground" size={28} />
+                  </div>
+                  <h3 className="font-display font-semibold text-lg text-foreground mb-2">
+                    No groups found
+                  </h3>
+                  <p className="text-muted-foreground mb-4">
+                    No groups match "{searchQuery}"
+                  </p>
+                  <Button variant="outline" onClick={() => setSearchQuery('')}>
+                    Clear search
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="border-border/50 animate-fade-in">
+                <CardContent className="p-8 sm:p-12 text-center">
+                  <div className="w-16 h-16 rounded bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-4">
+                    <Users className="text-primary" size={28} />
+                  </div>
+                  <h3 className="font-display font-semibold text-lg text-foreground mb-2">
+                    No groups yet
+                  </h3>
+                  <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
+                    Create your first group to start splitting expenses with friends and family
+                  </p>
+                  <Button onClick={() => setIsDialogOpen(true)} className="min-h-[48px] h-auto shadow-lg shadow-primary/25">
+                    <Plus size={18} />
+                    Create Your First Group
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Sidebar - Desktop Only (only show when there are groups) */}
@@ -429,7 +429,7 @@ const Groups = () => {
             <aside className="hidden lg:block lg:col-span-4 xl:col-span-3">
               <div className="sticky top-24 space-y-6">
                 {/* Stats Card */}
-                <Card className="border-border/50 shadow-sm animate-fade-in bg-gradient-to-br from-primary/5 to-transparent" style={{ animationDelay: '0.3s' }}>
+                <Card className="border-border/50 shadow-sm animate-fade-in bg-muted/30" style={{ animationDelay: '0.3s' }}>
                   <CardContent className="p-5">
                     <h3 className="font-semibold text-sm flex items-center gap-2 mb-4">
                       <TrendingUp size={14} className="text-primary" />

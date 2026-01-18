@@ -222,7 +222,7 @@ function generateDueReminderEmailHtml(data) {
         <tr>
           <td style="background-color: ${brand.colors.borderLight}; border: 1px solid ${brand.colors.border}; border-radius: ${brand.borderRadius.md}; padding: 16px;">
             <p style="margin: 0 0 12px; font-size: ${brand.fonts.sizeMedium}; font-weight: 600; color: ${brand.colors.textPrimary};">
-              👥 ${group.groupName}
+              ${group.groupName}
             </p>
             <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 12px;">
               <tbody>
@@ -247,10 +247,10 @@ function generateDueReminderEmailHtml(data) {
   }
 
   return buildEmail(
-    { title: 'Payment Reminder', subtitle: 'You have pending dues to settle', icon: '💸', variant: 'danger' },
+    { title: 'Payment Reminder', subtitle: 'You have pending dues to settle', variant: 'danger' },
     `
       ${greetingComponent(userName)}
-      ${textComponent("You have outstanding dues that haven't been cleared yet. Here's a summary of what you owe:")}
+      ${textComponent("You have outstanding balances that require attention. Below is a summary of your pending payments.")}
       
       ${amountDisplayComponent(totalOwed, { currency, variant: 'danger', label: 'Total Outstanding' })}
       
@@ -262,7 +262,7 @@ function generateDueReminderEmailHtml(data) {
         </td></tr>
       </table>
       
-      ${alertComponent('Settling your dues keeps friendships strong! 🤝', { variant: 'info' })}
+      ${alertComponent('Timely settlements help maintain accurate group balances.', { variant: 'info' })}
     `,
     { showPreferences: true }
   );
@@ -281,7 +281,7 @@ function generateUpiReminderEmailHtml(data) {
         <tr>
           <td style="background-color: ${brand.colors.borderLight}; border: 1px solid ${brand.colors.border}; border-radius: ${brand.borderRadius.md}; padding: 16px;">
             <p style="margin: 0 0 12px; font-size: ${brand.fonts.sizeMedium}; font-weight: 600; color: ${brand.colors.textPrimary};">
-              👥 ${group.groupName}
+              ${group.groupName}
             </p>
             <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 12px;">
               <tbody>
@@ -306,10 +306,10 @@ function generateUpiReminderEmailHtml(data) {
   }
 
   return buildEmail(
-    { title: 'Add Your UPI ID', subtitle: 'Money is waiting for you!', icon: '💳', variant: 'success' },
+    { title: 'Add Your UPI ID', subtitle: 'Complete your payment profile', variant: 'success' },
     `
       ${greetingComponent(userName)}
-      ${textComponent("You have money waiting to be collected! Add your UPI ID to make it easy for others to pay you.")}
+      ${textComponent("You have receivables pending from group members. Add your UPI ID to enable direct payments.")}
       
       ${amountDisplayComponent(totalOwedToUser, { currency, variant: 'success', label: 'Total Owed to You' })}
       
@@ -318,13 +318,12 @@ function generateUpiReminderEmailHtml(data) {
       ${cardComponent(`
         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
           <tr>
-            <td style="font-size: 24px; padding-right: 12px; vertical-align: top;">💡</td>
             <td>
-              <p style="margin: 0 0 8px; font-weight: 600; color: ${brand.colors.textPrimary};">Why add your UPI ID?</p>
+              <p style="margin: 0 0 8px; font-weight: 600; color: ${brand.colors.textPrimary};">Benefits of adding your UPI ID</p>
               <ul style="margin: 0; padding-left: 20px; color: ${brand.colors.textSecondary};">
-                <li style="margin-bottom: 4px;">Others can pay you directly via Google Pay, PhonePe, Paytm, etc.</li>
-                <li style="margin-bottom: 4px;">No more awkward payment reminders</li>
-                <li>Get paid faster and easier!</li>
+                <li style="margin-bottom: 4px;">Receive payments directly via UPI-enabled apps</li>
+                <li style="margin-bottom: 4px;">Streamlined settlement process</li>
+                <li>Faster transaction completion</li>
               </ul>
             </td>
           </tr>
@@ -408,7 +407,7 @@ export const processDueReminders = async (_data, options = {}) => {
 
             await sendEmailWithRetry({
               to: user.email,
-              subject: `💸 Reminder: You have ₹${totalOwed.toFixed(2)} in pending dues`,
+              subject: `Payment Reminder: ${formatCurrency(totalOwed, 'INR')} outstanding`,
               html: emailHtml,
             });
             emailsSent++;
@@ -438,7 +437,7 @@ export const processDueReminders = async (_data, options = {}) => {
 
             await sendEmailWithRetry({
               to: user.email,
-              subject: `💳 Add your UPI ID - ₹${totalOwedToUser.toFixed(2)} waiting for you!`,
+              subject: `Action Required: Add UPI ID to receive ${formatCurrency(totalOwedToUser, 'INR')}`,
               html: upiEmailHtml,
             });
 
@@ -447,7 +446,8 @@ export const processDueReminders = async (_data, options = {}) => {
               title: 'Add Your UPI ID',
               message: `You have ₹${totalOwedToUser.toFixed(2)} pending from others. Add your UPI ID to make it easy for them to pay you!`,
               data: {
-                actionType: 'add_upi',
+                actionType: 'navigate',
+                url: '/profile',
                 totalOwedToUser,
                 groupCount: receivablesByGroup.length,
               },

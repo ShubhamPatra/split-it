@@ -43,15 +43,15 @@ const Signup = () => {
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     // Reset errors
     setErrors({});
-    
+
     // Validate inputs
     const newErrors = {};
     const trimmedName = name.trim();
     const trimmedEmail = email.trim().toLowerCase();
-    
+
     if (!trimmedName) {
       newErrors.name = 'Name is required';
     } else if (trimmedName.length < 2) {
@@ -59,13 +59,13 @@ const Signup = () => {
     } else if (trimmedName.length > 50) {
       newErrors.name = 'Name must be less than 50 characters';
     }
-    
+
     if (!trimmedEmail) {
       newErrors.email = 'Email is required';
     } else if (!isValidEmail(trimmedEmail)) {
       newErrors.email = 'Please enter a valid email address';
     }
-    
+
     if (!password) {
       newErrors.password = 'Password is required';
     } else if (password.length < 6) {
@@ -73,13 +73,13 @@ const Signup = () => {
     } else if (password.length > 100) {
       newErrors.password = 'Password is too long';
     }
-    
+
     if (!confirmPassword) {
       newErrors.confirmPassword = 'Please confirm your password';
     } else if (password !== confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
     }
-    
+
     // If there are errors, show them and return
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -95,7 +95,7 @@ const Signup = () => {
 
     try {
       const result = await signup(trimmedName, trimmedEmail, password);
-      
+
       if (result.success) {
         if (result.needsConfirmation) {
           toast({
@@ -107,7 +107,7 @@ const Signup = () => {
             title: "Account created!",
             description: "Welcome to Split-It. Let's start splitting expenses!",
           });
-          
+
           // Check for pending invite code or token
           const pendingInviteCode = sessionStorage.getItem('pendingInviteCode');
           const pendingInviteToken = sessionStorage.getItem('pendingInviteToken');
@@ -134,26 +134,16 @@ const Signup = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
-      {/* Background gradient effects */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
-        <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tr from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
-      </div>
-
-      <div className="w-full max-w-md relative">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex justify-center mb-6 sm:mb-8">
           <Logo size="lg" />
         </div>
 
         {/* Signup Card */}
-        <div className="bg-card rounded-2xl p-6 sm:p-8 animate-fade-in border border-border/50 shadow-xl">
+        <div className="bg-card rounded p-6 sm:p-8 animate-fade-in border border-border shadow-sm">
           <div className="text-center mb-6 sm:mb-8">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-full mb-4">
-              <Sparkles size={14} className="text-primary" />
-              <span className="text-xs font-medium text-primary">Get started free</span>
-            </div>
             <h1 className="font-display text-2xl sm:text-3xl font-bold text-foreground mb-2">
               Create Account
             </h1>
@@ -272,7 +262,7 @@ const Signup = () => {
             </div>
 
             {/* Submit Button */}
-            <Button type="submit" className="w-full min-h-[48px] text-sm sm:text-base shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all" size="lg" disabled={isLoading}>
+            <Button type="submit" className="w-full min-h-[48px] text-sm sm:text-base" size="lg" disabled={isLoading}>
               {isLoading ? (
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />

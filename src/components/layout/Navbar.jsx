@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Users, PlusCircle, PieChart, LogOut, Settings, BarChart3, Moon, Sun, Monitor } from 'lucide-react';
+import { Home, Users, PlusCircle, PieChart, LogOut, Settings, BarChart3, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import Logo from '../common/Logo';
@@ -46,9 +46,7 @@ const Navbar = () => {
   };
 
   const getThemeIcon = () => {
-    if (theme === 'dark') return <Moon size={18} />;
-    if (theme === 'light') return <Sun size={18} />;
-    return <Monitor size={18} />;
+    return theme === 'dark' ? <Moon size={18} /> : <Sun size={18} />;
   };
 
   return (
@@ -66,14 +64,14 @@ const Navbar = () => {
               {navItems.map(item => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
-                
+
                 return (
                   <button
                     key={item.path}
                     onClick={() => navigate(item.path)}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 min-h-[44px]
-                      ${isActive 
-                        ? 'bg-gradient-to-r from-primary to-primary-dark text-white shadow-md' 
+                      ${isActive
+                        ? 'bg-gradient-to-r from-primary to-primary-dark text-white shadow-md'
                         : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                       }`}
                   >
@@ -87,9 +85,9 @@ const Navbar = () => {
             {/* User Menu & Notifications */}
             <div className="flex items-center gap-2">
               {/* Theme Toggle Button */}
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={toggleTheme}
                 className="min-h-[44px] min-w-[44px] rounded-xl hover:bg-primary/10"
                 title={`Current theme: ${theme}. Click to toggle.`}
@@ -140,14 +138,14 @@ const Navbar = () => {
           {navItems.slice(0, 4).map(item => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
-            
+
             return (
               <button
                 key={item.path}
                 onClick={() => navigate(item.path)}
                 className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 min-h-[56px] flex-1 max-w-[80px]
-                  ${isActive 
-                    ? 'text-primary bg-primary/10 shadow-sm' 
+                  ${isActive
+                    ? 'text-primary bg-primary/10 shadow-sm'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
                   }`}
               >

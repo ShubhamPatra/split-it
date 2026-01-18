@@ -42,43 +42,43 @@ const Login = () => {
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     // Reset errors
     setErrors({});
-    
+
     // Validate inputs
     const newErrors = {};
     const trimmedEmail = email.trim().toLowerCase();
-    
+
     if (!trimmedEmail) {
       newErrors.email = 'Email is required';
     } else if (!isValidEmail(trimmedEmail)) {
       newErrors.email = 'Please enter a valid email address';
     }
-    
+
     if (!password) {
       newErrors.password = 'Password is required';
     } else if (password.length < 6) {
       newErrors.password = 'Password must be at least 6 characters';
     }
-    
+
     // If there are errors, show them and return
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
     }
-    
+
     setIsLoading(true);
 
     try {
       const success = await login(trimmedEmail, password);
-      
+
       if (success) {
         toast({
           title: "Welcome back!",
           description: "You have successfully logged in.",
         });
-        
+
         // Check for pending invite code or token
         const pendingInviteCode = sessionStorage.getItem('pendingInviteCode');
         const pendingInviteToken = sessionStorage.getItem('pendingInviteToken');
@@ -107,13 +107,13 @@ const Login = () => {
     try {
       setIsLoading(true);
       const success = await googleLogin(credentialResponse.credential);
-      
+
       if (success) {
         toast({
           title: "Welcome!",
           description: "You have successfully signed in with Google.",
         });
-        
+
         // Check for pending invite code or token
         const pendingInviteCode = sessionStorage.getItem('pendingInviteCode');
         const pendingInviteToken = sessionStorage.getItem('pendingInviteToken');
@@ -147,26 +147,16 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
-      {/* Background gradient effects */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
-        <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tr from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
-      </div>
-
-      <div className="w-full max-w-md relative">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex justify-center mb-6 sm:mb-8">
           <Logo size="lg" />
         </div>
 
         {/* Login Card */}
-        <div className="bg-card rounded-2xl p-6 sm:p-8 animate-fade-in border border-border/50 shadow-xl">
+        <div className="bg-card rounded p-6 sm:p-8 animate-fade-in border border-border shadow-sm">
           <div className="text-center mb-6 sm:mb-8">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-full mb-4">
-              <Sparkles size={14} className="text-primary" />
-              <span className="text-xs font-medium text-primary">Welcome back</span>
-            </div>
             <h1 className="font-display text-2xl sm:text-3xl font-bold text-foreground mb-2">
               Sign In
             </h1>
@@ -236,7 +226,7 @@ const Login = () => {
             </div>
 
             {/* Submit Button */}
-            <Button type="submit" className="w-full min-h-[48px] h-auto text-sm sm:text-base shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all" size="lg" disabled={isLoading}>
+            <Button type="submit" className="w-full min-h-[48px] h-auto text-sm sm:text-base" size="lg" disabled={isLoading}>
               {isLoading ? (
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />

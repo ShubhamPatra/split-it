@@ -29,9 +29,9 @@ const createUpiReminderIfNeeded = async (user) => {
         userId: user._id,
         type: 'warning',
         title: 'Add Your UPI ID',
-        message: 'Add your UPI ID to receive payments directly from group members. Go to Settings → Profile to add it.',
+        message: 'Add your UPI ID to receive payments directly from group members.',
         actionType: 'navigate',
-        data: { url: '/settings' },
+        data: { url: '/profile' },
       });
     }
   }
@@ -398,7 +398,7 @@ export const forgotPassword = async (req, res) => {
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}`;
 
     const html = buildEmail(
-      { title: 'Reset Your Password', subtitle: 'Password recovery request', icon: '🔐', variant: 'gradient' },
+      { title: 'Reset Your Password', subtitle: 'Password recovery request', variant: 'warning' },
       `
         ${greetingComponent(user.name)}
         ${textComponent("You requested a password reset for your Split-It account. Click the button below to create a new password:")}
@@ -425,7 +425,7 @@ export const forgotPassword = async (req, res) => {
     // Send email
     await sendEmailWithRetry({
       to: user.email,
-      subject: '🔐 Password Reset Request - Split-It',
+      subject: 'Password Reset Request - Split-It',
       html,
     });
 
@@ -479,7 +479,7 @@ export const resetPassword = async (req, res) => {
 
     // Send confirmation email
     const html = buildEmail(
-      { title: 'Password Reset Successful', subtitle: 'Your password has been changed', icon: '✅', variant: 'success' },
+      { title: 'Password Reset Successful', subtitle: 'Your password has been changed', variant: 'success' },
       `
         ${greetingComponent(user.name)}
         ${alertComponent('Your password has been successfully reset.', { variant: 'success' })}
@@ -499,7 +499,7 @@ export const resetPassword = async (req, res) => {
 
     await sendEmailWithRetry({
       to: user.email,
-      subject: '✅ Password Reset Confirmation - Split-It',
+      subject: 'Password Reset Confirmation - Split-It',
       html,
     });
 

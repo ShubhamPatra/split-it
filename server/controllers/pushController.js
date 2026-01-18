@@ -52,10 +52,19 @@ export const sendTestNotification = async (req, res) => {
       return res.status(503).json({ message: 'Push notifications not configured on server' });
     }
 
-    const subscription = await PushSubscription.findOne({ userId: req.user._id });
-    if (!subscription) {
+    const subscriptionDoc = await PushSubscription.findOne({ userId: req.user._id });
+    if (!subscriptionDoc) {
       return res.status(404).json({ message: 'No subscription found' });
     }
+
+    // Format subscription object for web-push library
+    const pushSubscription = {
+      endpoint: subscriptionDoc.endpoint,
+      keys: {
+        p256dh: subscriptionDoc.keys.p256dh,
+        auth: subscriptionDoc.keys.auth,
+      },
+    };
 
     const payload = JSON.stringify({
       title: 'Test Notification',
@@ -64,10 +73,29 @@ export const sendTestNotification = async (req, res) => {
       badge: '/logo192.png',
     });
 
-    await webpush.sendNotification(subscription, payload);
+    await webpush.sendNotification(pushSubscription, payload);
     res.json({ success: true });
   } catch (error) {
     console.error('Push send error:', error);
-    res.status(500).json({ message: 'Failed to send notification' });
+    
+    // Handle subscription errors that require cleanup
+    if (error.statusCode === 410 || error.statusCode === 404 || 
+        error.statusCode === 400 || error.statusCode === 403) {
+      await PushSubscription.deleteOne({ userId: req.user._id });
+      return res.status(410).json({ 
+        message: 'Push subscription is invalid. Please re-subscribe.',
+        code: 'SUBSCRIPTION_INVALID'
+      });
+    }
+
+    // Handle rate limiting separately (don't delete subscription)
+    if (error.statusCode === 429) {
+      return res.status(429).json({ 
+        message: 'Push service rate limit exceeded. Please try again later.',
+        code: 'RATE_LIMIT'
+      });
+    }
+    
+    res.status(500).json({ message: 'Failed to send notification', error: error.message });
   }
 };
