@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import SEO from '../components/common/SEO';
 import { Button } from '../components/ui/button';
 import Logo from '../components/common/Logo';
 import HowItWorksVisual from '../components/common/HowItWorksVisual';
@@ -67,6 +68,7 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <SEO />
       {/* Header */}
       <header className="sticky top-0 z-50 bg-card/95 backdrop-blur-sm border-b border-border">
         <div className="flex items-center justify-between px-4 py-3 max-w-screen-xl mx-auto">

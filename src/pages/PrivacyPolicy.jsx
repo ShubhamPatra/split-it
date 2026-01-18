@@ -4,6 +4,7 @@ import { ArrowLeft, Shield, Eye, Lock, Database, Bell, Share2, Trash2, Mail } fr
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import Logo from '../components/common/Logo';
+import SEO from '../components/common/SEO';
 
 const PrivacyPolicy = () => {
   const navigate = useNavigate();
@@ -77,6 +78,7 @@ const PrivacyPolicy = () => {
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
+      <SEO title="Privacy Policy" description="Learn how Split-It collects, uses, and protects your personal information. Your privacy and data security are our priorities." />
       {/* Background gradient effects */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />

@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import Logo from '../components/common/Logo';
+import SEO from '../components/common/SEO';
 import { useToast } from '../hooks/use-toast';
 import { isValidEmail } from '../lib/utils';
 import apiClient from '../lib/apiClient';
@@ -118,6 +119,7 @@ const ForgotPassword = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
+      <SEO title="Forgot Password" description="Reset your Split-It password. Enter your email to receive password reset instructions." />
       {/* Background gradient effects */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
