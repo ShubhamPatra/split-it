@@ -109,24 +109,26 @@ const Dashboard = () => {
       }
     });
 
-    // Adjust for settlements
-    settlements.forEach(settlement => {
-      if (settlement.fromUserId === userId) {
-        // User paid someone - reduces what they owe
-        youOwe -= settlement.amount;
-      } else if (settlement.toUserId === userId) {
-        // Someone paid user - reduces what they're owed
-        youAreOwed -= settlement.amount;
-      }
-    });
+    // Adjust for confirmed settlements only
+    settlements
+      .filter(settlement => settlement.paymentStatus === 'confirmed')
+      .forEach(settlement => {
+        if (settlement.fromUserId === userId) {
+          // User paid someone - reduces what they owe
+          youOwe -= settlement.amount;
+        } else if (settlement.toUserId === userId) {
+          // Someone paid user - reduces what they're owed
+          youAreOwed -= settlement.amount;
+        }
+      });
 
     // Ensure no negative values after settlements
     youAreOwed = Math.max(0, youAreOwed);
     youOwe = Math.max(0, youOwe);
 
-    // Calculate total settled by user
+    // Calculate total settled by user (only confirmed settlements)
     const totalSettled = settlements
-      .filter(s => s.fromUserId === userId || s.toUserId === userId)
+      .filter(s => s.paymentStatus === 'confirmed' && (s.fromUserId === userId || s.toUserId === userId))
       .reduce((sum, s) => sum + s.amount, 0);
 
     return {

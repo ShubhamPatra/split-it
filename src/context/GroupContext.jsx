@@ -657,11 +657,13 @@ export const GroupProvider = ({ children }) => {
       });
     });
 
-    // Process settlements
-    groupSettlements.forEach(settlement => {
-      balances[settlement.fromUserId] = (balances[settlement.fromUserId] || 0) + settlement.amount;
-      balances[settlement.toUserId] = (balances[settlement.toUserId] || 0) - settlement.amount;
-    });
+    // Process settlements (only count confirmed settlements for balances)
+    groupSettlements
+      .filter(settlement => settlement.paymentStatus === 'confirmed')
+      .forEach(settlement => {
+        balances[settlement.fromUserId] = (balances[settlement.fromUserId] || 0) + settlement.amount;
+        balances[settlement.toUserId] = (balances[settlement.toUserId] || 0) - settlement.amount;
+      });
 
     return balances;
   // eslint-disable-next-line react-hooks/exhaustive-deps

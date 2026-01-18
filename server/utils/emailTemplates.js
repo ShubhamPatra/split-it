@@ -228,13 +228,26 @@ const emailHeader = (options = {}) => {
         <!-- Logo row -->
         <tr>
           <td align="center" style="background-color: ${v.bg}; padding: 20px 28px;">
-            ${brand.logoUrl ? `
-              <img src="${brand.logoUrl}" alt="${brand.logoAlt}" width="${brand.logoWidth}" height="${brand.logoHeight}" style="display: block; border: 0; outline: none; text-decoration: none;" />
-            ` : `
-              <span style="font-family: ${brand.fonts.headingFamily}; font-size: 22px; font-weight: 600; color: ${v.text}; letter-spacing: ${brand.fonts.letterSpacing};">
-                ${brand.name}
-              </span>
-            `}
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                ${brand.logoUrl ? `
+                <td style="vertical-align: middle;">
+                  <img src="${brand.logoUrl}" alt="${brand.logoAlt}" width="${brand.logoWidth}" height="${brand.logoHeight}" style="display: block; border: 0; outline: none; text-decoration: none;" />
+                </td>
+                <td style="vertical-align: middle; padding-left: 10px;">
+                  <span style="font-family: ${brand.fonts.headingFamily}; font-size: 22px; font-weight: 600; color: ${v.text}; letter-spacing: ${brand.fonts.letterSpacing};">
+                    ${brand.name}
+                  </span>
+                </td>
+                ` : `
+                <td style="vertical-align: middle;">
+                  <span style="font-family: ${brand.fonts.headingFamily}; font-size: 22px; font-weight: 600; color: ${v.text}; letter-spacing: ${brand.fonts.letterSpacing};">
+                    ${brand.name}
+                  </span>
+                </td>
+                `}
+              </tr>
+            </table>
           </td>
         </tr>
         <!-- Title section -->

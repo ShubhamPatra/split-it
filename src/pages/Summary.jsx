@@ -35,7 +35,10 @@ const Summary = () => {
     const groupExpenses = expenses.filter(exp => exp.groupId === group.id);
     const groupSettlements = getGroupSettlements(group.id);
     const total = groupExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-    const totalSettled = groupSettlements.reduce((sum, set) => sum + set.amount, 0);
+    // Only count confirmed settlements as "settled"
+    const totalSettled = groupSettlements
+      .filter(set => set.paymentStatus === 'confirmed')
+      .reduce((sum, set) => sum + set.amount, 0);
     const balances = getGroupBalances(group.id);
     return {
       group, totalExpenses: total, totalSettled,
@@ -44,7 +47,10 @@ const Summary = () => {
     };
   }).sort((a, b) => b.totalExpenses - a.totalExpenses);
 
-  const totalSettlements = settlements.reduce((sum, set) => sum + set.amount, 0);
+  // Only count confirmed settlements for the total
+  const totalSettlements = settlements
+    .filter(set => set.paymentStatus === 'confirmed')
+    .reduce((sum, set) => sum + set.amount, 0);
   const totalExpensesAmount = expenses.reduce((sum, exp) => sum + exp.amount, 0);
   const netBalance = totalOwed - totalOwes;
   const currentMonth = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
