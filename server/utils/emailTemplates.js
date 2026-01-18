@@ -25,9 +25,8 @@
 const brand = {
   name: 'Split-It',
   logo: '', // Removed emoji for professional look
-  // Logo URL - must be publicly accessible. Set LOGO_URL env var to your hosted logo.
-  // For production, host the logo on a CDN or your server (e.g., https://yourdomain.com/icon-192.png)
-  logoUrl: process.env.LOGO_URL || null,
+  // Logo URL - publicly accessible logo for emails
+  logoUrl: process.env.LOGO_URL || 'https://split-it.live/icon-192.png',
   logoAlt: 'Split-It Logo',
   logoWidth: 40,
   logoHeight: 40,

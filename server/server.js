@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -186,6 +188,22 @@ const initializeServer = async () => {
       scheduler: 'node-cron',
     });
   });
+
+  // Serve static assets (logos, icons) for emails
+  // These need to be publicly accessible without authentication
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const buildPath = path.join(__dirname, '..', 'build');
+  
+  // Serve specific assets needed for emails (logos, icons)
+  app.use('/assets', express.static(buildPath, {
+    maxAge: '1y', // Cache for a year (versioned files)
+    setHeaders: (res, filepath) => {
+      // Allow cross-origin access for email clients
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+    }
+  }));
 
   // Debug portal (hidden, secured route)
   if (process.env.DEBUG_ENABLED === 'true') {
