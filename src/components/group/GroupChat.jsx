@@ -28,7 +28,6 @@ const GroupChat = ({ groupId }) => {
     getGroupMessages,
     getTypingUsers,
     hasMoreMessages,
-    getOnlineUsers,
   } = useChat();
 
   const [isInitialLoading, setIsInitialLoading] = useState(true);

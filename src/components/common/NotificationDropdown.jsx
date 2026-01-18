@@ -45,7 +45,7 @@ const NotificationDropdown = () => {
 
   const handleConfirmPayment = async (notification, e) => {
     e.stopPropagation();
-    setProcessingAction(notification.id);
+    setProcessingAction(notification.id + '_confirm');
     
     try {
       await apiClient.post(`/settlements/${notification.relatedId}/confirm`);
@@ -58,6 +58,30 @@ const NotificationDropdown = () => {
       toast({ 
         title: 'Error', 
         description: error.response?.data?.message || 'Failed to confirm payment.', 
+        variant: 'destructive' 
+      });
+    } finally {
+      setProcessingAction(null);
+    }
+  };
+
+  const handleRejectPayment = async (notification, e) => {
+    e.stopPropagation();
+    setProcessingAction(notification.id + '_reject');
+    
+    try {
+      await apiClient.post(`/settlements/${notification.relatedId}/reject`, {
+        reason: 'Payment not received'
+      });
+      toast({ 
+        title: 'Payment marked as not received', 
+        description: 'The payer has been notified.' 
+      });
+      await refreshNotifications();
+    } catch (error) {
+      toast({ 
+        title: 'Error', 
+        description: error.response?.data?.message || 'Failed to reject payment.', 
         variant: 'destructive' 
       });
     } finally {
@@ -139,15 +163,26 @@ const NotificationDropdown = () => {
                   
                   {/* Action buttons for confirm_payment */}
                   {notification.actionType === 'confirm_payment' && !notification.actionCompleted && (
-                    <Button 
-                      size="sm" 
-                      className="mt-2 h-8 text-xs min-h-[36px]"
-                      onClick={(e) => handleConfirmPayment(notification, e)}
-                      disabled={processingAction === notification.id}
-                    >
-                      <CheckCircle size={14} className="mr-1" />
-                      {processingAction === notification.id ? 'Confirming...' : 'Confirm Receipt'}
-                    </Button>
+                    <div className="flex gap-2 mt-2 flex-wrap">
+                      <Button 
+                        size="sm" 
+                        className="h-8 text-xs min-h-[36px]"
+                        onClick={(e) => handleConfirmPayment(notification, e)}
+                        disabled={processingAction !== null}
+                      >
+                        <CheckCircle size={14} className="mr-1" />
+                        {processingAction === notification.id + '_confirm' ? 'Confirming...' : 'Confirm Receipt'}
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        className="h-8 text-xs min-h-[36px] text-destructive hover:text-destructive border-destructive/50 hover:bg-destructive/10"
+                        onClick={(e) => handleRejectPayment(notification, e)}
+                        disabled={processingAction !== null}
+                      >
+                        {processingAction === notification.id + '_reject' ? 'Rejecting...' : 'Not Received'}
+                      </Button>
+                    </div>
                   )}
                   
                   {notification.actionCompleted && (

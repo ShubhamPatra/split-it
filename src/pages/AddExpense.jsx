@@ -43,7 +43,19 @@ const AddExpense = () => {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [category, setCategory] = useState('other');
   const [showSplitDialog, setShowSplitDialog] = useState(false);
-  const [splitConfig, setSplitConfig] = useState({ type: 'equal', shares: {} });
+  const [splitConfig, setSplitConfig] = useState(() => {
+    // Initialize with all members selected if a group is pre-selected
+    const groupId = searchParams.get('groupId');
+    if (groupId) {
+      const group = groups.find(g => g.id === groupId);
+      if (group) {
+        const shares = {};
+        group.members.forEach(m => { shares[m] = 0; });
+        return { type: 'equal', shares };
+      }
+    }
+    return { type: 'equal', shares: {} };
+  });
   const [showBillScanner, setShowBillScanner] = useState(false);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -709,15 +721,15 @@ const AddExpense = () => {
                   </div>
 
                   {currentGroup && (
-                    <div className="p-4 bg-accent/20 rounded border border-border/50">
+                    <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
                       <div className="flex items-center justify-between mb-2 gap-2">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <Users size={16} className="text-accent-foreground flex-shrink-0" />
-                          <span className="text-sm font-medium text-accent-foreground truncate">
+                          <Users size={16} className="text-primary flex-shrink-0" />
+                          <span className="text-sm font-medium text-foreground truncate">
                             {splitConfig.type === 'equal' ? 'Split equally' : splitConfig.type === 'percentage' ? 'Percentage split' : 'Custom amounts'}
                           </span>
                         </div>
-                        <Button type="button" variant="outline" size="sm" onClick={() => setShowSplitDialog(true)} className="min-h-[44px] h-auto flex-shrink-0 border-border/50 hover:border-primary/30 bg-background/50">
+                        <Button type="button" variant="outline" size="sm" onClick={() => setShowSplitDialog(true)} className="min-h-[44px] h-auto flex-shrink-0 border-primary/30 hover:border-primary/50 hover:bg-primary/10">
                           <Settings2 size={14} className="mr-1" /><span className="hidden sm:inline">Customize</span>
                         </Button>
                       </div>

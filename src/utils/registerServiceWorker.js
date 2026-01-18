@@ -2,6 +2,22 @@ import apiClient from '../lib/apiClient';
 
 const PUSH_SUBSCRIPTION_KEY = 'splitit_push_subscribed';
 
+/**
+ * Check if there's an active push subscription in the browser
+ */
+const getExistingSubscription = async () => {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      return null;
+    }
+    const registration = await navigator.serviceWorker.ready;
+    return await registration.pushManager.getSubscription();
+  } catch (error) {
+    console.warn('Error checking existing subscription:', error);
+    return null;
+  }
+};
+
 export const registerServiceWorker = async () => {
   if (!('serviceWorker' in navigator)) {
     console.log('Service workers not supported');
@@ -81,11 +97,43 @@ export const subscribeToPush = async (registration) => {
  * Requests permission, subscribes to push, and sends subscription to backend
  */
 export const initializePushNotifications = async () => {
-  // Check if already subscribed (avoid duplicates)
-  if (sessionStorage.getItem(PUSH_SUBSCRIPTION_KEY)) {
+  // First, check if there's already an active subscription in the browser
+  const existingSubscription = await getExistingSubscription();
+  if (existingSubscription) {
+    // Already subscribed - just ensure backend knows about it
+    const subscriptionJSON = existingSubscription.toJSON();
+    localStorage.setItem(PUSH_SUBSCRIPTION_KEY, subscriptionJSON.endpoint);
+    
+    // Re-register with backend (in case user logged in on new device or cleared backend data)
+    try {
+      await apiClient.post('/push/subscribe', {
+        endpoint: subscriptionJSON.endpoint,
+        keys: subscriptionJSON.keys,
+      });
+    } catch (error) {
+      // Ignore errors - subscription might already exist
+      console.log('Backend subscription sync:', error.message);
+    }
+    
     return { success: true, alreadySubscribed: true };
   }
 
+  // Check localStorage flag to avoid re-prompting if user already declined
+  if (localStorage.getItem(PUSH_SUBSCRIPTION_KEY) === 'declined') {
+    return { success: false, error: 'User previously declined', alreadyDeclined: true };
+  }
+
+  // Don't auto-prompt - user must explicitly enable from settings
+  // Just return current status
+  if (Notification.permission === 'default') {
+    return { success: false, error: 'Permission not yet requested', notPrompted: true };
+  }
+
+  if (Notification.permission === 'denied') {
+    return { success: false, error: 'Notification permission denied' };
+  }
+
+  // Permission is granted but no subscription exists - create one
   try {
     // Register service worker
     const registration = await registerServiceWorker();
@@ -115,8 +163,8 @@ export const initializePushNotifications = async () => {
       keys: subscriptionJSON.keys,
     });
 
-    // Mark as subscribed
-    sessionStorage.setItem(PUSH_SUBSCRIPTION_KEY, subscriptionJSON.endpoint);
+    // Mark as subscribed in localStorage (persists across sessions)
+    localStorage.setItem(PUSH_SUBSCRIPTION_KEY, subscriptionJSON.endpoint);
 
     console.log('Push notifications initialized successfully');
     return { success: true };
@@ -131,16 +179,14 @@ export const initializePushNotifications = async () => {
  */
 export const unsubscribeFromPush = async () => {
   try {
-    const endpoint = sessionStorage.getItem(PUSH_SUBSCRIPTION_KEY);
-    if (!endpoint) {
-      return { success: true };
-    }
-
-    // Notify backend
-    try {
-      await apiClient.post('/push/unsubscribe', { endpoint });
-    } catch (apiError) {
-      console.warn('Failed to unsubscribe on backend:', apiError);
+    const endpoint = localStorage.getItem(PUSH_SUBSCRIPTION_KEY);
+    if (endpoint && endpoint !== 'declined') {
+      // Notify backend
+      try {
+        await apiClient.post('/push/unsubscribe', { endpoint });
+      } catch (apiError) {
+        console.warn('Failed to unsubscribe on backend:', apiError);
+      }
     }
 
     // Unsubscribe locally
@@ -151,7 +197,7 @@ export const unsubscribeFromPush = async () => {
     }
 
     // Clear flag
-    sessionStorage.removeItem(PUSH_SUBSCRIPTION_KEY);
+    localStorage.removeItem(PUSH_SUBSCRIPTION_KEY);
 
     console.log('Push notifications unsubscribed');
     return { success: true };
@@ -170,7 +216,20 @@ export const getPushNotificationStatus = async () => {
   }
 
   const permission = Notification.permission;
-  const subscribed = !!sessionStorage.getItem(PUSH_SUBSCRIPTION_KEY);
+  
+  // Check actual subscription state from PushManager
+  const existingSubscription = await getExistingSubscription();
+  const subscribed = !!existingSubscription;
+  
+  // Sync localStorage with actual state
+  if (subscribed && existingSubscription) {
+    localStorage.setItem(PUSH_SUBSCRIPTION_KEY, existingSubscription.endpoint);
+  } else if (!subscribed) {
+    const storedValue = localStorage.getItem(PUSH_SUBSCRIPTION_KEY);
+    if (storedValue && storedValue !== 'declined') {
+      localStorage.removeItem(PUSH_SUBSCRIPTION_KEY);
+    }
+  }
 
   return { supported: true, subscribed, permission };
 };

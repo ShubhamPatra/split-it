@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import apiClient from '../lib/apiClient';
-import { initializeSocket, leaveGroupRoom, joinGroupRoom } from '../lib/socketClient';
+import { initializeSocket, leaveGroupRoom, joinGroupRoom, forceRejoinRooms } from '../lib/socketClient';
 
 // Create the context
 const GroupContext = createContext(undefined);
@@ -664,6 +664,7 @@ export const GroupProvider = ({ children }) => {
     });
 
     return balances;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [balancesByGroup, getGroupExpenses, groups]);
 
   // Get total expenses for a group
@@ -991,6 +992,12 @@ export const GroupProvider = ({ children }) => {
       }));
     });
 
+    // After all listeners are set up, re-join all tracked rooms to ensure we receive events
+    // This handles the case where socket connected before listeners were registered
+    if (socket.connected) {
+      forceRejoinRooms();
+    }
+
     return () => {
       socket.off('expense:created');
       socket.off('expense:add'); // Alias event
@@ -1013,6 +1020,7 @@ export const GroupProvider = ({ children }) => {
       socket.off('balance:update');
       // Note: Socket disconnection is now managed by AuthContext
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, addExpenseLocally, updateExpenseLocally, deleteExpenseLocally, addSettlementLocally, updateSettlementLocally, deleteSettlementLocally, updateGroupLocally, addMemberToGroupLocally]);
 
   // Memoize context value to prevent unnecessary re-renders

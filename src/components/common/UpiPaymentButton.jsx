@@ -9,7 +9,6 @@ import QRCode from 'qrcode';
 import {
   validateUpiId,
   generateUpiUrl,
-  getUpiProviderIcon,
   generateTransactionRef,
   validatePaymentAmount
 } from '../../utils/upiHelpers';
@@ -26,7 +25,6 @@ const UpiPaymentButton = ({ amount, receiverName, receiverUpiId, note = 'Settlem
   // Validate UPI ID and amount
   const upiValidation = validateUpiId(receiverUpiId);
   const amountValidation = validatePaymentAmount(amount);
-  const providerIcon = getUpiProviderIcon(receiverUpiId);
 
   // Generate transaction reference if not exists
   useEffect(() => {

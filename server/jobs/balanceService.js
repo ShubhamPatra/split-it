@@ -107,9 +107,9 @@ export const calculateGroupBalancesOptimized = async (groupId) => {
             .select('splitConfig splitAmong amount')
             .lean(),
 
-        // Settlement totals per user
+        // Settlement totals per user (only count confirmed settlements)
         Settlement.aggregate([
-            { $match: { groupId: groupObjectId } },
+            { $match: { groupId: groupObjectId, paymentStatus: 'confirmed' } },
             {
                 $facet: {
                     fromUser: [

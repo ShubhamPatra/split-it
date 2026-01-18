@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import apiClient from '../lib/apiClient';
-import { getSocket, initializeSocket } from '../lib/socketClient';
+import { getSocket, initializeSocket, forceRejoinRooms } from '../lib/socketClient';
 import { debounce, createRequestDeduplicator } from '../lib/debounce';
 
 // Create the context
@@ -710,6 +710,12 @@ export const ChatProvider = ({ children }) => {
     };
     socket.on('connect', handleReconnect);
     
+    // After all listeners are set up, re-join all tracked rooms to ensure we receive events
+    // This handles the case where socket connected before listeners were registered
+    if (socket.connected) {
+      forceRejoinRooms();
+    }
+    
     return () => {
       socket.off('chat:new', handleNewMessage);
       socket.off('chat:edit', handleEditMessage);
@@ -787,6 +793,7 @@ export const ChatProvider = ({ children }) => {
     getTypingUsers,
     isUserOnline,
     getOnlineUsers,
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [
     messages,
     unreadCounts,

@@ -57,7 +57,12 @@ export const joinGroupRoom = (groupId) => {
   // Guard: skip if already joined to prevent duplicate room joins and repeated presence broadcasts
   if (joinedRooms.has(groupId)) return;
   joinedRooms.add(groupId);
-  socket?.emit('join:group', groupId);
+  // Ensure socket is initialized before emitting
+  const s = socket || initializeSocket();
+  if (s && s.connected) {
+    s.emit('join:group', groupId);
+  }
+  // If not connected, the 'connect' event handler will rejoin all rooms
 };
 
 // Leave group room and stop tracking
@@ -67,6 +72,18 @@ export const leaveGroupRoom = (groupId) => {
   if (!joinedRooms.has(groupId)) return;
   joinedRooms.delete(groupId);
   socket?.emit('leave:group', groupId);
+};
+
+// Get all joined rooms (for debugging or re-joining)
+export const getJoinedRooms = () => Array.from(joinedRooms);
+
+// Force re-join all tracked rooms (useful when listeners are set up after connection)
+export const forceRejoinRooms = () => {
+  if (socket && socket.connected) {
+    joinedRooms.forEach(groupId => {
+      socket.emit('join:group', groupId);
+    });
+  }
 };
 
 // Analytics event listeners

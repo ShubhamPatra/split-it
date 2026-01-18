@@ -133,7 +133,7 @@ const ExpenseAnalytics = ({ expenses, group, onExpenseChange }) => {
         percentage: (amount / total) * 100
       })).sort((a, b) => b.amount - a.amount),
     };
-  }, [expenses, group]);
+  }, [expenses]);
 
   if (!analytics || expenses.length === 0) {
     return (

@@ -1,14 +1,16 @@
 /* eslint-disable no-restricted-globals */
 
-const CACHE_NAME = 'split-it-v3';
-const RUNTIME_CACHE = 'split-it-runtime-v3';
+const CACHE_NAME = 'split-it-v4';
+const RUNTIME_CACHE = 'split-it-runtime-v4';
 const MAX_CACHE_SIZE = 50;
 
 // NEVER cache index.html - it must always be fetched fresh to get new asset references
 // Only cache truly static assets that don't change between builds
 const STATIC_ASSETS = [
   '/manifest.json',
+  '/favicon.png',
   '/icon-192.png',
+  '/icon-512.png',
 ];
 
 // Install event - cache shell assets only (not index.html or hashed build files)

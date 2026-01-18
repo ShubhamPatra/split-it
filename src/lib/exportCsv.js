@@ -239,7 +239,7 @@ export const exportFullReportToPdf = (
 
   if (expenses.length > 0) {
     const expHeaders = ['Date', 'Description', 'Category', 'Amount'];
-    const expColWidths = [30, 70, 40, 40];
+    const expColWidths = [28, 72, 45, 35];
 
     // Header
     doc.setFillColor(59, 130, 246);
@@ -270,9 +270,11 @@ export const exportFullReportToPdf = (
       }
 
       const category = getCategoryById(expense.category);
+      // Format date properly (handle ISO string or Date object)
+      const expenseDate = new Date(expense.date).toLocaleDateString('en-IN');
       const row = [
-        expense.date,
-        expense.description.substring(0, 30) + (expense.description.length > 30 ? '...' : ''),
+        expenseDate,
+        expense.description.substring(0, 35) + (expense.description.length > 35 ? '...' : ''),
         category.name,
         `Rs ${expense.amount.toLocaleString()}`
       ];
@@ -311,7 +313,7 @@ export const exportFullReportToPdf = (
 
   if (settlements.length > 0) {
     const setHeaders = ['Date', 'Paid By', 'Paid To', 'Amount'];
-    const setColWidths = [35, 50, 50, 45];
+    const setColWidths = [28, 55, 55, 42];
 
     // Header
     doc.setFillColor(34, 197, 94);
@@ -341,8 +343,10 @@ export const exportFullReportToPdf = (
         doc.rect(14, y - 4, 180, 6, 'F');
       }
 
+      // Format date properly (handle ISO string or Date object)
+      const settlementDate = new Date(settlement.settledAt).toLocaleDateString('en-IN');
       const row = [
-        settlement.settledAt,
+        settlementDate,
         getUserProfile(settlement.fromUserId)?.name || 'Unknown',
         getUserProfile(settlement.toUserId)?.name || 'Unknown',
         `Rs ${settlement.amount.toLocaleString()}`

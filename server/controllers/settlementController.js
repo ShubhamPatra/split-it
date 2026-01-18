@@ -460,3 +460,89 @@ export const confirmPaymentReceipt = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// @desc    Reject payment receipt (receiver didn't receive payment)
+// @route   POST /api/settlements/:id/reject
+// @access  Private
+export const rejectPaymentReceipt = async (req, res) => {
+  try {
+    const { reason } = req.body;
+    
+    const settlement = await Settlement.findById(req.params.id)
+      .populate('groupId')
+      .populate('fromUserId', 'name email')
+      .populate('toUserId', 'name email');
+
+    if (!settlement) {
+      return res.status(404).json({ message: 'Settlement not found' });
+    }
+
+    // Only the receiver can reject payment receipt
+    if (settlement.toUserId._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the payment receiver can reject receipt' });
+    }
+
+    // Check if already confirmed
+    if (settlement.paymentStatus === 'confirmed') {
+      return res.status(400).json({ message: 'Cannot reject an already confirmed payment' });
+    }
+
+    // Check if already rejected/failed
+    if (settlement.paymentStatus === 'failed') {
+      return res.status(400).json({ message: 'Payment already marked as not received' });
+    }
+
+    // Update settlement status to failed
+    settlement.paymentStatus = 'failed';
+    settlement.paymentNotes = reason || 'Payment not received by recipient';
+    await settlement.save();
+
+    // Mark notification as completed
+    await Notification.updateOne(
+      { relatedId: settlement._id, actionType: 'confirm_payment', userId: req.user._id },
+      { actionCompleted: true, read: true }
+    );
+
+    // Notify the payer that payment was NOT received
+    await Notification.create({
+      userId: settlement.fromUserId._id,
+      type: 'warning',
+      title: 'Payment Not Received',
+      message: `${settlement.toUserId.name} reported they did not receive the ₹${settlement.amount} payment.${reason ? ` Reason: ${reason}` : ''} Please try again or use a different payment method.`,
+      actionType: 'none',
+    });
+
+    const updatedSettlement = await Settlement.findById(settlement._id)
+      .populate('fromUserId', 'name email')
+      .populate('toUserId', 'name email')
+      .populate('groupId', 'name');
+
+    // Emit socket event to group members for real-time update
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, settlement.groupId._id.toString(), 'settlement:updated', updatedSettlement);
+      } catch (socketError) {
+        console.error('Error emitting socket events for payment rejection:', socketError);
+      }
+    }
+
+    // Send push notification to the payer
+    try {
+      const { sendPushToUser } = await import('../utils/pushNotifier.js');
+      await sendPushToUser(settlement.fromUserId._id.toString(), {
+        title: 'Payment Not Received',
+        body: `${settlement.toUserId.name} reported they did not receive ₹${settlement.amount}. Please verify and try again.`,
+        icon: '/logo192.png',
+        data: { url: `/groups/${settlement.groupId._id}` },
+      });
+    } catch (pushError) {
+      console.error('Push notification failed:', pushError);
+    }
+
+    res.json(updatedSettlement);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

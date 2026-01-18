@@ -11,7 +11,11 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
   const { getUserProfile } = useGroups();
   const [splitType, setSplitType] = useState(currentSplit.type);
   const [shares, setShares] = useState(currentSplit.shares);
-  const [selectedMembers, setSelectedMembers] = useState(Object.keys(currentSplit.shares).filter(m => currentSplit.shares[m] > 0) || members);
+  // Select all members that exist in shares, or all members if shares is empty
+  const [selectedMembers, setSelectedMembers] = useState(() => {
+    const sharesKeys = Object.keys(currentSplit.shares);
+    return sharesKeys.length > 0 ? sharesKeys : members;
+  });
   
   // Line items state for itemized splitting (Comment 5)
   const [lineItems, setLineItems] = useState([
@@ -38,7 +42,9 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
       }
       
       setShares(initialShares); 
-      setSelectedMembers(Object.keys(currentSplit.shares).filter(m => currentSplit.shares[m] > 0) || members); 
+      // Select all members that exist in shares, or all members if shares is empty
+      const sharesKeys = Object.keys(currentSplit.shares);
+      setSelectedMembers(sharesKeys.length > 0 ? sharesKeys : members); 
     }
   }, [open, currentSplit, members, totalAmount]);
 

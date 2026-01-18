@@ -6,6 +6,7 @@ import {
   updateSettlement,
   deleteSettlement,
   confirmPaymentReceipt,
+  rejectPaymentReceipt,
 } from '../controllers/settlementController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -20,6 +21,7 @@ router.route('/')
 router.get('/group/:groupId', getSettlementsByGroup);
 
 router.post('/:id/confirm', confirmPaymentReceipt);
+router.post('/:id/reject', rejectPaymentReceipt);
 
 router.route('/:id')
   .put(updateSettlement)
