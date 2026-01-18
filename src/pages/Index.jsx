@@ -1,14 +1,53 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import Logo from '../components/common/Logo';
+import HowItWorksVisual from '../components/common/HowItWorksVisual';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../components/ui/collapsible';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import { ChevronDown, MessageCircle, Shield } from 'lucide-react';
 
 const Index = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const [showFloatingCTA, setShowFloatingCTA] = useState(false);
+  const [activeStep, setActiveStep] = useState(1);
+
+  // Refs for step elements (for IntersectionObserver)
+  const stepRefs = useRef([]);
+  const setStepRef = useCallback((el, index) => {
+    stepRefs.current[index] = el;
+  }, []);
+
+  // Set up IntersectionObserver for step detection
+  useEffect(() => {
+    const observerOptions = {
+      threshold: 0.5,
+      rootMargin: '-20% 0px -20% 0px'
+    };
+
+    const observerCallback = (entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const stepNumber = parseInt(entry.target.dataset.step, 10);
+          if (stepNumber) {
+            // Use functional update to avoid stale closure and prevent redundant updates
+            setActiveStep(prevStep => prevStep !== stepNumber ? stepNumber : prevStep);
+          }
+        }
+      });
+    };
+
+    const observer = new IntersectionObserver(observerCallback, observerOptions);
+
+    stepRefs.current.forEach(ref => {
+      if (ref) observer.observe(ref);
+    });
+
+    return () => observer.disconnect();
+  }, []); // Empty dependency array - observer runs once and stays stable
 
   // Redirect to dashboard if already logged in
   useEffect(() => {
@@ -276,64 +315,100 @@ const Index = () => {
       </section>
 
       {/* How It Works Section */}
-      <section className="bg-background border-b border-border">
+      <section className="bg-background border-b border-border" aria-label="How it works">
         <div className="px-4 py-12 lg:py-16 max-w-screen-xl mx-auto">
           <p className="text-xs font-semibold uppercase tracking-wider text-accent mb-8">How it works</p>
 
-          <div className="flex flex-col gap-6 max-w-xl">
-            {/* Step 1 */}
-            <div className="flex gap-4">
-              <div className="flex flex-col items-center">
-                <div className="w-8 h-8 rounded-full border border-foreground flex items-center justify-center text-sm font-semibold text-foreground bg-card">1</div>
-                <div className="w-px bg-border flex-1 mt-2"></div>
-              </div>
-              <div className="pb-6">
-                <h3 className="text-base font-semibold text-foreground mb-1">Create Group</h3>
-                <p className="text-sm text-muted-foreground">Create a shared space for trips, rent, or recurring house bills in under 30 seconds.</p>
-              </div>
-            </div>
-
-            {/* Step 2 */}
-            <div className="flex gap-4">
-              <div className="flex flex-col items-center">
-                <div className="w-8 h-8 rounded-full border border-foreground flex items-center justify-center text-sm font-semibold text-foreground bg-card">2</div>
-                <div className="w-px bg-border flex-1 mt-2"></div>
-              </div>
-              <div className="pb-6">
-                <h3 className="text-base font-semibold text-foreground mb-1">Add Expenses</h3>
-                <p className="text-sm text-muted-foreground">Log expenses quickly. Split equally or customize per person. Add receipts too.</p>
-              </div>
-            </div>
-
-            {/* Step 3 */}
-            <div className="flex gap-4">
-              <div className="flex flex-col items-center">
-                <div className="w-8 h-8 rounded-full border border-foreground flex items-center justify-center text-sm font-semibold text-foreground bg-card">3</div>
-                <div className="w-px bg-border flex-1 mt-2"></div>
-              </div>
-              <div className="pb-6">
-                <h3 className="text-base font-semibold text-foreground mb-1">Track Balances</h3>
-                <p className="text-sm text-muted-foreground">Watch the ledger update in real-time. Everyone sees who's paid and who owes.</p>
-              </div>
-            </div>
-
-            {/* Step 4 */}
-            <div className="flex gap-4">
-              <div className="flex flex-col items-center">
-                <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center">
-                  <svg className="w-4 h-4 text-accent-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                  </svg>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
+            {/* Left Column: Steps */}
+            <div className="flex flex-col gap-6 max-w-xl" aria-live="polite">
+              {/* Step 1 */}
+              <div
+                className="flex gap-4"
+                ref={(el) => setStepRef(el, 0)}
+                data-step="1"
+                aria-current={activeStep === 1 ? 'step' : undefined}
+              >
+                <div className="flex flex-col items-center">
+                  <div className={`w-8 h-8 rounded-full border ${activeStep === 1 ? 'border-accent bg-accent/10 text-accent' : 'border-foreground text-foreground bg-card'} flex items-center justify-center text-sm font-semibold transition-colors duration-300`}>1</div>
+                  <div className="w-px bg-border flex-1 mt-2"></div>
+                </div>
+                <div className="pb-6">
+                  <h3 className="text-base font-semibold text-foreground mb-1">Create Group</h3>
+                  <p className="text-sm text-muted-foreground">Create a shared space for trips, rent, or recurring house bills in under 30 seconds.</p>
                 </div>
               </div>
-              <div>
-                <h3 className="text-base font-semibold text-foreground mb-1">Settle Up</h3>
-                <p className="text-sm text-muted-foreground">Settle via UPI with one tap. Debts cleared, friendships intact.</p>
+
+              {/* Step 2 */}
+              <div
+                className="flex gap-4"
+                ref={(el) => setStepRef(el, 1)}
+                data-step="2"
+                aria-current={activeStep === 2 ? 'step' : undefined}
+              >
+                <div className="flex flex-col items-center">
+                  <div className={`w-8 h-8 rounded-full border ${activeStep === 2 ? 'border-accent bg-accent/10 text-accent' : 'border-foreground text-foreground bg-card'} flex items-center justify-center text-sm font-semibold transition-colors duration-300`}>2</div>
+                  <div className="w-px bg-border flex-1 mt-2"></div>
+                </div>
+                <div className="pb-6">
+                  <h3 className="text-base font-semibold text-foreground mb-1">Add Expenses</h3>
+                  <p className="text-sm text-muted-foreground">Log expenses quickly. Split equally or customize per person. Add receipts too.</p>
+                </div>
               </div>
+
+              {/* Step 3 */}
+              <div
+                className="flex gap-4"
+                ref={(el) => setStepRef(el, 2)}
+                data-step="3"
+                aria-current={activeStep === 3 ? 'step' : undefined}
+              >
+                <div className="flex flex-col items-center">
+                  <div className={`w-8 h-8 rounded-full border ${activeStep === 3 ? 'border-accent bg-accent/10 text-accent' : 'border-foreground text-foreground bg-card'} flex items-center justify-center text-sm font-semibold transition-colors duration-300`}>3</div>
+                  <div className="w-px bg-border flex-1 mt-2"></div>
+                </div>
+                <div className="pb-6">
+                  <h3 className="text-base font-semibold text-foreground mb-1">Track Balances</h3>
+                  <p className="text-sm text-muted-foreground">Watch the ledger update in real-time. Everyone sees who's paid and who owes.</p>
+                </div>
+              </div>
+
+              {/* Step 4 */}
+              <div
+                className="flex gap-4"
+                ref={(el) => setStepRef(el, 3)}
+                data-step="4"
+                aria-current={activeStep === 4 ? 'step' : undefined}
+              >
+                <div className="flex flex-col items-center">
+                  <div className={`w-8 h-8 rounded-full ${activeStep === 4 ? 'bg-accent' : 'bg-accent/80'} flex items-center justify-center transition-colors duration-300`}>
+                    <svg className="w-4 h-4 text-accent-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-foreground mb-1">Settle Up</h3>
+                  <p className="text-sm text-muted-foreground">Settle via UPI with one tap. Debts cleared, friendships intact.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Visual */}
+            <div className="hidden lg:block sticky top-24 self-start">
+              <HowItWorksVisual activeStep={activeStep} />
+            </div>
+          </div>
+
+          {/* Mobile Visual (shown below steps on smaller screens) */}
+          <div className="mt-8 lg:hidden flex justify-center">
+            <div className="max-w-sm w-full">
+              <HowItWorksVisual activeStep={activeStep} />
             </div>
           </div>
         </div>
       </section>
+
 
       {/* Use Cases Section */}
       <section className="bg-card border-b border-border">
@@ -638,148 +713,233 @@ const Index = () => {
 
       {/* FAQ Section */}
       <section className="bg-card border-b border-border">
-        <div className="px-4 py-12 max-w-screen-xl mx-auto">
-          <h2 className="font-display text-2xl lg:text-3xl font-bold text-foreground mb-8">
-            Frequently Asked Questions
-          </h2>
+        <div className="px-4 py-16 lg:py-20 max-w-7xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8 lg:gap-12 items-start">
+            {/* Left Column - FAQ Accordion */}
+            <div>
+              <h2 className="font-display text-3xl lg:text-4xl font-bold text-foreground">
+                Frequently Asked Questions
+              </h2>
+              <p className="text-lg text-muted-foreground mt-2 mb-10 lg:mb-12">
+                Everything you need to know about Split-It
+              </p>
 
-          <div className="max-w-2xl space-y-4">
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center justify-between w-full p-4 text-left border border-border rounded bg-background hover:bg-muted/30 transition-colors">
-                <span className="text-sm font-semibold text-foreground">Is Split-It free to use?</span>
-                <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="px-4 py-3 text-sm text-muted-foreground border-x border-b border-border rounded-b">
-                Yes, Split-It is completely free for personal use. Create unlimited groups, add unlimited expenses, and settle with no transaction fees.
-              </CollapsibleContent>
-            </Collapsible>
+              <div className="space-y-3">
+                <Collapsible className="border border-border rounded-lg bg-background overflow-hidden">
+                  <CollapsibleTrigger className="group flex items-center justify-between w-full p-5 text-left hover:bg-muted/30 transition-all duration-200 data-[state=open]:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none">
+                    <span className="text-base font-semibold text-foreground pr-8">Is Split-It free to use?</span>
+                    <ChevronDown className="w-5 h-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="px-5 pb-5 pt-0 text-sm leading-relaxed text-muted-foreground border-t border-border bg-muted/20">
+                    <div className="pt-4">
+                      Yes, Split-It is completely free for personal use. Create unlimited groups, add unlimited expenses, and settle with no transaction fees.
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
 
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center justify-between w-full p-4 text-left border border-border rounded bg-background hover:bg-muted/30 transition-colors">
-                <span className="text-sm font-semibold text-foreground">How secure is my financial data?</span>
-                <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="px-4 py-3 text-sm text-muted-foreground border-x border-b border-border rounded-b">
-                We use bank-grade encryption for all data. Your UPI transactions go directly through your bank's secure gateway. We never store payment credentials.
-              </CollapsibleContent>
-            </Collapsible>
+                <Collapsible className="border border-border rounded-lg bg-background overflow-hidden">
+                  <CollapsibleTrigger className="group flex items-center justify-between w-full p-5 text-left hover:bg-muted/30 transition-all duration-200 data-[state=open]:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none">
+                    <span className="text-base font-semibold text-foreground pr-8">How secure is my financial data?</span>
+                    <ChevronDown className="w-5 h-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="px-5 pb-5 pt-0 text-sm leading-relaxed text-muted-foreground border-t border-border bg-muted/20">
+                    <div className="pt-4">
+                      We use bank-grade encryption for all data. Your UPI transactions go directly through your bank's secure gateway. We never store payment credentials.
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
 
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center justify-between w-full p-4 text-left border border-border rounded bg-background hover:bg-muted/30 transition-colors">
-                <span className="text-sm font-semibold text-foreground">Can I use Split-It offline?</span>
-                <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="px-4 py-3 text-sm text-muted-foreground border-x border-b border-border rounded-b">
-                You can view your existing groups and balances offline. New expenses sync automatically when you're back online.
-              </CollapsibleContent>
-            </Collapsible>
+                <Collapsible className="border border-border rounded-lg bg-background overflow-hidden">
+                  <CollapsibleTrigger className="group flex items-center justify-between w-full p-5 text-left hover:bg-muted/30 transition-all duration-200 data-[state=open]:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none">
+                    <span className="text-base font-semibold text-foreground pr-8">Can I use Split-It offline?</span>
+                    <ChevronDown className="w-5 h-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="px-5 pb-5 pt-0 text-sm leading-relaxed text-muted-foreground border-t border-border bg-muted/20">
+                    <div className="pt-4">
+                      You can view your existing groups and balances offline. New expenses sync automatically when you're back online.
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
 
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center justify-between w-full p-4 text-left border border-border rounded bg-background hover:bg-muted/30 transition-colors">
-                <span className="text-sm font-semibold text-foreground">How do UPI settlements work?</span>
-                <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="px-4 py-3 text-sm text-muted-foreground border-x border-b border-border rounded-b">
-                When you settle, we generate a UPI payment link with the exact amount. Tap to pay via any UPI app (GPay, PhonePe, Paytm). The transaction is instant.
-              </CollapsibleContent>
-            </Collapsible>
+                <Collapsible className="border border-border rounded-lg bg-background overflow-hidden">
+                  <CollapsibleTrigger className="group flex items-center justify-between w-full p-5 text-left hover:bg-muted/30 transition-all duration-200 data-[state=open]:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none">
+                    <span className="text-base font-semibold text-foreground pr-8">How do UPI settlements work?</span>
+                    <ChevronDown className="w-5 h-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="px-5 pb-5 pt-0 text-sm leading-relaxed text-muted-foreground border-t border-border bg-muted/20">
+                    <div className="pt-4">
+                      When you settle, we generate a UPI payment link with the exact amount. Tap to pay via any UPI app (GPay, PhonePe, Paytm). The transaction is instant.
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
 
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center justify-between w-full p-4 text-left border border-border rounded bg-background hover:bg-muted/30 transition-colors">
-                <span className="text-sm font-semibold text-foreground">What if someone doesn't have Split-It?</span>
-                <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="px-4 py-3 text-sm text-muted-foreground border-x border-b border-border rounded-b">
-                You can add anyone to a group using their email. They'll receive an invite to sign up. Until then, you can still track their share of expenses.
-              </CollapsibleContent>
-            </Collapsible>
+                <Collapsible className="border border-border rounded-lg bg-background overflow-hidden">
+                  <CollapsibleTrigger className="group flex items-center justify-between w-full p-5 text-left hover:bg-muted/30 transition-all duration-200 data-[state=open]:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none">
+                    <span className="text-base font-semibold text-foreground pr-8">What if someone doesn't have Split-It?</span>
+                    <ChevronDown className="w-5 h-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="px-5 pb-5 pt-0 text-sm leading-relaxed text-muted-foreground border-t border-border bg-muted/20">
+                    <div className="pt-4">
+                      You can add anyone to a group using their email. They'll receive an invite to sign up. Until then, you can still track their share of expenses.
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            </div>
+
+            {/* Right Column - Supporting Content */}
+            <div className="lg:sticky lg:top-24 space-y-6">
+              {/* Support Contact Card */}
+              <Card className="shadow-sm hover:shadow-md transition-shadow duration-200">
+                <CardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded bg-accent/10 flex items-center justify-center">
+                      <MessageCircle className="w-5 h-5 text-accent" />
+                    </div>
+                    <CardTitle className="text-base font-semibold">Still have questions?</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <CardDescription className="text-sm text-muted-foreground">
+                    Our support team is here to help you get the most out of Split-It.
+                  </CardDescription>
+                </CardContent>
+                <CardFooter>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => window.location.href = 'mailto:notifications.splitit@gmail.com'}
+                  >
+                    Contact Support
+                  </Button>
+                </CardFooter>
+              </Card>
+
+              {/* Security Reassurance Card */}
+              <Card className="bg-accent/5 border-accent/20 p-6 space-y-4">
+                <div className="flex items-center gap-3">
+                  <Shield className="w-6 h-6 text-accent" />
+                  <h4 className="font-semibold text-base text-foreground">Bank-grade security</h4>
+                </div>
+                <ul className="space-y-2 text-sm text-muted-foreground">
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent"></span>
+                    256-bit encryption
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent"></span>
+                    SOC 2 compliant
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent"></span>
+                    Regular security audits
+                  </li>
+                </ul>
+                <Badge variant="success" className="mt-2">Verified Secure</Badge>
+              </Card>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Footer - Enhanced */}
+      {/* Footer - Professional Grid Layout */}
       <footer className="bg-card border-t border-border">
-        <div className="px-4 py-10 max-w-screen-xl mx-auto">
-          <div className="flex flex-col gap-8">
-            {/* Brand */}
-            <div className="flex flex-col gap-2">
+        <div className="max-w-screen-xl mx-auto px-4 py-10">
+          {/* Main Grid: 5 columns on desktop, 2 on tablet, 1 on mobile */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 md:gap-10 lg:gap-12 items-start">
+
+            {/* Column 1: Brand Identity */}
+            <div className="flex flex-col gap-3 md:col-span-2 lg:col-span-1">
               <Logo size="sm" />
-              <p className="text-muted-foreground text-xs">Engineered for financial transparency between friends.</p>
+              <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">
+                Engineered for financial transparency between friends.
+              </p>
             </div>
 
-            {/* Links */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-              <div className="flex flex-col gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</p>
-                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Features</Link>
-                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Security</Link>
-                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Pricing</Link>
-              </div>
-              <div className="flex flex-col gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Company</p>
-                <Link to="/privacy-policy" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
-                <Link to="/terms-of-service" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
-              </div>
-              <div className="flex flex-col gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Resources</p>
-                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Blog</Link>
-                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Help Center</Link>
-                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">API Docs</Link>
+            {/* Column 2: Product Links */}
+            <div className="flex flex-col gap-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-foreground mb-1">Product</p>
+              <div className="flex flex-col space-y-3">
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors leading-relaxed">Features</Link>
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors leading-relaxed">Security</Link>
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors leading-relaxed">Pricing</Link>
               </div>
             </div>
 
-            {/* Newsletter */}
-            <div className="flex flex-col gap-3 pt-4 border-t border-border">
-              <p className="text-sm font-medium text-foreground">Stay updated</p>
-              <div className="flex gap-2 max-w-sm">
-                <input
-                  type="email"
-                  placeholder="Enter your email"
-                  className="flex-1 px-3 py-2 text-sm border border-border rounded bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-                <Button size="sm" className="text-sm">Subscribe</Button>
+            {/* Column 3: Company Links */}
+            <div className="flex flex-col gap-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-foreground mb-1">Company</p>
+              <div className="flex flex-col space-y-3">
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors leading-relaxed">About</Link>
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors leading-relaxed">Contact</Link>
               </div>
             </div>
 
-            {/* Social Links */}
-            <div className="flex items-center gap-4">
-              <button type="button" className="text-muted-foreground hover:text-foreground transition-colors" aria-label="GitHub">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-                </svg>
-              </button>
-              <button type="button" className="text-muted-foreground hover:text-foreground transition-colors" aria-label="X (Twitter)">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                </svg>
-              </button>
-              <button type="button" className="text-muted-foreground hover:text-foreground transition-colors" aria-label="LinkedIn">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
-                </svg>
-              </button>
+            {/* Column 4: Resources Links */}
+            <div className="flex flex-col gap-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-foreground mb-1">Resources</p>
+              <div className="flex flex-col space-y-3">
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors leading-relaxed">Blog</Link>
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors leading-relaxed">Help Center</Link>
+                <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors leading-relaxed">API Docs</Link>
+              </div>
             </div>
 
-            {/* CTA */}
-            <div className="pt-6 border-t border-border">
-              <p className="text-sm font-medium text-foreground mb-3">Ready to automate your group finances?</p>
-              <Button
-                onClick={() => navigate('/signup')}
-                className="w-full sm:w-auto text-sm"
-              >
-                Get Started for Free
-              </Button>
-              <p className="text-[10px] text-muted-foreground text-center sm:text-left mt-4">© 2026 Split-It. All rights reserved.</p>
+            {/* Column 5: Newsletter + Social + CTA */}
+            <div className="flex flex-col gap-6 lg:col-span-1">
+              {/* Newsletter Section */}
+              <div className="flex flex-col gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-foreground mb-1">Stay updated</p>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    placeholder="Enter your email"
+                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-border rounded bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                  <Button size="sm" className="px-4 text-sm">Subscribe</Button>
+                </div>
+              </div>
+
+              {/* Social Links */}
+              <div className="flex items-center gap-4 py-2">
+                <button type="button" className="text-muted-foreground hover:text-foreground transition-colors" aria-label="GitHub">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+                  </svg>
+                </button>
+                <button type="button" className="text-muted-foreground hover:text-foreground transition-colors" aria-label="X (Twitter)">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                  </svg>
+                </button>
+                <button type="button" className="text-muted-foreground hover:text-foreground transition-colors" aria-label="LinkedIn">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* CTA Section */}
+              <div className="flex flex-col gap-3">
+                <p className="text-sm font-medium text-foreground">Ready to automate your group finances?</p>
+                <Button
+                  onClick={() => navigate('/signup')}
+                  className="w-full sm:w-auto text-sm"
+                >
+                  Get Started for Free
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom: Copyright & Legal */}
+          <div className="pt-8 mt-8 border-t border-border">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="flex items-center gap-6">
+                <Link to="/privacy-policy" className="text-xs text-muted-foreground hover:text-foreground transition-colors">Privacy Policy</Link>
+                <Link to="/terms-of-service" className="text-xs text-muted-foreground hover:text-foreground transition-colors">Terms of Service</Link>
+              </div>
+              <p className="text-xs text-muted-foreground">© 2026 Split-It. All rights reserved.</p>
             </div>
           </div>
         </div>

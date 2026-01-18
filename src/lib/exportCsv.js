@@ -52,20 +52,40 @@ export const exportExpensesToCsv = (expenses, groupName, getUserProfile) => {
 export const exportSettlementsToCsv = (settlements, groupName, getUserProfile) => {
   if (settlements.length === 0) return;
 
-  const headers = ['Date', 'From', 'To', 'Amount'];
+  const headers = ['Date', 'From', 'To', 'Amount', 'Status'];
   
+  const getStatusLabel = (status) => {
+    switch (status) {
+      case 'confirmed': return 'Confirmed';
+      case 'pending': return 'Pending';
+      case 'failed': return 'Not Received';
+      default: return 'Pending';
+    }
+  };
+
   const rows = settlements.map(settlement => {
     return [
       settlement.settledAt,
       getUserProfile(settlement.fromUserId)?.name || 'Unknown',
       getUserProfile(settlement.toUserId)?.name || 'Unknown',
-      settlement.amount.toFixed(2)
+      settlement.amount.toFixed(2),
+      getStatusLabel(settlement.paymentStatus)
     ].join(',');
   });
 
-  const total = settlements.reduce((sum, s) => sum + s.amount, 0);
+  // Only count confirmed settlements in total
+  const confirmedTotal = settlements
+    .filter(s => s.paymentStatus === 'confirmed')
+    .reduce((sum, s) => sum + s.amount, 0);
+  const pendingTotal = settlements
+    .filter(s => s.paymentStatus === 'pending')
+    .reduce((sum, s) => sum + s.amount, 0);
+  
   rows.push('');
-  rows.push(`,,Total,${total.toFixed(2)}`);
+  rows.push(`,,Confirmed Total,${confirmedTotal.toFixed(2)},`);
+  if (pendingTotal > 0) {
+    rows.push(`,,Pending Total,${pendingTotal.toFixed(2)},`);
+  }
 
   const csvContent = [headers.join(','), ...rows].join('\n');
   const date = new Date().toISOString().split('T')[0];
@@ -121,17 +141,39 @@ export const exportFullReportToCsv = (
   // Settlements Section
   sections.push('=== SETTLEMENTS ===');
   if (settlements.length > 0) {
-    sections.push('Date,From,To,Amount');
+    sections.push('Date,From,To,Amount,Status');
+    
+    const getStatusLabel = (status) => {
+      switch (status) {
+        case 'confirmed': return 'Confirmed';
+        case 'pending': return 'Pending';
+        case 'failed': return 'Not Received';
+        default: return 'Pending';
+      }
+    };
+
     settlements.forEach(settlement => {
       sections.push([
         settlement.settledAt,
         getUserProfile(settlement.fromUserId)?.name || 'Unknown',
         getUserProfile(settlement.toUserId)?.name || 'Unknown',
-        settlement.amount.toFixed(2)
+        settlement.amount.toFixed(2),
+        getStatusLabel(settlement.paymentStatus)
       ].join(','));
     });
-    const settlementTotal = settlements.reduce((sum, s) => sum + s.amount, 0);
-    sections.push(`,,Total Settled,${settlementTotal.toFixed(2)}`);
+    
+    // Only count confirmed settlements in total
+    const confirmedTotal = settlements
+      .filter(s => s.paymentStatus === 'confirmed')
+      .reduce((sum, s) => sum + s.amount, 0);
+    const pendingTotal = settlements
+      .filter(s => s.paymentStatus === 'pending')
+      .reduce((sum, s) => sum + s.amount, 0);
+      
+    sections.push(`,,Confirmed Settled,${confirmedTotal.toFixed(2)},`);
+    if (pendingTotal > 0) {
+      sections.push(`,,Pending,${pendingTotal.toFixed(2)},`);
+    }
   } else {
     sections.push('No settlements recorded');
   }
@@ -312,8 +354,17 @@ export const exportFullReportToPdf = (
   y += 8;
 
   if (settlements.length > 0) {
-    const setHeaders = ['Date', 'Paid By', 'Paid To', 'Amount'];
-    const setColWidths = [28, 55, 55, 42];
+    const setHeaders = ['Date', 'Paid By', 'Paid To', 'Amount', 'Status'];
+    const setColWidths = [25, 45, 45, 35, 30];
+
+    const getStatusLabel = (status) => {
+      switch (status) {
+        case 'confirmed': return 'Confirmed';
+        case 'pending': return 'Pending';
+        case 'failed': return 'Not Received';
+        default: return 'Pending';
+      }
+    };
 
     // Header
     doc.setFillColor(34, 197, 94);
@@ -338,10 +389,18 @@ export const exportFullReportToPdf = (
         y = 20;
       }
 
-      if (index % 2 === 0) {
+      // Color code rows by status
+      const status = settlement.paymentStatus || 'pending';
+      if (status === 'failed') {
+        doc.setFillColor(254, 226, 226); // Red tint for failed
+      } else if (status === 'pending') {
+        doc.setFillColor(254, 249, 195); // Yellow tint for pending
+      } else if (index % 2 === 0) {
         doc.setFillColor(245, 247, 250);
-        doc.rect(14, y - 4, 180, 6, 'F');
+      } else {
+        doc.setFillColor(255, 255, 255);
       }
+      doc.rect(14, y - 4, 180, 6, 'F');
 
       // Format date properly (handle ISO string or Date object)
       const settlementDate = new Date(settlement.settledAt).toLocaleDateString('en-IN');
@@ -349,7 +408,8 @@ export const exportFullReportToPdf = (
         settlementDate,
         getUserProfile(settlement.fromUserId)?.name || 'Unknown',
         getUserProfile(settlement.toUserId)?.name || 'Unknown',
-        `Rs ${settlement.amount.toLocaleString()}`
+        `Rs ${settlement.amount.toLocaleString()}`,
+        getStatusLabel(status)
       ];
 
       x = 14;
@@ -360,10 +420,23 @@ export const exportFullReportToPdf = (
       y += 6;
     });
 
-    const settlementTotal = settlements.reduce((sum, s) => sum + s.amount, 0);
+    // Only count confirmed settlements in total
+    const confirmedTotal = settlements
+      .filter(s => s.paymentStatus === 'confirmed')
+      .reduce((sum, s) => sum + s.amount, 0);
+    const pendingTotal = settlements
+      .filter(s => s.paymentStatus === 'pending')
+      .reduce((sum, s) => sum + s.amount, 0);
+      
     y += 3;
     doc.setFont('helvetica', 'bold');
-    doc.text(`Total Settled: Rs ${settlementTotal.toLocaleString()}`, 14, y);
+    doc.setTextColor(34, 197, 94);
+    doc.text(`Confirmed: Rs ${confirmedTotal.toLocaleString()}`, 14, y);
+    if (pendingTotal > 0) {
+      doc.setTextColor(234, 179, 8);
+      doc.text(`Pending: Rs ${pendingTotal.toLocaleString()}`, 80, y);
+    }
+    doc.setTextColor(0, 0, 0);
   } else {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'italic');
