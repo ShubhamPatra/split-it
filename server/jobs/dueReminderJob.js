@@ -56,10 +56,11 @@ export const calculateUserDues = async (userId) => {
   }).lean();
 
   // Build a map of net balances per group
+  // Use the same logic as frontend getGroupBalances - use pre-computed splitConfig.shares
   const groupBalances = {};
   const groupReceivables = {};
 
-  // Process expenses
+  // Process expenses - use splitConfig.shares directly like frontend
   for (const expense of expenses) {
     const groupId = expense.groupId._id.toString();
     const groupName = expense.groupId.name;
@@ -73,56 +74,34 @@ export const calculateUserDues = async (userId) => {
       groupReceivables[groupId] = { groupName, owedBy: {} };
     }
 
-    const splitType = expense.splitConfig?.type || 'equal';
+    // Use pre-computed shares from splitConfig (consistent with frontend)
     const shares = expense.splitConfig?.shares || {};
-    const splitAmong = (expense.splitAmong || []).map(id => id.toString());
 
-    // If user paid, calculate what others owe them
+    // If user paid, calculate what others owe them (from their shares)
     if (paidById === userId.toString()) {
-      for (const memberId of splitAmong) {
+      for (const [memberId, memberShare] of Object.entries(shares)) {
         if (memberId === userId.toString()) continue;
+        if (memberShare <= 0) continue;
 
-        let memberShare = 0;
-        if (splitType === 'equal') {
-          memberShare = expense.amount / splitAmong.length;
-        } else if (splitType === 'exact' || splitType === 'itemized') {
-          memberShare = shares[memberId] || 0;
-        } else if (splitType === 'percentage') {
-          memberShare = (shares[memberId] || 0) / 100 * expense.amount;
+        const member = groups.find(g => g._id.toString() === groupId)?.members.find(m => m._id.toString() === memberId);
+        const memberName = member?.name || 'Unknown';
+
+        if (!groupReceivables[groupId].owedBy[memberId]) {
+          groupReceivables[groupId].owedBy[memberId] = { amount: 0, name: memberName };
         }
-
-        if (memberShare > 0) {
-          const member = groups.find(g => g._id.toString() === groupId)?.members.find(m => m._id.toString() === memberId);
-          const memberName = member?.name || 'Unknown';
-
-          if (!groupReceivables[groupId].owedBy[memberId]) {
-            groupReceivables[groupId].owedBy[memberId] = { amount: 0, name: memberName };
-          }
-          groupReceivables[groupId].owedBy[memberId].amount += memberShare;
-        }
+        groupReceivables[groupId].owedBy[memberId].amount += memberShare;
       }
       continue;
     }
 
-    // Calculate user's share (what they owe)
-    const isInSplit = splitAmong.includes(userId.toString()) || shares[userId.toString()] !== undefined;
-    if (!isInSplit) continue;
+    // Calculate user's share (what they owe) - use pre-computed share
+    const userShare = shares[userId.toString()] || 0;
+    if (userShare <= 0) continue;
 
-    let userShare = 0;
-    if (splitType === 'equal') {
-      userShare = expense.amount / splitAmong.length;
-    } else if (splitType === 'exact' || splitType === 'itemized') {
-      userShare = shares[userId.toString()] || 0;
-    } else if (splitType === 'percentage') {
-      userShare = (shares[userId.toString()] || 0) / 100 * expense.amount;
+    if (!groupBalances[groupId].owedTo[paidById]) {
+      groupBalances[groupId].owedTo[paidById] = { amount: 0, name: paidByName };
     }
-
-    if (userShare > 0) {
-      if (!groupBalances[groupId].owedTo[paidById]) {
-        groupBalances[groupId].owedTo[paidById] = { amount: 0, name: paidByName };
-      }
-      groupBalances[groupId].owedTo[paidById].amount += userShare;
-    }
+    groupBalances[groupId].owedTo[paidById].amount += userShare;
   }
 
   // Process settlements
