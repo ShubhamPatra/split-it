@@ -78,10 +78,10 @@ const SettlementSuggestions = ({ balances, settlements, profiles, onSettleClick 
               </div>
             </div>
           </div>
-          
+
           {/* Progress Bar */}
           <div className="mt-4 h-2 bg-muted rounded-full overflow-hidden">
-            <div 
+            <div
               className="h-full bg-gradient-to-r from-success to-primary transition-all duration-500"
               style={{ width: `${stats.settlementProgress}%` }}
             />
@@ -114,9 +114,9 @@ const SettlementSuggestions = ({ balances, settlements, profiles, onSettleClick 
             const toUserUpiId = getUserUpiId(settlement.to);
             const hasUpi = hasUpiId(settlement.to);
             const providerIcon = hasUpi ? getUpiProviderIcon(toUserUpiId) : null;
-            
+
             return (
-              <div 
+              <div
                 key={`${settlement.from}-${settlement.to}-${index}`}
                 className="glass-card p-3 sm:p-4 rounded-lg hover:shadow-md transition-all"
               >
@@ -138,7 +138,7 @@ const SettlementSuggestions = ({ balances, settlements, profiles, onSettleClick 
                       </span>
                     </div>
                   </div>
-                  
+
                   {/* Amount - shown separately on desktop */}
                   <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-lg flex-shrink-0">
                     <ArrowRight className="text-primary" size={16} />
@@ -146,7 +146,7 @@ const SettlementSuggestions = ({ balances, settlements, profiles, onSettleClick 
                       ₹{settlement.amount.toLocaleString()}
                     </span>
                   </div>
-                  
+
                   {/* To User & Settle Button */}
                   <div className="flex items-center justify-between w-full sm:w-auto sm:flex-1 gap-3">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -159,40 +159,39 @@ const SettlementSuggestions = ({ balances, settlements, profiles, onSettleClick 
                           {hasUpi && providerIcon && (
                             <Badge variant="ghost" className="text-xs flex-shrink-0">
                               {providerIcon}
-                          </Badge>
-                        )}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs sm:text-sm text-muted-foreground">Receives</p>
                       </div>
-                      <p className="text-xs sm:text-sm text-muted-foreground">Receives</p>
                     </div>
-                  </div>
-                  
-                  {/* Payment Method Selector */}
-                  <div className="flex gap-2 flex-shrink-0">
-                    {hasUpi && (
-                      <UpiPaymentButton
-                        amount={settlement.amount}
-                        receiverName={toUser}
-                        receiverUpiId={toUserUpiId}
-                        note={`Settlement - Split-It`}
-                        onPaymentInitiated={() => {
-                          onSettleClick(settlement.from, settlement.to, settlement.amount, 'upi');
-                        }}
-                        size="sm"
-                        variant="default"
-                      />
-                    )}
-                    {!hasUpi && (
-                      <Button
-                        onClick={() => onSettleClick(settlement.from, settlement.to, settlement.amount, 'cash')}
-                        size="sm"
-                        variant="default"
-                        className="min-h-[44px] h-auto"
-                      >
-                        <Wallet size={16} className="mr-1 sm:mr-2" />
-                        <span className="text-xs sm:text-sm">Settle</span>
-                      </Button>
-                    )}
-                  </div>
+
+                    <div className="flex gap-2 flex-shrink-0">
+                      {hasUpi && (
+                        <UpiPaymentButton
+                          amount={settlement.amount}
+                          receiverName={toUser}
+                          receiverUpiId={toUserUpiId}
+                          note={`Settlement - Split-It`}
+                          onPaymentInitiated={() => {
+                            onSettleClick(settlement, 'upi');
+                          }}
+                          size="sm"
+                          variant="default"
+                        />
+                      )}
+                      {!hasUpi && (
+                        <Button
+                          onClick={() => onSettleClick(settlement, 'cash')}
+                          size="sm"
+                          variant="default"
+                          className="min-h-[44px] h-auto"
+                        >
+                          <Wallet size={16} className="mr-1 sm:mr-2" />
+                          <span className="text-xs sm:text-sm">Settle</span>
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
                 {hasUpi && toUserUpiId && (
@@ -205,7 +204,7 @@ const SettlementSuggestions = ({ balances, settlements, profiles, onSettleClick 
               </div>
             );
           })}
-          
+
           <div className="mt-4 p-3 bg-info/10 rounded-lg border border-info/20">
             <div className="flex items-start gap-2">
               <AlertCircle className="text-info mt-0.5" size={16} />
@@ -213,7 +212,7 @@ const SettlementSuggestions = ({ balances, settlements, profiles, onSettleClick 
                 <p className="font-medium text-foreground mb-1">Smart Optimization Applied</p>
                 <p>
                   This plan minimizes the number of transactions needed to settle all debts in the group.
-                  {stats.optimalTransactionCount < Object.keys(balances).length - 1 && 
+                  {stats.optimalTransactionCount < Object.keys(balances).length - 1 &&
                     ` Saved ${Object.keys(balances).length - 1 - stats.optimalTransactionCount} extra transaction${Object.keys(balances).length - 1 - stats.optimalTransactionCount !== 1 ? 's' : ''}!`
                   }
                 </p>

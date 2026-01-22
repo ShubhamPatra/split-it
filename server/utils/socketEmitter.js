@@ -27,7 +27,7 @@ export const emitNotificationDeleted = (io, userId, notificationId) => {
 export const emitAnalyticsUpdate = (io, groupId, analyticsData) => {
   const { action, ...data } = analyticsData;
   const eventData = { groupId, ...data };
-  
+
   switch (action) {
     case 'expenseAdded':
       io.to(`group:${groupId}`).emit('analytics:expenseAdded', eventData);
@@ -77,24 +77,44 @@ export const emitBalanceUpdate = (io, groupId, balances) => {
 export const forceLeaveGroupRoom = async (io, userId, groupId) => {
   // Import presence cleanup functions from socket.js
   const { removeUserPresence, removeUserTyping } = await import('../config/socket.js');
-  
+
   // Clean up presence state before leaving room (async for Redis support)
   await removeUserPresence(groupId, userId);
   await removeUserTyping(groupId, userId);
-  
+
   // Emit offline event to group so other members see the user go offline
   io.to(`group:${groupId}`).emit('chat:userOffline', { userId, groupId });
-  
+
   // Also emit typing stopped in case they were typing
   io.to(`group:${groupId}`).emit('chat:typing', {
     userId,
     isTyping: false,
     groupId,
   });
-  
+
   // Force all user's sockets to leave the group room
   const sockets = await io.in(`user:${userId}`).fetchSockets();
   for (const socket of sockets) {
     socket.leave(`group:${groupId}`);
   }
 };
+
+// Emit cross-group settlement to multiple group rooms
+export const emitCrossGroupSettlement = (io, groupIds, settlement) => {
+  for (const groupId of groupIds) {
+    io.to(`group:${groupId}`).emit('settlement:crossGroup:created', settlement);
+  }
+};
+
+// Emit people balance update to a specific user
+export const emitPeopleBalanceUpdate = (io, userId, balances) => {
+  io.to(`user:${userId}`).emit('people:balance:update', balances);
+};
+
+// Emit settlement confirmation for cross-group settlements
+export const emitCrossGroupSettlementConfirmed = (io, groupIds, settlement) => {
+  for (const groupId of groupIds) {
+    io.to(`group:${groupId}`).emit('settlement:crossGroup:confirmed', settlement);
+  }
+};
+

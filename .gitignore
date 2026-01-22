@@ -25,7 +25,9 @@
 server/.env
 
 # IDE / Editor
+.vscode/
 .vs/
+.kiro
 .idea/
 *.swp
 *.swo

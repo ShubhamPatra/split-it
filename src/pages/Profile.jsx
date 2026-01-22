@@ -107,7 +107,7 @@ const Profile = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
+      <main className="container-responsive py-6 sm:py-8 pb-safe md:pb-8">
         {/* Desktop Layout */}
         <div className="lg:grid lg:grid-cols-12 lg:gap-8">
           {/* Main Content */}
@@ -215,6 +215,7 @@ const Profile = () => {
                   <Label htmlFor="upiId" className="font-medium">UPI ID</Label>
                   <Input
                     id="upiId"
+                    inputMode="email"
                     value={upiId}
                     onChange={(e) => {
                       setUpiId(e.target.value);

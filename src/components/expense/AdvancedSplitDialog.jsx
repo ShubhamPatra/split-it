@@ -262,7 +262,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
           </DialogDescription>
         </DialogHeader>
         <Tabs value={splitType} onValueChange={handleSplitTypeChange} className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid grid-cols-4 w-full h-12">
+          <TabsList className="grid grid-cols-2 xs:grid-cols-4 w-full h-12">
             <TabsTrigger value="equal" className="gap-1 text-xs sm:text-sm">
               <Users size={14} />
               <span className="hidden sm:inline">Equal</span>
@@ -336,7 +336,8 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                       <span className="text-xs sm:text-sm text-muted-foreground hidden sm:inline">₹{amount.toFixed(2)}</span>
                       <div className="flex items-center gap-1">
                         <Input 
-                          type="number" 
+                          type="number"
+                          inputMode="decimal"
                           value={shares[memberId] || ''} 
                           onChange={(e) => handleShareChange(memberId, e.target.value)} 
                           className="w-16 sm:w-20 min-h-[44px] text-sm" 
@@ -399,6 +400,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                       <label className="text-xs text-muted-foreground">Price (₹)</label>
                       <Input
                         type="number"
+                        inputMode="decimal"
                         min="0"
                         step="0.01"
                         value={item.unitPrice || ''}

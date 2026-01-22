@@ -10,19 +10,15 @@ const BalanceCard = memo(({ memberId, balance }) => {
   const userName = getUserProfile(memberId)?.name || 'User';
 
   return (
-    <div className={`relative rounded p-4 animate-fade-in w-full border transition-colors duration-200
-      ${isPositive ? 'bg-success/5 border-success/20 hover:border-success/40' : ''}
-      ${isNegative ? 'bg-destructive/5 border-destructive/20 hover:border-destructive/40' : ''}
+    <div className={`relative rounded p-4 animate-fade-in w-full border transition-colors duration-150
+      ${isPositive ? 'bg-card border-l-4 border-l-success' : ''}
+      ${isNegative ? 'bg-card border-l-4 border-l-destructive' : ''}
       ${isSettled ? 'bg-card border-border' : ''}
     `}>
 
       <div className="relative flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded flex items-center justify-center text-sm sm:text-base font-semibold flex-shrink-0
-            ${isPositive ? 'bg-success/10 text-success' : ''}
-            ${isNegative ? 'bg-destructive/10 text-destructive' : ''}
-            ${isSettled ? 'bg-muted text-muted-foreground' : ''}
-          `}>
+          <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded flex items-center justify-center text-sm sm:text-base font-semibold flex-shrink-0 bg-muted text-foreground`}>
             {userName.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
@@ -40,15 +36,9 @@ const BalanceCard = memo(({ memberId, balance }) => {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          <div className={`p-1.5 rounded
-            ${isPositive ? 'bg-success/10' : ''}
-            ${isNegative ? 'bg-destructive/10' : ''}
-            ${isSettled ? 'bg-muted' : ''}
-          `}>
-            {isPositive && <TrendingUp className="text-success" size={18} />}
-            {isNegative && <TrendingDown className="text-destructive" size={18} />}
-            {isSettled && <Minus className="text-muted-foreground" size={18} />}
-          </div>
+          {isPositive && <TrendingUp className="text-success" size={18} />}
+          {isNegative && <TrendingDown className="text-destructive" size={18} />}
+          {isSettled && <Minus className="text-muted-foreground" size={18} />}
           <span className={`font-display font-bold text-2xl sm:text-3xl tracking-tight whitespace-nowrap
             ${isPositive ? 'text-success' : ''}
             ${isNegative ? 'text-destructive' : ''}

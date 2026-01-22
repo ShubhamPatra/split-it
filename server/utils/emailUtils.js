@@ -20,7 +20,7 @@ export async function checkEmailPreference(userId, preference) {
     if (!user || !user.emailPreferences) {
       // Default to true for most notifications if preferences not set
       const defaultEnabled = ['expenseAdded', 'settlementConfirmation', 'paymentReminders',
-        'recurringExpenseReminder', 'memberJoined', 'groupInvite', 'budgetAlerts', 'exportReports'];
+        'recurringExpenseReminder', 'memberJoined', 'groupInvite', 'budgetAlerts', 'exportReports', 'repaymentRequest'];
       return defaultEnabled.includes(preference);
     }
 
@@ -29,7 +29,7 @@ export async function checkEmailPreference(userId, preference) {
     const value = user.emailPreferences[preference];
     if (value === undefined) {
       const defaultEnabled = ['expenseAdded', 'settlementConfirmation', 'paymentReminders',
-        'recurringExpenseReminder', 'memberJoined', 'groupInvite', 'budgetAlerts', 'exportReports'];
+        'recurringExpenseReminder', 'memberJoined', 'groupInvite', 'budgetAlerts', 'exportReports', 'repaymentRequest'];
       return defaultEnabled.includes(preference);
     }
     return value === true;

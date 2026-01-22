@@ -164,7 +164,7 @@ const Groups = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
+      <main className="container-responsive py-6 sm:py-8 pb-safe md:pb-8">
         {/* Desktop Layout */}
         <div className={`lg:grid lg:gap-8 ${userGroups.length > 0 ? 'lg:grid-cols-12' : ''}`}>
           {/* Main Content */}
@@ -192,9 +192,7 @@ const Groups = () => {
                   <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                       <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-primary/10 border border-primary/20">
-                          <UserPlus className="text-primary" size={20} />
-                        </div>
+                        <UserPlus className="text-primary" size={20} />
                         <div>
                           <DialogTitle className="text-xl">Join a Group</DialogTitle>
                           <DialogDescription>
@@ -294,9 +292,7 @@ const Groups = () => {
                   <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                       <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-primary/10 border border-primary/20">
-                          <Users className="text-primary" size={20} />
-                        </div>
+                        <Users className="text-primary" size={20} />
                         <div>
                           <DialogTitle className="text-xl">Create New Group</DialogTitle>
                           <DialogDescription>
@@ -350,7 +346,7 @@ const Groups = () => {
                     placeholder="Search groups..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full h-11 pl-10 pr-4 rounded-xl border border-border/50 bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/20 outline-none transition-all text-sm"
+                    className="w-full h-11 pl-10 pr-4 rounded border border-border bg-card focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all text-sm"
                   />
                 </div>
                 <div className="hidden md:flex items-center gap-1 p-1 bg-muted/50 rounded-lg border border-border/50">
@@ -404,18 +400,16 @@ const Groups = () => {
                 </CardContent>
               </Card>
             ) : (
-              <Card className="border-border/50 animate-fade-in">
+              <Card className="border-border animate-fade-in">
                 <CardContent className="p-8 sm:p-12 text-center">
-                  <div className="w-16 h-16 rounded bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-4">
-                    <Users className="text-primary" size={28} />
-                  </div>
+                  <Users className="text-primary mx-auto mb-4" size={48} />
                   <h3 className="font-display font-semibold text-lg text-foreground mb-2">
                     No groups yet
                   </h3>
                   <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
                     Create your first group to start splitting expenses with friends and family
                   </p>
-                  <Button onClick={() => setIsDialogOpen(true)} className="min-h-[48px] h-auto shadow-lg shadow-primary/25">
+                  <Button onClick={() => setIsDialogOpen(true)} className="min-h-[44px] h-auto shadow-md">
                     <Plus size={18} />
                     Create Your First Group
                   </Button>
@@ -429,7 +423,7 @@ const Groups = () => {
             <aside className="hidden lg:block lg:col-span-4 xl:col-span-3">
               <div className="sticky top-24 space-y-6">
                 {/* Stats Card */}
-                <Card className="border-border/50 shadow-sm animate-fade-in bg-muted/30" style={{ animationDelay: '0.3s' }}>
+                <Card className="border-border shadow-sm animate-fade-in bg-card" style={{ animationDelay: '0.3s' }}>
                   <CardContent className="p-5">
                     <h3 className="font-semibold text-sm flex items-center gap-2 mb-4">
                       <TrendingUp size={14} className="text-primary" />

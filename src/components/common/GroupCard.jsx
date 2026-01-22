@@ -46,8 +46,8 @@ const GroupCard = React.memo(({ group }) => {
   return (
     <div
       onClick={handleCardClick}
-      className="relative overflow-hidden bg-card rounded p-5 border border-border shadow-sm cursor-pointer group/card animate-fade-in w-full
-        hover:shadow-md hover:border-primary/30 transition-all duration-200"
+      className="relative overflow-hidden bg-card rounded p-4 border border-border shadow-sm cursor-pointer group/card animate-fade-in w-full
+        hover:border-primary/20 transition-colors duration-150"
     >
       <div className="relative z-10">
         <div className="flex items-start justify-between mb-4 gap-2">
@@ -92,16 +92,14 @@ const GroupCard = React.memo(({ group }) => {
           </div>
         </div>
         <div className="flex items-center gap-2 mb-4">
-          <div className="p-2 rounded bg-primary/10">
-            <Users size={16} className="text-primary flex-shrink-0" />
-          </div>
+          <Users size={16} className="text-primary flex-shrink-0" />
           <span className="text-xs sm:text-sm text-muted-foreground">{group.members.length} members</span>
         </div>
-        <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-4">
           {group.members.slice(0, 3).map(memberId => {
             const profile = getUserProfile(memberId);
             const displayName = profile?.name?.split(' ')[0] || 'User';
-            return <span key={memberId} className="px-3 py-1 bg-primary/10 text-foreground border border-primary/20 rounded text-xs font-medium">{displayName}</span>;
+            return <span key={memberId} className="px-3 py-1 bg-muted text-foreground border border-border rounded text-xs font-medium">{displayName}</span>;
           })}
           {group.members.length > 3 && <span className="px-3 py-1 bg-muted text-muted-foreground rounded text-xs font-medium">+{group.members.length - 3} more</span>}
         </div>

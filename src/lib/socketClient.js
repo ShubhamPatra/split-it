@@ -96,7 +96,7 @@ const analyticsListeners = new Map();
  * @returns {Function} Unsubscribe function
  */
 export const subscribeToAnalytics = (groupId, callback) => {
-  if (!socket || !groupId || typeof callback !== 'function') return () => {};
+  if (!socket || !groupId || typeof callback !== 'function') return () => { };
 
   // Create unique listener key
   const listenerKey = `${groupId}_${Date.now()}`;
@@ -153,7 +153,7 @@ export const subscribeToAnalytics = (groupId, callback) => {
  * @returns {Function} Unsubscribe function
  */
 export const subscribeToExpenseEvents = (groupId, callback) => {
-  if (!socket || !groupId || typeof callback !== 'function') return () => {};
+  if (!socket || !groupId || typeof callback !== 'function') return () => { };
 
   const listenerKey = `expense_${groupId}_${Date.now()}`;
 
@@ -193,3 +193,101 @@ export const subscribeToExpenseEvents = (groupId, callback) => {
     }
   };
 };
+
+/**
+ * Subscribe to people balance updates (for cross-group settlements)
+ * @param {Function} callback - Callback function that receives balance data
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeToPeopleBalances = (callback) => {
+  if (!socket || typeof callback !== 'function') return () => { };
+
+  const handler = (data) => {
+    callback(data);
+  };
+
+  socket.on('people:balance:update', handler);
+
+  return () => {
+    socket?.off('people:balance:update', handler);
+  };
+};
+
+/**
+ * Subscribe to cross-group settlement events
+ * @param {Function} callback - Callback function that receives settlement data
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeToCrossGroupSettlements = (callback) => {
+  if (!socket || typeof callback !== 'function') return () => { };
+
+  const handlers = {
+    'settlement:crossGroup:created': (data) => {
+      callback({ type: 'created', ...data });
+    },
+    'settlement:crossGroup:confirmed': (data) => {
+      callback({ type: 'confirmed', ...data });
+    },
+  };
+
+  Object.entries(handlers).forEach(([event, handler]) => {
+    socket.on(event, handler);
+  });
+
+  return () => {
+    Object.entries(handlers).forEach(([event, handler]) => {
+      socket?.off(event, handler);
+    });
+  };
+};
+
+/**
+ * Subscribe to settlement events in a group
+ * @param {string} groupId - The group ID to subscribe to
+ * @param {Function} callback - Callback function that receives settlement event data
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeToSettlementEvents = (groupId, callback) => {
+  if (!socket || !groupId || typeof callback !== 'function') return () => { };
+
+  const listenerKey = `settlement_${groupId}_${Date.now()}`;
+
+  const handlers = {
+    'settlement:created': (settlement) => {
+      if (settlement.groupId === groupId || settlement.groupId?._id === groupId) {
+        callback({ type: 'created', settlement });
+      }
+    },
+    'settlement:updated': (settlement) => {
+      if (settlement.groupId === groupId || settlement.groupId?._id === groupId) {
+        callback({ type: 'updated', settlement });
+      }
+    },
+    'settlement:deleted': (data) => {
+      callback({ type: 'deleted', settlementId: data.settlementId });
+    },
+    'settlement:crossGroup:created': (data) => {
+      // Check if this group is affected
+      if (data.settlements?.some(s => s.groupId?._id === groupId || s.groupId === groupId)) {
+        callback({ type: 'crossGroupCreated', ...data });
+      }
+    },
+  };
+
+  Object.entries(handlers).forEach(([event, handler]) => {
+    socket.on(event, handler);
+  });
+
+  analyticsListeners.set(listenerKey, handlers);
+
+  return () => {
+    const storedHandlers = analyticsListeners.get(listenerKey);
+    if (storedHandlers) {
+      Object.entries(storedHandlers).forEach(([event, handler]) => {
+        socket?.off(event, handler);
+      });
+      analyticsListeners.delete(listenerKey);
+    }
+  };
+};
+

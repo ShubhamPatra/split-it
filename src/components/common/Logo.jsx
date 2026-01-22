@@ -16,9 +16,7 @@ const Logo = ({ size = 'md' }) => {
 
   return (
     <div className="flex items-center gap-2">
-      <div className="p-2 rounded bg-primary text-primary-foreground">
-        <CreditCard size={iconSizes[size]} />
-      </div>
+      <CreditCard className="text-primary" size={iconSizes[size]} />
       <span className={`font-display font-bold text-foreground ${sizeClasses[size]}`}>
         Split-It
       </span>

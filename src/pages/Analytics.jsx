@@ -7,6 +7,7 @@ import { useCurrency } from '../context/CurrencyContext';
 import { getCategoryById } from '../data/categories';
 import Navbar from '../components/layout/Navbar';
 import CurrencySelector from '../components/common/CurrencySelector';
+import HorizontalScrollContainer from '../components/common/HorizontalScrollContainer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
@@ -116,7 +117,7 @@ const Analytics = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
+      <main className="container-responsive py-6 sm:py-8 pb-safe md:pb-8">
         {/* Desktop Layout */}
         <div className="lg:grid lg:grid-cols-12 lg:gap-8">
           {/* Main Content */}
@@ -153,7 +154,10 @@ const Analytics = () => {
 
             {/* Stats Cards - Horizontal scroll on mobile */}
             <div className="-mx-4 px-4 sm:mx-0 sm:px-0 mb-6 lg:mb-8">
-              <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-2 sm:pb-0 sm:grid sm:grid-cols-2 xl:grid-cols-4 snap-x snap-mandatory">
+              <HorizontalScrollContainer 
+                ariaLabel="Analytics summary cards"
+                className="sm:grid sm:grid-cols-2 xl:grid-cols-4"
+              >
                 <Card className="group animate-fade-in border-border/50 shadow-sm hover:shadow-lg hover:border-primary/30 transition-all duration-300 min-w-[200px] sm:min-w-0 snap-start" style={{ animationDelay: '0.1s' }}>
                   <CardContent className="p-4 sm:p-5">
                     <div className="flex items-center gap-3">
@@ -198,7 +202,7 @@ const Analytics = () => {
                     </div>
                   </CardContent>
                 </Card>
-              </div>
+              </HorizontalScrollContainer>
             </div>
 
             {/* Charts */}

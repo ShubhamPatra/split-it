@@ -50,7 +50,8 @@ const AddExpense = () => {
       const group = groups.find(g => g.id === groupId);
       if (group) {
         const shares = {};
-        group.members.forEach(m => { shares[m] = 0; });
+        // Set shares to 1 to indicate all members are selected by default
+        group.members.forEach(m => { shares[m] = 1; });
         return { type: 'equal', shares };
       }
     }
@@ -88,9 +89,9 @@ const AddExpense = () => {
     if (selectedGroup) {
       const group = groups.find(g => g.id === selectedGroup);
       if (group) {
-        const equalShare = parseFloat(amount) / group.members.length || 0;
         const shares = {};
-        group.members.forEach(m => { shares[m] = equalShare; });
+        // Set shares to 1 to indicate all members are selected by default
+        group.members.forEach(m => { shares[m] = 1; });
         setSplitConfig({ type: 'equal', shares });
       }
     }
@@ -254,10 +255,9 @@ const AddExpense = () => {
         }
 
         addNotification({
-          type: 'expense_added',
+          type: 'success',
           title: 'Expense Added',
           message: `₹${parseFloat(amount).toLocaleString()} for ${sanitizedDescription}${isRecurring ? ' (Recurring)' : ''}`,
-          groupId: selectedGroup,
         });
 
         toast({
@@ -402,7 +402,7 @@ const AddExpense = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
+      <main className="container-responsive py-6 sm:py-8 pb-safe md:pb-8">
         {/* Desktop Layout */}
         <div className={`${hasSidebarContent ? 'lg:grid lg:grid-cols-12 lg:gap-8' : 'max-w-2xl mx-auto'}`}>
           {/* Main Content */}
@@ -515,6 +515,7 @@ const AddExpense = () => {
                       <Input
                         id="amount"
                         type="number"
+                        inputMode="decimal"
                         placeholder="0.00"
                         value={amount}
                         onChange={(e) => {

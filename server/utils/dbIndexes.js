@@ -43,7 +43,7 @@ export const createIndexes = async () => {
     await safeCreateIndex(
       Expense.collection,
       { 'recurrence.enabled': 1, 'recurrence.nextRunAt': 1 },
-      { partialFilterExpression: { 'recurrence.enabled': true } }
+      { partialFilterExpression: { 'recurrence.enabled': true }, background: true }
     );
     // Index for budget calculations (amount aggregation by date)
     await safeCreateIndex(Expense.collection, { groupId: 1, date: 1, amount: 1 });
@@ -56,11 +56,11 @@ export const createIndexes = async () => {
     await safeCreateIndex(Settlement.collection, { toUserId: 1, settledAt: -1 });
     await safeCreateIndex(Settlement.collection, { groupId: 1, paymentStatus: 1, settledAt: -1 });
     await safeCreateIndex(Settlement.collection, { toUserId: 1, paymentStatus: 1, settledAt: -1 });
-    await safeCreateIndex(Settlement.collection, { transactionRef: 1 }, { sparse: true });
+    await safeCreateIndex(Settlement.collection, { transactionRef: 1 }, { sparse: true, background: true });
     
     // Notification indexes - optimized for unread queries and cleanup
     await safeCreateIndex(Notification.collection, { userId: 1, timestamp: -1 });
-    await safeCreateIndex(Notification.collection, { userId: 1, read: 1, timestamp: -1 });
+    await safeCreateIndex(Notification.collection, { userId: 1, read: 1, timestamp: -1 }, { background: true });
     await safeCreateIndex(
       Notification.collection,
       { userId: 1, read: 1 },

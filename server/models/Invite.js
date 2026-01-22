@@ -47,7 +47,6 @@ const inviteSchema = new mongoose.Schema({
   expiresAt: {
     type: Date,
     required: true,
-    index: true,
   },
   acceptedBy: {
     type: mongoose.Schema.Types.ObjectId,

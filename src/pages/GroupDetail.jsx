@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, Smartphone, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Wallet, AlertTriangle, Mail, Calendar } from 'lucide-react';
+import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Wallet, AlertTriangle, Mail } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useChat } from '../context/ChatContext';
@@ -22,6 +22,7 @@ import ExpenseAnalytics from '../components/common/ExpenseAnalytics';
 import UpiPaymentButton from '../components/common/UpiPaymentButton';
 import InviteModal from '../components/group/InviteModal';
 import ChatButton from '../components/group/ChatButton';
+import InGroupSettlementModal from '../components/settlements/InGroupSettlementModal';
 import ChatPanel from '../components/group/ChatPanel';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -36,13 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select';
+
 import { Switch } from '../components/ui/switch';
 import {
   DropdownMenu,
@@ -65,7 +60,6 @@ const GroupDetail = () => {
     getGroupBalances,
     getTotalExpenses,
     getGroupSettlements,
-    addSettlement,
     addMemberToGroup,
     removeMemberFromGroup,
     generateInviteCode,
@@ -93,11 +87,6 @@ const GroupDetail = () => {
   const initialTab = searchParams.get('tab') || 'expenses';
 
   const [isSettleDialogOpen, setIsSettleDialogOpen] = useState(false);
-  const [settlePaidBy, setSettlePaidBy] = useState('');
-  const [settlePaidTo, setSettlePaidTo] = useState('');
-  const [settleAmount, setSettleAmount] = useState('');
-  const [settleDate, setSettleDate] = useState(new Date().toISOString().split('T')[0]);
-  const [paymentMethod, setPaymentMethod] = useState('cash');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isMemberDialogOpen, setIsMemberDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -109,6 +98,8 @@ const GroupDetail = () => {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [initialDebt, setInitialDebt] = useState(null);
+  const [initialMethod, setInitialMethod] = useState(null);
 
   // Chat unread count
   const chatUnreadCount = getUnreadCount(id || '');
@@ -160,21 +151,7 @@ const GroupDetail = () => {
     }
   }, [group?.inviteCode]);
 
-  useEffect(() => {
-    if (user?.id) {
-      setSettlePaidBy(user.id);
-    }
-  }, [user]);
 
-  // Auto-switch to cash if UPI is selected but receiver doesn't have UPI ID
-  useEffect(() => {
-    if (paymentMethod === 'upi' && settlePaidTo) {
-      const receiver = getUserProfile(settlePaidTo);
-      if (!receiver?.upiId) {
-        setPaymentMethod('cash');
-      }
-    }
-  }, [settlePaidTo, paymentMethod, getUserProfile]);
 
   // Load budget settings (Comment 4)
   useEffect(() => {
@@ -209,10 +186,7 @@ const GroupDetail = () => {
     return allDebts.filter(s => s.from === user.id);
   }, [allDebts, user?.id]);
 
-  // Get debts for a specific payer (used in admin mode)
-  const getDebtsForPayer = (payerId) => {
-    return allDebts.filter(s => s.from === payerId);
-  };
+
 
   if (!isAuthenticated) return null;
 
@@ -244,7 +218,7 @@ const GroupDetail = () => {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
-        <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8 text-center">
+        <main className="container-responsive py-6 sm:py-8 pb-safe md:pb-8 text-center">
           <Card className="border-border/50 shadow-sm max-w-md mx-auto">
             <CardContent className="p-8">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-muted/80 to-muted/40 flex items-center justify-center mx-auto mb-4">
@@ -260,66 +234,14 @@ const GroupDetail = () => {
     );
   }
 
-  const handleSettle = () => {
-    const payerId = (isAdmin(user?.id || '') || isCreator(user?.id || '')) ? settlePaidBy : user?.id;
-
-    if (!payerId) {
-      toast({ title: "Select payer", description: "Please select who made the payment.", variant: "destructive" });
-      return;
-    }
-    if (!settlePaidTo) {
-      toast({ title: "Select recipient", description: "Please select who received the payment.", variant: "destructive" });
-      return;
-    }
-    if (payerId === settlePaidTo) {
-      toast({ title: "Invalid selection", description: "Payer and receiver cannot be the same person.", variant: "destructive" });
-      return;
-    }
-    if (!settleAmount || parseFloat(settleAmount) <= 0) {
-      toast({ title: "Invalid amount", description: "Please enter a valid amount greater than 0.", variant: "destructive" });
-      return;
-    }
-
-    addSettlement({
-      groupId: group.id,
-      fromUserId: payerId,
-      toUserId: settlePaidTo,
-      amount: parseFloat(settleAmount),
-      currency: 'INR',
-      settledAt: settleDate,
-      paymentMethod: paymentMethod,
-    });
-
-    const payerName = payerId === user?.id ? 'Your' : `${getUserProfile(payerId)?.name}'s`;
-    toast({ title: "Settlement recorded!", description: `${payerName} ₹${parseFloat(settleAmount).toLocaleString()} settlement has been recorded.` });
-
-    // If UPI payment and current user is the payer, offer to pay now
-    if (paymentMethod === 'upi' && payerId === user?.id) {
-      const receiver = getUserProfile(settlePaidTo);
-      if (receiver?.upiId) {
-        setPendingPayment({
-          amount: parseFloat(settleAmount),
-          receiverName: receiver.name,
-          receiverUpiId: receiver.upiId,
-          note: `Settlement payment to ${receiver.name}`,
-        });
-        setShowPaymentPrompt(true);
-      }
-    }
-
-    setSettleAmount('');
-    setSettlePaidBy('');
-    setSettlePaidTo('');
-    setPaymentMethod('cash');
-    setIsSettleDialogOpen(false);
-  };
-
-  const suggestAmount = (receiverId) => {
-    if (!receiverId) return;
-    // Find the debt amount for this receiver
-    const debt = userDebts.find(d => d.to === receiverId);
-    if (debt) {
-      setSettleAmount(debt.amount.toFixed(2));
+  // Handle settlement created callback from modal
+  const handleSettlementCreated = async () => {
+    // Reload expenses to recalculate balances
+    // Settlement updates are already handled by RecordSettlementModal via addSettlementLocally()
+    // This ensures balances update correctly without clearing the expense list
+    if (id) {
+      // Force reload expenses to recalculate balances
+      await loadGroupExpenses(id, true);
     }
   };
 
@@ -452,7 +374,7 @@ const GroupDetail = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
+      <main className="container-responsive py-6 sm:py-8 pb-safe md:pb-8">
         <button onClick={() => navigate('/groups')} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 sm:mb-6 transition-colors min-h-[44px] min-w-[44px] group">
           <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
           <span className="text-sm sm:text-base">Back to Groups</span>
@@ -681,10 +603,9 @@ const GroupDetail = () => {
                   acc[memberId] = { name: getUserProfile(memberId)?.name || 'User' };
                   return acc;
                 }, {})}
-                onSettleClick={(fromId, toId, amount) => {
-                  setSettlePaidBy(fromId);
-                  setSettlePaidTo(toId);
-                  setSettleAmount(amount.toString());
+                onSettleClick={(settlement, method) => {
+                  setInitialDebt(settlement);
+                  setInitialMethod(method);
                   setIsSettleDialogOpen(true);
                 }}
               />
@@ -743,167 +664,28 @@ const GroupDetail = () => {
         />
       </main>
 
-      <Dialog open={isSettleDialogOpen} onOpenChange={setIsSettleDialogOpen}>
-        <DialogContent className="w-[calc(100%-2rem)] sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base sm:text-lg">Record Settlement</DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm">Record a payment you made to settle up</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 sm:space-y-6 py-4">
-            {/* Admin/Creator mode - can record for anyone */}
-            {(isAdmin(user?.id || '') || isCreator(user?.id || '')) ? (
-              <>
-                {allDebts.length === 0 ? (
-                  <div className="text-center py-6">
-                    <CheckCircle className="mx-auto text-success mb-3" size={48} />
-                    <p className="text-lg font-medium text-foreground">All settled up!</p>
-                    <p className="text-sm text-muted-foreground">No pending settlements in this group.</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <Label className="text-sm sm:text-base">Who paid?</Label>
-                      <Select value={settlePaidBy} onValueChange={(val) => { setSettlePaidBy(val); setSettlePaidTo(''); setSettleAmount(''); }}>
-                        <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select payer" /></SelectTrigger>
-                        <SelectContent>
-                          {[...new Set(allDebts.map(d => d.from))].map(memberId => (
-                            <SelectItem key={memberId} value={memberId}>
-                              {getUserProfile(memberId)?.name || 'Unknown'}{memberId === user?.id && ' (You)'}
-                              <span className="text-destructive ml-2">(owes ₹{Math.abs(balances[memberId] || 0).toFixed(0)})</span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {settlePaidBy && (
-                      <div className="space-y-2">
-                        <Label className="text-sm sm:text-base">Paid to</Label>
-                        <Select value={settlePaidTo} onValueChange={(val) => { setSettlePaidTo(val); const debt = getDebtsForPayer(settlePaidBy).find(d => d.to === val); if (debt) setSettleAmount(debt.amount.toFixed(2)); }}>
-                          <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select receiver" /></SelectTrigger>
-                          <SelectContent>
-                            {getDebtsForPayer(settlePaidBy).map(debt => (
-                              <SelectItem key={debt.to} value={debt.to}>
-                                {getUserProfile(debt.to)?.name || 'Unknown'}
-                                <span className="text-success ml-2">(owed ₹{debt.amount.toFixed(0)})</span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                    {settlePaidBy && settlePaidTo && (
-                      <>
-                        <div className="space-y-2">
-                          <Label htmlFor="settleAmount" className="text-sm sm:text-base">Amount</Label>
-                          <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" className="min-h-[44px]" />
-                          <p className="text-xs text-muted-foreground">
-                            <span className="font-medium">Note:</span> {getUserProfile(settlePaidBy)?.name} owes ₹{getDebtsForPayer(settlePaidBy).find(d => d.to === settlePaidTo)?.amount.toFixed(2) || 0} to {getUserProfile(settlePaidTo)?.name}
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-sm sm:text-base">Payment Method</Label>
-                          <div className="flex gap-2">
-                            <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>Paid</Button>
-                            <Button
-                              type="button"
-                              variant={paymentMethod === 'upi' ? 'default' : 'outline'}
-                              className="flex-1 min-h-[44px] h-auto text-sm"
-                              onClick={() => setPaymentMethod('upi')}
-                              disabled={!getUserProfile(settlePaidTo)?.upiId}
-                              title={!getUserProfile(settlePaidTo)?.upiId ? 'Receiver has not set up UPI ID' : 'Pay via UPI'}
-                            >
-                              <Smartphone size={16} className="mr-1" />UPI
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="settleDate" className="text-sm sm:text-base">Date</Label>
-                          <div className="relative">
-                            <Input id="settleDate" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} className="pr-10 min-h-[44px] cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer" />
-                            <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={18} />
-                          </div>
-                        </div>
-                        <Button onClick={handleSettle} className="w-full min-h-[44px] h-auto"><CheckCircle size={18} />Record Settlement</Button>
-                      </>
-                    )}
-                  </>
-                )}
-              </>
-            ) : (
-              /* Regular member mode - can only record their own payments */
-              userDebts.length === 0 ? (
-                <div className="text-center py-6">
-                  <CheckCircle className="mx-auto text-success mb-3" size={48} />
-                  <p className="text-lg font-medium text-foreground">You're all settled up!</p>
-                  <p className="text-sm text-muted-foreground">You don't owe anyone in this group.</p>
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <Label className="text-sm sm:text-base">You are paying</Label>
-                    <div className="p-3 bg-muted/50 rounded-lg border border-border/50">
-                      <span className="font-medium">{getUserProfile(user?.id)?.name || 'You'}</span>
-                      <span className="text-destructive ml-2">(owes ₹{Math.abs(balances[user?.id] || 0).toFixed(0)})</span>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-sm sm:text-base">Pay to</Label>
-                    <Select value={settlePaidTo} onValueChange={(val) => { setSettlePaidTo(val); suggestAmount(val); }}>
-                      <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select who to pay" /></SelectTrigger>
-                      <SelectContent>
-                        {userDebts.map(debt => (
-                          <SelectItem key={debt.to} value={debt.to}>
-                            {getUserProfile(debt.to)?.name || 'Unknown'}
-                            <span className="text-success ml-2">(you owe ₹{debt.amount.toFixed(0)})</span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="settleAmount" className="text-sm sm:text-base">Amount</Label>
-                    <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" className="min-h-[44px]" />
-                    {settlePaidTo && (
-                      <p className="text-xs text-muted-foreground">
-                        <span className="font-medium">Note:</span> You owe ₹{userDebts.find(d => d.to === settlePaidTo)?.amount.toFixed(2) || 0} to {getUserProfile(settlePaidTo)?.name}
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-sm sm:text-base">Payment Method</Label>
-                    <div className="flex gap-2">
-                      <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>Paid</Button>
-                      <Button
-                        type="button"
-                        variant={paymentMethod === 'upi' ? 'default' : 'outline'}
-                        className="flex-1 min-h-[44px] h-auto text-sm"
-                        onClick={() => setPaymentMethod('upi')}
-                        disabled={!settlePaidTo || !getUserProfile(settlePaidTo)?.upiId}
-                        title={!settlePaidTo ? 'Select receiver first' : !getUserProfile(settlePaidTo)?.upiId ? 'Receiver has not set up UPI ID' : 'Pay via UPI'}
-                      >
-                        <Smartphone size={16} className="mr-1" />UPI
-                      </Button>
-                    </div>
-                    {settlePaidTo && !getUserProfile(settlePaidTo)?.upiId && (
-                      <p className="text-xs text-muted-foreground">
-                        <span className="font-medium">Note:</span> UPI payment unavailable - {getUserProfile(settlePaidTo)?.name} hasn't added their UPI ID yet
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="settleDate" className="text-sm sm:text-base">Date</Label>
-                    <div className="relative">
-                      <Input id="settleDate" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} className="pr-10 min-h-[44px] cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer" />
-                      <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={18} />
-                    </div>
-                  </div>
-                  <Button onClick={handleSettle} className="w-full min-h-[44px] h-auto"><CheckCircle size={18} />Record Settlement</Button>
-                </>
-              )
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* New Multi-Step Settlement Modal */}
+      <InGroupSettlementModal
+        isOpen={isSettleDialogOpen}
+        onClose={() => {
+          setIsSettleDialogOpen(false);
+          setInitialDebt(null);
+          setInitialMethod(null);
+        }}
+        userDebts={userDebts}
+        allDebts={allDebts}
+        getUserProfile={getUserProfile}
+        isAdmin={isAdmin(user?.id || '') || isCreator(user?.id || '')}
+        currentUserId={user?.id}
+        groupId={group.id}
+        onSettlementCreated={handleSettlementCreated}
+        onUpiPayNow={(paymentDetails) => {
+          setPendingPayment(paymentDetails);
+          setShowPaymentPrompt(true);
+        }}
+        initialDebt={initialDebt}
+        initialMethod={initialMethod}
+      />
 
       <Dialog open={isMemberDialogOpen} onOpenChange={setIsMemberDialogOpen}>
         <DialogContent className="w-[calc(100%-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
