@@ -269,15 +269,33 @@ export const calculateGroupBalances = async (groupId, forceRefresh = false) => {
     const debounceKey = `debounce:${groupId}`;
     const now = Date.now();
 
-    // Check debounce (unless force refresh)
-    if (!forceRefresh) {
+    // If force refresh, skip all caching and debouncing
+    if (forceRefresh) {
+        const result = await calculateGroupBalancesOptimized(groupId);
+        
+        // Cache the result
+        balanceCache.set(cacheKey, {
+            data: result,
+            expiry: now + CACHE_TTL,
+        });
+        
+        // Reset debounce timer
+        debounceMap.set(debounceKey, now + DEBOUNCE_TTL);
+        
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Balance] Force calculated for group ${groupId}`);
+        }
+        
+        return result;
+    }
+
+    // Check cache first (before debounce check)
+    const cached = balanceCache.get(cacheKey);
+    if (cached && cached.expiry > now) {
+        // Check if we're within debounce window - if so, return cached
         const debounceExpiry = debounceMap.get(debounceKey);
         if (debounceExpiry && debounceExpiry > now) {
-            // Return cached result if available
-            const cached = balanceCache.get(cacheKey);
-            if (cached && cached.expiry > now) {
-                return cached.data;
-            }
+            return cached.data;
         }
     }
 

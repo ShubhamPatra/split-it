@@ -6,21 +6,30 @@
 /**
  * Calculate optimal settlements using greedy algorithm
  * This minimizes the number of transactions needed
+ * 
+ * Zero-Balance Filtering (Task 4.2, Requirement 2.4):
+ * Users with balance === 0 or near-zero (< 0.01) are automatically excluded
+ * from settlement suggestions. This ensures that users who don't owe or aren't
+ * owed money don't appear in settlement suggestions.
+ * 
  * @param {Object} balances - Object with userId: balance (negative = owes, positive = owed)
  * @returns {Array} Array of optimal settlement transactions
  */
 export const calculateOptimalSettlements = (balances) => {
   // Filter out zero balances and create arrays of debtors and creditors
+  // Task 4.2: Users with balance === 0 are excluded from settlement suggestions (Requirement 2.4)
   const debtors = []; // People who owe money (negative balance)
   const creditors = []; // People who are owed money (positive balance)
   
   Object.entries(balances).forEach(([userId, balance]) => {
     const roundedBalance = Math.round(balance * 100) / 100; // Round to 2 decimals
+    // Only include users with significant balances (> 0.01 to handle floating-point precision)
     if (roundedBalance < -0.01) {
       debtors.push({ userId, amount: Math.abs(roundedBalance) });
     } else if (roundedBalance > 0.01) {
       creditors.push({ userId, amount: roundedBalance });
     }
+    // Users with |balance| < 0.01 are treated as zero and excluded (Requirement 2.4)
   });
 
   // Sort by amount (largest first) for greedy optimization
@@ -62,6 +71,11 @@ export const calculateOptimalSettlements = (balances) => {
 
 /**
  * Calculate all possible direct settlements (useful for showing all options)
+ * 
+ * Zero-Balance Filtering (Task 4.2, Requirement 2.4):
+ * Only creates settlements between users with significant balances (> 0.01).
+ * Users with zero or near-zero balances are excluded.
+ * 
  * @param {Object} balances - Object with userId: balance
  * @returns {Array} Array of all possible settlements
  */
@@ -79,6 +93,7 @@ export const calculateAllPossibleSettlements = (balances) => {
       // Determine who owes whom
       if (balance1 < 0 && balance2 > 0) {
         const amount = Math.min(Math.abs(balance1), balance2);
+        // Only create settlement if amount is significant (> 0.01) - Requirement 2.4
         if (amount > 0.01) {
           settlements.push({
             from: user1,
@@ -89,6 +104,7 @@ export const calculateAllPossibleSettlements = (balances) => {
         }
       } else if (balance2 < 0 && balance1 > 0) {
         const amount = Math.min(Math.abs(balance2), balance1);
+        // Only create settlement if amount is significant (> 0.01) - Requirement 2.4
         if (amount > 0.01) {
           settlements.push({
             from: user2,

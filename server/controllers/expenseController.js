@@ -374,10 +374,10 @@ export const createExpense = async (req, res) => {
           totalExpenses: await Expense.countDocuments({ groupId }),
         });
 
-        // Emit balance update
+        // Emit balance update with force refresh to ensure fresh calculation
         try {
           const { calculateGroupBalances } = await import('../jobs/balanceService.js');
-          const result = await calculateGroupBalances(groupId);
+          const result = await calculateGroupBalances(groupId, true);
           emitBalanceUpdate(io, groupId, result.balances);
         } catch (balanceError) {
           console.error('Error emitting balance update for expense creation:', balanceError);
@@ -535,10 +535,10 @@ export const updateExpense = async (req, res) => {
           category: updatedExpense.category,
         });
 
-        // Emit balance update
+        // Emit balance update with force refresh to ensure fresh calculation
         try {
           const { calculateGroupBalances } = await import('../jobs/balanceService.js');
-          const result = await calculateGroupBalances(expense.groupId._id.toString());
+          const result = await calculateGroupBalances(expense.groupId._id.toString(), true);
           emitBalanceUpdate(io, expense.groupId._id.toString(), result.balances);
         } catch (balanceError) {
           console.error('Error emitting balance update for expense update:', balanceError);
@@ -601,10 +601,10 @@ export const deleteExpense = async (req, res) => {
           expenseId: req.params.id,
         });
 
-        // Emit balance update
+        // Emit balance update with force refresh to ensure fresh calculation
         try {
           const { calculateGroupBalances } = await import('../jobs/balanceService.js');
-          const result = await calculateGroupBalances(groupId.toString());
+          const result = await calculateGroupBalances(groupId.toString(), true);
           emitBalanceUpdate(io, groupId.toString(), result.balances);
         } catch (balanceError) {
           console.error('Error emitting balance update for expense deletion:', balanceError);

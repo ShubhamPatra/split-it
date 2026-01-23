@@ -27,6 +27,8 @@ server/.env
 # IDE / Editor
 .vs/
 .idea/
+.vscode/
+.kiro/
 *.swp
 *.swo
 *~
@@ -46,7 +48,8 @@ yarn-error.log*
 /server/uploads
 /server/uploads/receipts/*
 !/server/uploads/receipts/.gitkeep
-
+diagrams/
+documentation/
 # Temporary files
 *.tmp
 *.temp

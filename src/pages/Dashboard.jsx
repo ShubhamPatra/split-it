@@ -87,44 +87,56 @@ const Dashboard = () => {
     const userId = user?.id;
     if (!userId) return { youAreOwed: 0, youOwe: 0, netBalance: 0, totalSettled: 0 };
 
-    let youAreOwed = 0;
-    let youOwe = 0;
+    let netBalance = 0;
 
-    // Calculate from expenses
+    // Calculate from expenses (same logic as backend)
     expenses.forEach(expense => {
       const shares = expense.splitConfig?.shares || {};
+      const splitType = expense.splitConfig?.type || 'equal';
+      const amount = expense.amount;
 
       if (expense.paidBy === userId) {
-        // User paid - others owe them their shares
-        Object.entries(shares).forEach(([memberId, amount]) => {
-          if (memberId !== userId) {
-            youAreOwed += amount;
-          }
-        });
-      } else {
-        // Someone else paid - user owes their share
+        // User paid - add the full amount they paid
+        netBalance += amount;
+      }
+
+      // Subtract what user owes (their share)
+      if (splitType === 'equal') {
+        const splitAmong = expense.splitAmong || [];
+        if (splitAmong.includes(userId)) {
+          const shareAmount = amount / splitAmong.length;
+          netBalance -= shareAmount;
+        }
+      } else if (splitType === 'exact' || splitType === 'itemized') {
         if (shares[userId]) {
-          youOwe += shares[userId];
+          netBalance -= shares[userId];
+        }
+      } else if (splitType === 'percentage') {
+        if (shares[userId]) {
+          netBalance -= (shares[userId] / 100) * amount;
         }
       }
     });
 
-    // Adjust for confirmed settlements only
+    // Adjust for confirmed settlements (same logic as backend)
     settlements
       .filter(settlement => settlement.paymentStatus === 'confirmed')
       .forEach(settlement => {
         if (settlement.fromUserId === userId) {
-          // User paid someone - reduces what they owe
-          youOwe -= settlement.amount;
+          // User paid someone - increases their balance
+          netBalance += settlement.amount;
         } else if (settlement.toUserId === userId) {
-          // Someone paid user - reduces what they're owed
-          youAreOwed -= settlement.amount;
+          // Someone paid user - decreases their balance
+          netBalance -= settlement.amount;
         }
       });
 
-    // Ensure no negative values after settlements
-    youAreOwed = Math.max(0, youAreOwed);
-    youOwe = Math.max(0, youOwe);
+    // Round to 2 decimal places
+    netBalance = Math.round(netBalance * 100) / 100;
+
+    // Calculate youAreOwed and youOwe from net balance
+    const youAreOwed = netBalance > 0 ? netBalance : 0;
+    const youOwe = netBalance < 0 ? Math.abs(netBalance) : 0;
 
     // Calculate total settled by user (only confirmed settlements)
     const totalSettled = settlements
@@ -134,7 +146,7 @@ const Dashboard = () => {
     return {
       youAreOwed,
       youOwe,
-      netBalance: youAreOwed - youOwe,
+      netBalance,
       totalSettled,
     };
   }, [expenses, settlements, user?.id]);

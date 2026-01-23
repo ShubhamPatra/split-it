@@ -16,16 +16,16 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
     const sharesKeys = Object.keys(currentSplit.shares);
     return sharesKeys.length > 0 ? sharesKeys : members;
   });
-  
+
   // Line items state for itemized splitting (Comment 5)
   const [lineItems, setLineItems] = useState([
     { id: 1, description: '', quantity: 1, unitPrice: 0, assignedTo: [] }
   ]);
 
   useEffect(() => {
-    if (open) { 
-      setSplitType(currentSplit.type); 
-      
+    if (open) {
+      setSplitType(currentSplit.type);
+
       // Convert shares to appropriate format based on split type
       let initialShares = currentSplit.shares;
       if (currentSplit.type === 'percentage') {
@@ -35,16 +35,16 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
         // Convert amounts to percentages for percentage view
         initialShares = Object.fromEntries(
           Object.entries(currentSplit.shares).map(([memberId, amount]) => [
-            memberId, 
+            memberId,
             totalAmount > 0 ? (amount / totalAmount) * 100 : 0
           ])
         );
       }
-      
-      setShares(initialShares); 
+
+      setShares(initialShares);
       // Select all members that exist in shares, or all members if shares is empty
       const sharesKeys = Object.keys(currentSplit.shares);
-      setSelectedMembers(sharesKeys.length > 0 ? sharesKeys : members); 
+      setSelectedMembers(sharesKeys.length > 0 ? sharesKeys : members);
     }
   }, [open, currentSplit, members, totalAmount]);
 
@@ -55,11 +55,11 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
   // Calculate itemized totals (Comment 5)
   const lineItemsTotal = lineItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
   const itemizedShares = calculateItemizedShares();
-  
+
   function calculateItemizedShares() {
     const shares = {};
     members.forEach(m => { shares[m] = 0; });
-    
+
     lineItems.forEach(item => {
       const itemTotal = item.quantity * item.unitPrice;
       if (item.assignedTo.length > 0) {
@@ -69,10 +69,10 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
         });
       }
     });
-    
+
     return shares;
   }
-  
+
   // Line item handlers (Comment 5)
   const addLineItem = () => {
     setLineItems(prev => [...prev, {
@@ -83,26 +83,26 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
       assignedTo: []
     }]);
   };
-  
+
   const removeLineItem = (id) => {
     if (lineItems.length > 1) {
       setLineItems(prev => prev.filter(item => item.id !== id));
     }
   };
-  
+
   const updateLineItem = (id, field, value) => {
-    setLineItems(prev => prev.map(item => 
+    setLineItems(prev => prev.map(item =>
       item.id === id ? { ...item, [field]: value } : item
     ));
   };
-  
+
   const toggleLineItemMember = (itemId, memberId) => {
     setLineItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
       const isAssigned = item.assignedTo.includes(memberId);
       return {
         ...item,
-        assignedTo: isAssigned 
+        assignedTo: isAssigned
           ? item.assignedTo.filter(m => m !== memberId)
           : [...item.assignedTo, memberId]
       };
@@ -110,90 +110,23 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
   };
 
   const handleMemberToggle = (memberId, checked) => setSelectedMembers(prev => checked ? [...prev, memberId] : prev.filter(m => m !== memberId));
-  
+
   const handleShareChange = (memberId, value) => {
     const newValue = parseFloat(value) || 0;
-    
-    if (splitType === 'percentage') {
-      // Auto-adjust other members' percentages
-      setShares(prev => {
-        const otherMembers = members.filter(m => m !== memberId);
-        const remaining = 100 - newValue;
-        
-        if (otherMembers.length === 0) {
-          return { ...prev, [memberId]: newValue };
-        }
-        
-        // Calculate total of other members' current percentages
-        const othersTotal = otherMembers.reduce((sum, m) => sum + (prev[m] || 0), 0);
-        
-        // Distribute remaining percentage proportionally among others
-        const newShares = { ...prev, [memberId]: newValue };
-        
-        if (othersTotal > 0) {
-          // Distribute proportionally based on current values
-          otherMembers.forEach(m => {
-            const proportion = (prev[m] || 0) / othersTotal;
-            newShares[m] = remaining * proportion;
-          });
-        } else {
-          // Distribute equally if others are all 0
-          const equalShare = remaining / otherMembers.length;
-          otherMembers.forEach(m => {
-            newShares[m] = equalShare;
-          });
-        }
-        
-        return newShares;
-      });
-    } else if (splitType === 'exact') {
-      // Auto-adjust other members' amounts
-      setShares(prev => {
-        const otherMembers = members.filter(m => m !== memberId);
-        const remaining = totalAmount - newValue;
-        
-        if (otherMembers.length === 0) {
-          return { ...prev, [memberId]: newValue };
-        }
-        
-        // Calculate total of other members' current amounts
-        const othersTotal = otherMembers.reduce((sum, m) => sum + (prev[m] || 0), 0);
-        
-        // Distribute remaining amount proportionally among others
-        const newShares = { ...prev, [memberId]: newValue };
-        
-        if (othersTotal > 0) {
-          // Distribute proportionally based on current values
-          otherMembers.forEach(m => {
-            const proportion = (prev[m] || 0) / othersTotal;
-            newShares[m] = remaining * proportion;
-          });
-        } else {
-          // Distribute equally if others are all 0
-          const equalShare = remaining / otherMembers.length;
-          otherMembers.forEach(m => {
-            newShares[m] = equalShare;
-          });
-        }
-        
-        return newShares;
-      });
-    } else {
-      // For equal split, just update the value
-      setShares(prev => ({ ...prev, [memberId]: newValue }));
-    }
+    // Simply update the value without auto-adjusting others
+    setShares(prev => ({ ...prev, [memberId]: newValue }));
   };
-  
+
   const handleSplitTypeChange = (newType) => {
     const oldType = splitType;
     setSplitType(newType);
-    
+
     // Convert shares when switching types
     if (oldType === 'percentage' && newType === 'exact') {
       // Convert percentages to exact amounts
       setShares(prev => Object.fromEntries(
         Object.entries(prev).map(([memberId, percentage]) => [
-          memberId, 
+          memberId,
           (percentage / 100) * totalAmount
         ])
       ));
@@ -201,7 +134,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
       // Convert exact amounts to percentages
       setShares(prev => Object.fromEntries(
         Object.entries(prev).map(([memberId, amount]) => [
-          memberId, 
+          memberId,
           totalAmount > 0 ? (amount / totalAmount) * 100 : 0
         ])
       ));
@@ -220,7 +153,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
 
   const handleSave = () => {
     let finalShares;
-    
+
     if (splitType === 'equal') {
       finalShares = Object.fromEntries(selectedMembers.map(m => [m, equalShare]));
     } else if (splitType === 'percentage') {
@@ -231,9 +164,9 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
     } else {
       finalShares = shares;
     }
-    
+
     const result = { type: splitType, shares: finalShares };
-    
+
     // Include line items for itemized type
     if (splitType === 'itemized') {
       result.lineItems = lineItems.map(item => ({
@@ -244,7 +177,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
         assignedTo: item.assignedTo,
       }));
     }
-    
+
     onSave(result);
     onOpenChange(false);
   };
@@ -285,8 +218,8 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
               {members.map(memberId => (
                 <div key={memberId} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 gap-2">
                   <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                    <Checkbox 
-                      checked={selectedMembers.includes(memberId)} 
+                    <Checkbox
+                      checked={selectedMembers.includes(memberId)}
                       onCheckedChange={(checked) => handleMemberToggle(memberId, checked)}
                       className="flex-shrink-0"
                     />
@@ -307,13 +240,13 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                   <span className="font-medium text-sm sm:text-base truncate flex-1 min-w-0">{getUserProfile(memberId)?.name || 'User'}</span>
                   <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                     <span className="text-xs sm:text-sm text-muted-foreground">₹</span>
-                    <Input 
-                      type="number" 
-                      value={shares[memberId] || ''} 
-                      onChange={(e) => handleShareChange(memberId, e.target.value)} 
-                      className="w-20 sm:w-24 min-h-[44px] text-sm" 
-                      min="0" 
-                      step="0.01" 
+                    <Input
+                      type="number"
+                      value={shares[memberId] || ''}
+                      onChange={(e) => handleShareChange(memberId, e.target.value)}
+                      className="w-20 sm:w-24 min-h-[44px] text-sm"
+                      min="0"
+                      step="0.01"
                     />
                   </div>
                 </div>
@@ -326,36 +259,36 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
           <TabsContent value="percentage" className="mt-3 sm:mt-4 space-y-3 sm:space-y-4 flex-1 overflow-hidden flex flex-col">
             <p className="text-xs sm:text-sm text-muted-foreground">Enter percentage for each member</p>
             <div className="space-y-2 flex-1 overflow-y-auto pr-1">
-              {members.map(memberId => { 
-                const percentage = shares[memberId] || 0; 
-                const amount = (percentage / 100) * totalAmount; 
+              {members.map(memberId => {
+                const percentage = shares[memberId] || 0;
+                const amount = (percentage / 100) * totalAmount;
                 return (
                   <div key={memberId} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 gap-2">
                     <span className="font-medium text-sm sm:text-base truncate flex-1 min-w-0">{getUserProfile(memberId)?.name || 'User'}</span>
                     <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
                       <span className="text-xs sm:text-sm text-muted-foreground hidden sm:inline">₹{amount.toFixed(2)}</span>
                       <div className="flex items-center gap-1">
-                        <Input 
-                          type="number" 
-                          value={shares[memberId] || ''} 
-                          onChange={(e) => handleShareChange(memberId, e.target.value)} 
-                          className="w-16 sm:w-20 min-h-[44px] text-sm" 
-                          min="0" 
-                          max="100" 
-                          step="0.1" 
+                        <Input
+                          type="number"
+                          value={shares[memberId] || ''}
+                          onChange={(e) => handleShareChange(memberId, e.target.value)}
+                          className="w-16 sm:w-20 min-h-[44px] text-sm"
+                          min="0"
+                          max="100"
+                          step="0.1"
                         />
                         <span className="text-xs sm:text-sm text-muted-foreground">%</span>
                       </div>
                     </div>
                   </div>
-                ); 
+                );
               })}
             </div>
             <div className={`text-xs sm:text-sm font-medium ${isValid ? 'text-success' : 'text-destructive'}`}>
               Total: {total.toFixed(1)}%
             </div>
           </TabsContent>
-          
+
           {/* Itemized Split Tab (Comment 5) */}
           <TabsContent value="itemized" className="mt-3 sm:mt-4 space-y-3 sm:space-y-4 flex-1 overflow-hidden flex flex-col">
             <p className="text-xs sm:text-sm text-muted-foreground">Add line items and assign to members</p>
@@ -376,14 +309,14 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                       </Button>
                     )}
                   </div>
-                  
+
                   <Input
                     placeholder="Item description (e.g., Pizza, Drinks)"
                     value={item.description}
                     onChange={(e) => updateLineItem(item.id, 'description', e.target.value)}
                     className="min-h-[40px] text-sm"
                   />
-                  
+
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <label className="text-xs text-muted-foreground">Qty</label>
@@ -407,7 +340,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                       />
                     </div>
                   </div>
-                  
+
                   <div className="space-y-2">
                     <label className="text-xs text-muted-foreground">Assigned to:</label>
                     <div className="flex flex-wrap gap-2">
@@ -418,11 +351,10 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                             key={memberId}
                             type="button"
                             onClick={() => toggleLineItemMember(item.id, memberId)}
-                            className={`px-2 py-1 text-xs rounded-full border transition-colors ${
-                              isAssigned 
-                                ? 'bg-primary text-primary-foreground border-primary' 
+                            className={`px-2 py-1 text-xs rounded-full border transition-colors ${isAssigned
+                                ? 'bg-primary text-primary-foreground border-primary'
                                 : 'bg-secondary border-border hover:border-primary/50'
-                            }`}
+                              }`}
                           >
                             {getUserProfile(memberId)?.name?.split(' ')[0] || 'User'}
                           </button>
@@ -430,7 +362,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                       })}
                     </div>
                   </div>
-                  
+
                   {item.quantity > 0 && item.unitPrice > 0 && (
                     <div className="text-xs text-muted-foreground text-right">
                       Subtotal: ₹{(item.quantity * item.unitPrice).toFixed(2)}
@@ -443,7 +375,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                   )}
                 </div>
               ))}
-              
+
               <Button
                 type="button"
                 variant="outline"
@@ -454,7 +386,7 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                 Add Item
               </Button>
             </div>
-            
+
             <div className="pt-2 border-t border-border space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Items Total:</span>
@@ -481,8 +413,8 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
           <Button variant="outline" onClick={() => onOpenChange(false)} className="min-h-[44px] text-sm sm:text-base">
             Cancel
           </Button>
-          <Button 
-            onClick={handleSave} 
+          <Button
+            onClick={handleSave}
             disabled={!isValid || (splitType === 'equal' && selectedMembers.length === 0)}
             className="min-h-[44px] text-sm sm:text-base"
           >

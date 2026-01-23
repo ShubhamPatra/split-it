@@ -194,10 +194,74 @@ const GroupDetail = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user?.id]);
 
-  // Calculate who the current user owes money to (must be before early returns)
-  const balancesForMemo = getGroupBalances(id || '');
+  /**
+   * Balance calculation for the current group.
+   * 
+   * This memoized value is critical for Balance_Tab and Settlement_Tab reactivity.
+   * It ensures the UI updates immediately when balances change due to expense operations.
+   * 
+   * @type {Object.<string, number>} Balance map where keys are user IDs and values are balance amounts.
+   *                                  Positive values = user is owed money, Negative values = user owes money
+   * 
+   * @reactivity
+   * When an expense is deleted/created/updated:
+   * 1. Backend emits `balance:update` socket event with fresh balances
+   * 2. GroupContext receives event and updates `balancesByGroup` state
+   * 3. `getGroupBalances` function returns new values (depends on `balancesByGroup`)
+   * 4. This useMemo detects the change and recalculates
+   * 5. Balance_Tab and Settlement_Tab automatically re-render with updated data
+   * 
+   * @dependencies
+   * - getGroupBalances: Returns server-provided balances or falls back to client-side calculation
+   * - id: The current group ID
+   * 
+   * @fallback If server balances are unavailable (socket disconnected, initial load),
+   *           getGroupBalances falls back to client-side calculation from expenses and settlements
+   * 
+   * @see GroupContext.getGroupBalances for balance calculation logic
+   * @see GroupContext socket listener 'balance:update' for real-time updates
+   */
+  const balancesForMemo = React.useMemo(() => {
+    return getGroupBalances(id || '');
+  }, [getGroupBalances, id]);
 
-  // All optimal settlements for the group (for admins/creators)
+  /**
+   * Optimal settlement suggestions for the group.
+   * 
+   * Calculates the minimum number of transactions needed to settle all balances.
+   * This memoized value ensures Settlement_Tab updates when balances change.
+   * 
+   * @type {Array.<{from: string, to: string, amount: number}>} Array of settlement suggestions
+   *       Each suggestion contains:
+   *       - from: User ID who should pay
+   *       - to: User ID who should receive payment
+   *       - amount: Amount to transfer (in group currency)
+   * 
+   * @algorithm Uses the settlement optimizer algorithm to minimize transactions:
+   *            1. Identifies all users with positive balances (owed money)
+   *            2. Identifies all users with negative balances (owe money)
+   *            3. Matches debtors to creditors to minimize total number of payments
+   *            4. Filters out users with zero balance
+   * 
+   * @reactivity
+   * When balances change (after expense deletion/creation/update):
+   * 1. `balancesForMemo` updates (due to its dependencies on getGroupBalances)
+   * 2. This useMemo detects the change and recalculates optimal settlements
+   * 3. Settlement_Tab re-renders with new suggestions
+   * 
+   * @dependencies
+   * - balancesForMemo: Current balance state (from server or fallback calculation)
+   * 
+   * @example
+   * // If balances are: { user1: 100, user2: -50, user3: -50 }
+   * // Returns: [
+   * //   { from: 'user2', to: 'user1', amount: 50 },
+   * //   { from: 'user3', to: 'user1', amount: 50 }
+   * // ]
+   * 
+   * @see calculateOptimalSettlements in utils/settlementOptimizer.js
+   * @see SettlementSuggestions component for UI rendering
+   */
   const allDebts = React.useMemo(() => {
     if (!balancesForMemo || Object.keys(balancesForMemo).length === 0) return [];
     return calculateOptimalSettlements(balancesForMemo);
@@ -671,6 +735,40 @@ const GroupDetail = () => {
             )}
           </TabsContent>
 
+          {/**
+           * Balance_Tab Component
+           * 
+           * Displays member balances and settlement suggestions for the current group.
+           * This tab automatically updates when balances change due to expense operations.
+           * 
+           * @section Settlement Suggestions
+           * Shows optimal payment suggestions to minimize transactions.
+           * Uses the `allDebts` memoized value which recalculates when balances change.
+           * 
+           * @section Member Balances
+           * Shows individual balance for each group member.
+           * - Positive balance: Member is owed money (displayed in green)
+           * - Negative balance: Member owes money (displayed in red)
+           * - Zero balance: Member is settled up
+           * 
+           * @reactivity
+           * This tab re-renders when:
+           * - `balancesForMemo` changes (triggered by balance:update socket events)
+           * - Group members are added/removed
+           * - User switches to this tab
+           * 
+           * @data_source
+           * - Balances: `balancesForMemo` (from getGroupBalances)
+           * - Settlement suggestions: `allDebts` (from calculateOptimalSettlements)
+           * - Member profiles: `getUserProfile` (from GroupContext)
+           * 
+           * @user_actions
+           * - Click settlement suggestion: Opens settle dialog with pre-filled amount
+           * - View member balance: Shows detailed balance card with payment history
+           * 
+           * @see SettlementSuggestions component for suggestion rendering
+           * @see BalanceCard component for individual balance display
+           */}
           <TabsContent value="balances">
             {/* Settlement Suggestions */}
             <div className="mb-4 sm:mb-6">
@@ -704,6 +802,42 @@ const GroupDetail = () => {
             </div>
           </TabsContent>
 
+          {/**
+           * Settlement_Tab Component
+           * 
+           * Displays the history of recorded settlements (payments between members).
+           * Shows when members have paid each other to settle their balances.
+           * 
+           * @section Settlement History
+           * Lists all settlements in reverse chronological order (newest first).
+           * Each settlement shows:
+           * - Who paid whom
+           * - Amount transferred
+           * - Payment method (cash, UPI, etc.)
+           * - Payment status (pending, confirmed)
+           * - Date of settlement
+           * 
+           * @reactivity
+           * This tab re-renders when:
+           * - New settlements are recorded (via settle dialog)
+           * - Settlement status changes (payment confirmed)
+           * - Socket events update settlement data
+           * - User switches to this tab
+           * 
+           * @data_source
+           * - Settlements: `settlements` array (from GroupContext)
+           * - Member profiles: `getUserProfile` (from GroupContext)
+           * 
+           * @user_actions
+           * - Click "Record Settlement": Opens settle dialog
+           * - View settlement details: Shows payment information and status
+           * 
+           * @empty_state
+           * When no settlements exist, displays a prompt to record the first settlement.
+           * 
+           * @see SettlementCard component for individual settlement display
+           * @see handleSettle function for settlement recording logic
+           */}
           <TabsContent value="settlements">
             {settlements.length > 0 ? (
               <div className="space-y-4">

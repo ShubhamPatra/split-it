@@ -49,13 +49,17 @@ const AddExpense = () => {
     if (groupId) {
       const group = groups.find(g => g.id === groupId);
       if (group) {
+        // Calculate equal shares based on current amount (0 if not set)
+        const numAmount = parseFloat(amount) || 0;
+        const equalShare = numAmount / group.members.length;
         const shares = {};
-        group.members.forEach(m => { shares[m] = 0; });
+        group.members.forEach(m => { shares[m] = equalShare; });
         return { type: 'equal', shares };
       }
     }
     return { type: 'equal', shares: {} };
   });
+  const [splitCustomized, setSplitCustomized] = useState(false);
   const [showBillScanner, setShowBillScanner] = useState(false);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -83,20 +87,35 @@ const AddExpense = () => {
     }
   }, [user]);
 
-  // Initialize split config when group changes (not when amount changes)
+  // Initialize split config when group changes
   useEffect(() => {
     if (selectedGroup) {
       const group = groups.find(g => g.id === selectedGroup);
       if (group) {
-        const equalShare = parseFloat(amount) / group.members.length || 0;
+        const numAmount = parseFloat(amount) || 0;
+        const equalShare = numAmount / group.members.length;
         const shares = {};
         group.members.forEach(m => { shares[m] = equalShare; });
         setSplitConfig({ type: 'equal', shares });
+        setSplitCustomized(false); // Reset customization flag when group changes
       }
     }
-    // Only run when group changes, not when amount changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedGroup, groups]);
+  }, [selectedGroup, groups, amount]);
+
+  // Recalculate shares when amount changes (only for non-customized equal splits)
+  useEffect(() => {
+    // Only auto-update if split hasn't been customized and we have a group
+    if (!splitCustomized && selectedGroup && splitConfig.type === 'equal') {
+      const group = groups.find(g => g.id === selectedGroup);
+      if (group) {
+        const numAmount = parseFloat(amount) || 0;
+        const equalShare = numAmount / group.members.length;
+        const shares = {};
+        group.members.forEach(m => { shares[m] = equalShare; });
+        setSplitConfig(prev => ({ ...prev, shares }));
+      }
+    }
+  }, [amount, splitCustomized, selectedGroup, groups, splitConfig.type]);
 
   const userGroups = groups.filter(g => g.members.includes(user?.id || ''));
   const currentGroup = groups.find(g => g.id === selectedGroup);
@@ -129,17 +148,45 @@ const AddExpense = () => {
   // Check if sidebar has content to show
   const hasSidebarContent = topCategories.length > 0 || recentExpenses.length > 0;
 
-  // Memoize split amount calculation
+  /**
+   * Calculate the per-person split amount
+   * 
+   * This calculation determines how much each person pays when the expense is split.
+   * 
+   * Requirements addressed:
+   * - 4.1: Display per-person amount in split summary
+   * - 4.2: Count only members with non-zero shares
+   * - 4.3: Handle zero/invalid amounts
+   * - 4.4: Display accurate per-person calculation
+   * 
+   * Logic:
+   * 1. Return 0 if no amount entered or no group selected (edge case)
+   * 2. Return 0 if amount is invalid (NaN, negative, or zero) (edge case)
+   * 3. For equal splits:
+   *    - Count only members with share > 0 (excludes members not participating)
+   *    - Divide total amount by count of participating members
+   *    - Return 0 if no members selected (edge case)
+   * 4. For non-equal splits, return 0 (per-person doesn't apply to custom splits)
+   */
   const splitAmountPerPerson = useMemo(() => {
+    // Edge case: No amount or group selected
     if (!amount || !currentGroup) return 0;
+    
     const total = parseFloat(amount);
+    
+    // Edge case: Invalid amount (NaN, negative, or zero)
     if (isNaN(total) || total <= 0) return 0;
 
     if (splitConfig.type === 'equal') {
-      // Count only members who have a share > 0 in the split
+      // Count only members who have a non-zero share (participating members)
+      // This ensures we don't divide by zero and accurately reflect who's splitting
       const selectedMemberCount = Object.keys(splitConfig.shares).filter(m => splitConfig.shares[m] > 0).length;
+      
+      // Edge case: No members selected, return 0 to avoid division by zero
       return selectedMemberCount > 0 ? total / selectedMemberCount : 0;
     }
+    
+    // For non-equal split types, per-person amount doesn't apply
     return 0;
   }, [amount, currentGroup, splitConfig.type, splitConfig.shares]);
 
@@ -323,6 +370,15 @@ const AddExpense = () => {
       title: "Data extracted!",
       description: "Bill details have been filled. You can edit them if needed.",
     });
+  };
+
+  /**
+   * Handle split dialog save
+   */
+  const handleSplitDialogSave = (newSplitConfig) => {
+    setSplitConfig(newSplitConfig);
+    setSplitCustomized(true); // Mark as customized
+    setShowSplitDialog(false);
   };
 
   /**
@@ -757,7 +813,7 @@ const AddExpense = () => {
                       members={currentGroup.members}
                       totalAmount={parseFloat(amount) || 0}
                       currentSplit={splitConfig}
-                      onSave={setSplitConfig}
+                      onSave={handleSplitDialogSave}
                     />
                   )}
 

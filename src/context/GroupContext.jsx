@@ -622,14 +622,75 @@ export const GroupProvider = ({ children }) => {
     return settlements.filter(set => set.groupId === groupId);
   };
 
-  // Get balances for a group (uses server-provided balances if available, falls back to client-side calculation)
+  /**
+   * Get balances for a group.
+   * 
+   * Returns server-calculated balances when available (from balance:update socket events),
+   * or falls back to client-side calculation when server balances are unavailable.
+   * 
+   * @function getGroupBalances
+   * @param {string} groupId - The ID of the group to get balances for
+   * @returns {Object.<string, number>} Balance map where keys are user IDs and values are balance amounts
+   *                                    Positive = user is owed money, Negative = user owes money
+   * 
+   * @behavior
+   * 1. **Primary**: Returns server-provided balances from `balancesByGroup[groupId]`
+   *    - Updated by `balance:update` socket events after expense operations
+   *    - Ensures consistency with backend calculations
+   *    - Reduces client-side computation
+   * 
+   * 2. **Fallback**: Calculates balances client-side when server data unavailable
+   *    - Handles initial load before socket events received
+   *    - Handles temporary socket disconnection
+   *    - Handles cleared/invalidated balance cache
+   *    - Ensures UI always displays accurate balances
+   * 
+   * @calculation Client-side fallback algorithm:
+   * 1. Initialize all group members with balance = 0
+   * 2. Process expenses:
+   *    - Payer gets credited: balance += expense.amount
+   *    - Each participant owes their share: balance -= shares[userId]
+   * 3. Process confirmed settlements:
+   *    - Payer gets credited: balance += settlement.amount
+   *    - Receiver gets debited: balance -= settlement.amount
+   * 4. Return final balance map
+   * 
+   * @reactivity
+   * This function is wrapped in useCallback with critical dependencies:
+   * - `balancesByGroup`: When server emits balance:update, triggers re-render
+   * - `getGroupExpenses`: When expenses change, fallback uses latest data
+   * - `groups`: When group membership changes, recalculates balances
+   * - `settlements`: When settlements added/updated, reflects in balances
+   * 
+   * @example
+   * // Server balances available (after socket event)
+   * const balances = getGroupBalances('group123');
+   * // Returns: { user1: 150.50, user2: -75.25, user3: -75.25 }
+   * 
+   * @example
+   * // Fallback calculation (socket unavailable)
+   * const balances = getGroupBalances('group123');
+   * // Calculates from expenses and settlements
+   * // Returns: { user1: 150.50, user2: -75.25, user3: -75.25 }
+   * 
+   * @see socket listener 'balance:update' for server balance updates
+   * @see Balance_Tab in GroupDetail.jsx for UI usage
+   * @see Settlement_Tab in GroupDetail.jsx for settlement suggestions
+   */
   const getGroupBalances = useCallback((groupId) => {
-    // Return server-provided balances if available
+    // FIX: Return server-provided balances if available
+    // The backend emits balance:update events after expense operations, which update balancesByGroup state.
+    // Using server-calculated balances ensures consistency and reduces client-side computation.
     if (balancesByGroup[groupId]) {
       return balancesByGroup[groupId];
     }
     
-    // Fallback to client-side calculation
+    // FIX: Fallback to client-side calculation when server balances are unavailable
+    // This handles cases where:
+    // 1. Socket events haven't been received yet (initial load)
+    // 2. Socket connection is temporarily unavailable
+    // 3. Balance cache was cleared or invalidated
+    // The fallback ensures the UI always displays accurate balances even without real-time updates.
     const groupExpenses = getGroupExpenses(groupId);
     const groupSettlements = getGroupSettlements(groupId);
     
@@ -666,8 +727,14 @@ export const GroupProvider = ({ children }) => {
       });
 
     return balances;
+  // FIX: Dependencies are critical for React to detect when balances need recalculation
+  // - balancesByGroup: When server emits balance:update, this state changes and triggers re-render
+  // - getGroupExpenses: When expenses change, fallback calculation needs to use latest data
+  // - groups: When group membership changes, balance calculations need to update
+  // - settlements: When settlements are added/updated, balances need to reflect changes
+  // Without these dependencies, components using getGroupBalances would display stale data.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [balancesByGroup, getGroupExpenses, groups]);
+  }, [balancesByGroup, getGroupExpenses, groups, settlements]);
 
   // Get total expenses for a group
   const getTotalExpenses = (groupId) => {
@@ -980,18 +1047,153 @@ export const GroupProvider = ({ children }) => {
       leaveGroupRoom(groupId);
     });
 
+    /**
+     * Socket Event Listener: balance:update
+     * 
+     * Handles real-time balance updates from the backend after expense operations.
+     * This listener is critical for keeping Balance_Tab and Settlement_Tab synchronized
+     * with the server state.
+     * 
+     * @event balance:update
+     * @listens socket#balance:update
+     * 
+     * @param {Object} payload - The socket event payload
+     * @param {string} payload.groupId - The ID of the group whose balances changed
+     * @param {Object.<string, number>|Object} payload.balances - Balance data (flat or nested structure)
+     * 
+     * @event_structure
+     * The backend can emit balance:update in two formats:
+     * 
+     * 1. **Flat format** (preferred):
+     *    ```javascript
+     *    {
+     *      groupId: "group123",
+     *      balances: {
+     *        "user1": 150.50,
+     *        "user2": -75.25,
+     *        "user3": -75.25
+     *      }
+     *    }
+     *    ```
+     * 
+     * 2. **Nested format** (legacy):
+     *    ```javascript
+     *    {
+     *      groupId: "group123",
+     *      balances: {
+     *        balances: {
+     *          "user1": 150.50,
+     *          "user2": -75.25,
+     *          "user3": -75.25
+     *        }
+     *      }
+     *    }
+     *    ```
+     * 
+     * @normalization
+     * The listener normalizes both formats to a flat userId→amount mapping:
+     * - Checks if `balances.balances` exists (nested format)
+     * - If yes, extracts inner balances object
+     * - If no, uses balances directly (flat format)
+     * - Stores normalized map in `balancesByGroup[groupId]`
+     * 
+     * @validation
+     * Validates event data before processing:
+     * 1. groupId must be a non-empty string
+     * 2. balances must be an object (not null/undefined)
+     * 3. Logs errors for invalid data but continues operation
+     * 
+     * @state_update
+     * Updates `balancesByGroup` state immutably:
+     * ```javascript
+     * setBalancesByGroup(prev => ({
+     *   ...prev,
+     *   [groupId]: balanceMap
+     * }))
+     * ```
+     * 
+     * @reactivity_chain
+     * When this listener updates state:
+     * 1. `balancesByGroup` state changes
+     * 2. `getGroupBalances(groupId)` returns new server balances
+     * 3. Components using `getGroupBalances` detect the change
+     * 4. `balancesForMemo` in GroupDetail recalculates
+     * 5. Balance_Tab re-renders with new balance data
+     * 6. `allDebts` in GroupDetail recalculates
+     * 7. Settlement_Tab re-renders with new suggestions
+     * 
+     * @triggered_by
+     * Backend emits balance:update after:
+     * - Expense created (POST /expenses)
+     * - Expense updated (PUT /expenses/:id)
+     * - Expense deleted (DELETE /expenses/:id)
+     * - Settlement recorded (POST /settlements)
+     * - Manual balance recalculation
+     * 
+     * @error_handling
+     * - Wraps processing in try-catch block
+     * - Logs errors to console for debugging
+     * - Continues operation without crashing
+     * - UI falls back to client-side calculation if needed
+     * 
+     * @example
+     * // Backend emits after expense deletion:
+     * socket.emit('balance:update', {
+     *   groupId: 'group123',
+     *   balances: { user1: 100, user2: -100 }
+     * });
+     * 
+     * // Frontend receives and processes:
+     * // 1. Validates groupId and balances
+     * // 2. Normalizes to flat structure
+     * // 3. Updates balancesByGroup state
+     * // 4. Triggers UI re-renders
+     * 
+     * @see getGroupBalances for balance retrieval
+     * @see Balance_Tab in GroupDetail.jsx for UI updates
+     * @see Settlement_Tab in GroupDetail.jsx for suggestion updates
+     * @see server/utils/socketEmitter.js for event emission
+     */
     socket.on('balance:update', ({ groupId, balances }) => {
-      // Store server-provided balances for real-time updates
-      // The server now sends only the userId→amount map (not the full balance object)
-      // If we receive an object with a nested 'balances' property (legacy format),
-      // extract just the balance map to maintain flat userId→amount structure
-      const balanceMap = balances && typeof balances === 'object' && balances.balances
-        ? balances.balances
-        : balances;
-      setBalancesByGroup(prev => ({
-        ...prev,
-        [groupId]: balanceMap
-      }));
+      try {
+        // Validate groupId
+        if (!groupId || typeof groupId !== 'string') {
+          console.error('[SOCKET] Invalid groupId in balance:update:', groupId);
+          return;
+        }
+        
+        // FIX: Handle both flat and nested socket event structures
+        // The backend emits balance:update events after expense deletion/creation/update.
+        // Event structure can vary:
+        // 1. Flat format: { groupId: "123", balances: { userId1: 100, userId2: -100 } }
+        // 2. Nested format: { groupId: "123", balances: { balances: { userId1: 100, userId2: -100 } } }
+        //
+        // We normalize to flat userId→amount mapping for consistent state structure.
+        // This ensures Balance_Tab and Settlement_Tab can reliably access balance data
+        // regardless of which backend code path emitted the event.
+        const balanceMap = balances && typeof balances === 'object' && balances.balances
+          ? balances.balances
+          : balances;
+        
+        // Validate balanceMap
+        if (!balanceMap || typeof balanceMap !== 'object') {
+          console.error('[SOCKET] Invalid balances in balance:update:', balances);
+          return;
+        }
+        
+        // FIX: Update balancesByGroup state to trigger React re-renders
+        // When this state updates:
+        // 1. getGroupBalances() returns the new server-calculated balances
+        // 2. Components using getGroupBalances (Balance_Tab, Settlement_Tab) re-render
+        // 3. Settlement suggestions recalculate based on new balances
+        // This is why including balancesByGroup in getGroupBalances dependencies is essential.
+        setBalancesByGroup(prev => ({
+          ...prev,
+          [groupId]: balanceMap
+        }));
+      } catch (error) {
+        console.error('[SOCKET] Error processing balance:update:', error);
+      }
     });
 
     // After all listeners are set up, re-join all tracked rooms to ensure we receive events
