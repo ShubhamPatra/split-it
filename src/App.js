@@ -26,8 +26,8 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Groups = lazy(() => import('./pages/Groups'));
 const GroupDetail = lazy(() => import('./pages/GroupDetail'));
 const AddExpense = lazy(() => import('./pages/AddExpense'));
-const Insights = lazy(() => import('./pages/Insights'));
-const Settlements = lazy(() => import('./pages/Settlements'));
+const Summary = lazy(() => import('./pages/Summary'));
+const Analytics = lazy(() => import('./pages/Analytics'));
 const Profile = lazy(() => import('./pages/Profile'));
 const NotificationSettings = lazy(() => import('./pages/NotificationSettings'));
 const JoinGroup = lazy(() => import('./pages/JoinGroup'));
@@ -38,11 +38,11 @@ const TermsOfService = lazy(() => import('./pages/TermsOfService'));
 // PrivateRoute wrapper component
 const PrivateRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
-
+  
   if (loading) {
     return <Loading />;
   }
-
+  
   return isAuthenticated ? children : <Navigate to="/login" />;
 };
 
@@ -73,35 +73,33 @@ function App() {
               <OfflineIndicator />
               <PwaInstallPrompt />
               <PushNotificationPrompt />
-              <Toaster />
-              <Suspense fallback={<Loading />}>
-                <Routes>
-                  {/* Public Routes */}
-                  <Route path="/" element={<Index />} />
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/signup" element={<Signup />} />
-                  <Route path="/forgot-password" element={<ForgotPassword />} />
-                  <Route path="/reset-password" element={<ResetPassword />} />
-                  <Route path="/join/:inviteCode" element={<JoinGroup />} />
-                  <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-                  <Route path="/terms-of-service" element={<TermsOfService />} />
-
-                  {/* Protected Routes */}
-                  <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+            <Toaster />
+                  <Suspense fallback={<Loading />}>
+                    <Routes>
+                    {/* Public Routes */}
+                    <Route path="/" element={<Index />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/signup" element={<Signup />} />
+                    <Route path="/forgot-password" element={<ForgotPassword />} />
+                    <Route path="/reset-password" element={<ResetPassword />} />
+                    <Route path="/join/:inviteCode" element={<JoinGroup />} />
+                    <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+                    <Route path="/terms-of-service" element={<TermsOfService />} />
+                    
+                    {/* Protected Routes */}
+                    <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
                   <Route path="/groups" element={<PrivateRoute><Groups /></PrivateRoute>} />
                   <Route path="/group/:id" element={<PrivateRoute><GroupDetail /></PrivateRoute>} />
                   <Route path="/add-expense" element={<PrivateRoute><AddExpense /></PrivateRoute>} />
-                  <Route path="/insights" element={<PrivateRoute><Insights /></PrivateRoute>} />
-                  <Route path="/settlements" element={<PrivateRoute><Settlements /></PrivateRoute>} />
-                  <Route path="/summary" element={<Navigate to="/insights" replace />} />
-                  <Route path="/analytics" element={<Navigate to="/insights" replace />} />
+                  <Route path="/summary" element={<PrivateRoute><Summary /></PrivateRoute>} />
+                  <Route path="/analytics" element={<PrivateRoute><Analytics /></PrivateRoute>} />
                   <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
                   <Route path="/settings/notifications" element={<PrivateRoute><NotificationSettings /></PrivateRoute>} />
-
+                  
                   {/* Catch-all */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>
-              </Suspense>
+                </Suspense>
             </TooltipProvider>
           </AppProvider>
         </BrowserRouter>

@@ -292,19 +292,6 @@ const apiClient = {
     });
   },
 
-  patch: async (endpoint, body) => {
-    // Clear cache on mutations
-    clearCache();
-    return makeRequest(`${API_URL}${endpoint}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include', // Send HttpOnly cookies
-      body: JSON.stringify(body),
-    });
-  },
-
   delete: async (endpoint) => {
     // Clear cache on mutations
     clearCache();

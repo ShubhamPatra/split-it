@@ -137,11 +137,11 @@ const SettlementCard = memo(({ settlement }) => {
               {upiDisplay}
             </p>
           )}
-          {/* Confirm/Reject buttons for receiver when pending (not for pre-confirmed cash) */}
+          {/* Confirm/Reject buttons for receiver when pending */}
           {isPending && isCurrentUserReceiver && (
             <div className="flex gap-2 mt-3">
-              <Button
-                size="sm"
+              <Button 
+                size="sm" 
                 className="h-9 text-xs min-h-[36px]"
                 onClick={handleConfirm}
                 disabled={isProcessing}
@@ -149,8 +149,8 @@ const SettlementCard = memo(({ settlement }) => {
                 <Check size={14} className="mr-1" />
                 {isProcessing ? 'Processing...' : 'Confirm Receipt'}
               </Button>
-              <Button
-                size="sm"
+              <Button 
+                size="sm" 
                 variant="outline"
                 className="h-9 text-xs min-h-[36px] text-destructive hover:text-destructive border-destructive/50 hover:bg-destructive/10"
                 onClick={handleReject}

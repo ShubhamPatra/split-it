@@ -25,7 +25,7 @@ const notificationSchema = new mongoose.Schema({
   },
   actionType: {
     type: String,
-    enum: ['none', 'confirm_payment', 'join_group', 'chat_message', 'navigate', 'repayment_request', 'repayment_confirmed', 'repayment_marked'],
+    enum: ['none', 'confirm_payment', 'join_group', 'chat_message', 'navigate'],
     default: 'none',
   },
   relatedId: {

@@ -5,7 +5,6 @@ import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import Navbar from '../components/layout/Navbar';
 import GroupCard from '../components/common/GroupCard';
-import HorizontalScrollContainer from '../components/common/HorizontalScrollContainer';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Progress } from '../components/ui/progress';
@@ -13,7 +12,7 @@ import { Progress } from '../components/ui/progress';
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
-  const { groups, expenses, settlements, loadGroupExpenses, loading, getGroupBalances } = useGroups();
+  const { groups, expenses, settlements, loadGroupExpenses, loading } = useGroups();
 
   // useEffect to redirect if not authenticated
   useEffect(() => {
@@ -91,25 +90,45 @@ const Dashboard = () => {
     let youAreOwed = 0;
     let youOwe = 0;
 
-    // Use getGroupBalances for accurate balance calculation (same as Insights page)
-    userGroups.forEach(group => {
-      const balances = getGroupBalances(group.id);
-      const userBalance = balances[userId] || 0;
-      if (userBalance > 0) {
-        youAreOwed += userBalance;
+    // Calculate from expenses
+    expenses.forEach(expense => {
+      const shares = expense.splitConfig?.shares || {};
+
+      if (expense.paidBy === userId) {
+        // User paid - others owe them their shares
+        Object.entries(shares).forEach(([memberId, amount]) => {
+          if (memberId !== userId) {
+            youAreOwed += amount;
+          }
+        });
       } else {
-        youOwe += Math.abs(userBalance);
+        // Someone else paid - user owes their share
+        if (shares[userId]) {
+          youOwe += shares[userId];
+        }
       }
     });
 
-    // Calculate total settled by user (only confirmed settlements in user's groups)
-    const userGroupIds = new Set(userGroups.map(g => g.id));
+    // Adjust for confirmed settlements only
+    settlements
+      .filter(settlement => settlement.paymentStatus === 'confirmed')
+      .forEach(settlement => {
+        if (settlement.fromUserId === userId) {
+          // User paid someone - reduces what they owe
+          youOwe -= settlement.amount;
+        } else if (settlement.toUserId === userId) {
+          // Someone paid user - reduces what they're owed
+          youAreOwed -= settlement.amount;
+        }
+      });
+
+    // Ensure no negative values after settlements
+    youAreOwed = Math.max(0, youAreOwed);
+    youOwe = Math.max(0, youOwe);
+
+    // Calculate total settled by user (only confirmed settlements)
     const totalSettled = settlements
-      .filter(s =>
-        s.paymentStatus === 'confirmed' &&
-        userGroupIds.has(s.groupId) &&
-        (s.from === userId || s.to === userId)
-      )
+      .filter(s => s.paymentStatus === 'confirmed' && (s.fromUserId === userId || s.toUserId === userId))
       .reduce((sum, s) => sum + s.amount, 0);
 
     return {
@@ -118,7 +137,7 @@ const Dashboard = () => {
       netBalance: youAreOwed - youOwe,
       totalSettled,
     };
-  }, [userGroups, getGroupBalances, settlements, user?.id]);
+  }, [expenses, settlements, user?.id]);
 
   if (!isAuthenticated) return null;
 
@@ -129,17 +148,17 @@ const Dashboard = () => {
       <Navbar />
 
       {/* Mobile Floating Action Button */}
-      <div className="sm:hidden fixed bottom-24 right-4 z-40 animate-fade-in">
+      <div className="sm:hidden fixed bottom-20 right-4 z-40 animate-fade-in" style={{ animationDelay: '0.7s' }}>
         <Button
           onClick={() => navigate('/add-expense')}
           size="lg"
-          className="h-14 w-14 rounded-full shadow-sm hover:shadow transition-all active:scale-95"
+          className="h-14 w-14 rounded-full shadow-xl shadow-primary/30 hover:shadow-2xl hover:shadow-primary/40 transition-all active:scale-95"
         >
           <Plus size={24} />
         </Button>
       </div>
 
-      <main className="container-responsive py-6 sm:py-8 pb-safe md:pb-8">
+      <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8">
         {/* Desktop Layout: Two Column */}
         <div className="lg:grid lg:grid-cols-12 lg:gap-8">
           {/* Main Content Area */}
@@ -160,7 +179,7 @@ const Dashboard = () => {
                 </div>
                 <Button
                   onClick={() => navigate('/add-expense')}
-                  className="hidden sm:flex gap-2 shadow-sm hover:shadow transition-all"
+                  className="hidden sm:flex gap-2 shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all"
                 >
                   <Plus size={18} />
                   Add Expense
@@ -171,11 +190,13 @@ const Dashboard = () => {
             {/* Primary Stats Row - Large Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-6 mb-6 lg:mb-8">
               {/* Total Expenses Card */}
-              <Card className="group border-border shadow-sm hover:border-primary/20 transition-colors duration-150 animate-fade-in overflow-hidden">
-                <CardContent className="p-4">
+              <Card className="group border-border/50 shadow-sm hover:shadow-xl hover:border-primary/30 transition-all duration-300 animate-fade-in overflow-hidden" style={{ animationDelay: '0.1s' }}>
+                <CardContent className="p-5 lg:p-6">
                   <div className="flex items-start justify-between mb-4">
-                    <Wallet className="text-primary" size={24} />
-                    <div className="flex items-center gap-2 px-2.5 py-1 rounded bg-muted text-foreground text-xs font-medium border border-border">
+                    <div className="p-3 rounded bg-primary/10 border border-primary/20 group-hover:scale-110 transition-transform duration-300">
+                      <Wallet className="text-primary" size={24} />
+                    </div>
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                       <Sparkles size={12} />
                       Primary
                     </div>
@@ -195,10 +216,12 @@ const Dashboard = () => {
               </Card>
 
               {/* This Month Card */}
-              <Card className="group border-border shadow-sm hover:border-primary/20 transition-colors duration-150 animate-fade-in overflow-hidden">
-                <CardContent className="p-4">
+              <Card className="group border-border/50 shadow-sm hover:shadow-xl hover:border-success/30 transition-all duration-300 animate-fade-in overflow-hidden" style={{ animationDelay: '0.15s' }}>
+                <CardContent className="p-5 lg:p-6">
                   <div className="flex items-start justify-between mb-4">
-                    <Target className="text-success" size={24} />
+                    <div className="p-3 rounded bg-success/10 border border-success/20 group-hover:scale-110 transition-transform duration-300">
+                      <Target className="text-success" size={24} />
+                    </div>
                     <div className="text-xs text-muted-foreground flex items-center gap-1">
                       <Clock size={12} />
                       This month
@@ -219,10 +242,12 @@ const Dashboard = () => {
               </Card>
 
               {/* Groups & Transactions Card */}
-              <Card className="group border-border shadow-sm hover:border-primary/20 transition-colors duration-150 animate-fade-in sm:col-span-2 xl:col-span-1 overflow-hidden">
-                <CardContent className="p-4">
+              <Card className="group border-border/50 shadow-sm hover:shadow-xl hover:border-warning/30 transition-all duration-300 animate-fade-in sm:col-span-2 xl:col-span-1 overflow-hidden" style={{ animationDelay: '0.2s' }}>
+                <CardContent className="p-5 lg:p-6">
                   <div className="flex items-start justify-between mb-4">
-                    <Zap className="text-warning" size={24} />
+                    <div className="p-3 rounded bg-warning/10 border border-warning/20 group-hover:scale-110 transition-transform duration-300">
+                      <Zap className="text-warning" size={24} />
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -258,10 +283,12 @@ const Dashboard = () => {
               </div>
               {/* Desktop: 4 columns, Mobile: Horizontal scroll */}
               <div className="hidden sm:grid sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-                <Card className="group border-border shadow-sm hover:border-primary/20 transition-colors duration-150 animate-fade-in">
-                  <CardContent className="p-4">
+                <Card className="group border-border/50 shadow-sm hover:shadow-lg hover:border-success/30 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.25s' }}>
+                  <CardContent className="p-4 lg:p-5">
                     <div className="flex items-center gap-3">
-                      <ArrowDownRight className="text-success" size={18} />
+                      <div className="p-2.5 rounded bg-success/10 border border-success/20 group-hover:scale-110 transition-transform duration-300">
+                        <ArrowDownRight className="text-success" size={18} />
+                      </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-muted-foreground mb-0.5">You are owed</p>
                         <p className="font-display text-lg lg:text-xl font-bold text-success truncate tracking-tight">
@@ -272,10 +299,12 @@ const Dashboard = () => {
                   </CardContent>
                 </Card>
 
-                <Card className="group border-border shadow-sm hover:border-primary/20 transition-colors duration-150 animate-fade-in">
-                  <CardContent className="p-4">
+                <Card className="group border-border/50 shadow-sm hover:shadow-lg hover:border-destructive/30 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.3s' }}>
+                  <CardContent className="p-4 lg:p-5">
                     <div className="flex items-center gap-3">
-                      <ArrowUpRight className="text-destructive" size={18} />
+                      <div className="p-2.5 rounded bg-destructive/10 border border-destructive/20 group-hover:scale-110 transition-transform duration-300">
+                        <ArrowUpRight className="text-destructive" size={18} />
+                      </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-muted-foreground mb-0.5">You owe</p>
                         <p className="font-display text-lg lg:text-xl font-bold text-destructive truncate tracking-tight">
@@ -286,10 +315,12 @@ const Dashboard = () => {
                   </CardContent>
                 </Card>
 
-                <Card className="group border-border shadow-sm hover:border-primary/20 transition-colors duration-150 animate-fade-in">
-                  <CardContent className="p-4">
+                <Card className="group border-border/50 shadow-sm hover:shadow-lg hover:border-primary/30 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.35s' }}>
+                  <CardContent className="p-4 lg:p-5">
                     <div className="flex items-center gap-3">
-                      <Scale className="text-primary" size={18} />
+                      <div className="p-2.5 rounded bg-primary/10 border border-primary/20 group-hover:scale-110 transition-transform duration-300">
+                        <Scale className="text-primary" size={18} />
+                      </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-muted-foreground mb-0.5">Net Balance</p>
                         <p className={`font-display text-lg lg:text-xl font-bold truncate tracking-tight ${balanceSummary.netBalance >= 0 ? 'text-success' : 'text-destructive'}`}>
@@ -300,10 +331,12 @@ const Dashboard = () => {
                   </CardContent>
                 </Card>
 
-                <Card className="group border-border shadow-sm hover:border-primary/20 transition-colors duration-150 animate-fade-in">
-                  <CardContent className="p-4">
+                <Card className="group border-border/50 shadow-sm hover:shadow-lg hover:border-info/30 transition-all duration-300 animate-fade-in" style={{ animationDelay: '0.4s' }}>
+                  <CardContent className="p-4 lg:p-5">
                     <div className="flex items-center gap-3">
-                      <HandCoins className="text-info" size={18} />
+                      <div className="p-2.5 rounded bg-info/10 border border-info/20 group-hover:scale-110 transition-transform duration-300">
+                        <HandCoins className="text-info" size={18} />
+                      </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-muted-foreground mb-0.5">Total Settled</p>
                         <p className="font-display text-lg lg:text-xl font-bold text-info truncate tracking-tight">
@@ -317,12 +350,14 @@ const Dashboard = () => {
 
               {/* Mobile: Horizontal scrolling cards */}
               <div className="sm:hidden -mx-4 px-4">
-                <HorizontalScrollContainer ariaLabel="Balance summary cards">
-                  <Card className="flex-shrink-0 w-[140px] snap-start border-border shadow-sm bg-card">
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
+                  <Card className="flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-muted/30">
                     <CardContent className="p-3">
                       <div className="flex items-center gap-2 mb-2">
-                        <ArrowDownRight className="text-success" size={14} />
-                        <p className="text-xs text-muted-foreground">You're owed</p>
+                        <div className="p-1.5 rounded-lg bg-success/20">
+                          <ArrowDownRight className="text-success" size={14} />
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">You're owed</p>
                       </div>
                       <p className="font-display text-lg font-bold text-success tracking-tight">
                         ₹{balanceSummary.youAreOwed.toLocaleString()}
@@ -330,11 +365,13 @@ const Dashboard = () => {
                     </CardContent>
                   </Card>
 
-                  <Card className="flex-shrink-0 w-[140px] snap-start border-border shadow-sm bg-card">
+                  <Card className="flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-muted/30">
                     <CardContent className="p-3">
                       <div className="flex items-center gap-2 mb-2">
-                        <ArrowUpRight className="text-destructive" size={14} />
-                        <p className="text-xs text-muted-foreground">You owe</p>
+                        <div className="p-1.5 rounded-lg bg-destructive/20">
+                          <ArrowUpRight className="text-destructive" size={14} />
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">You owe</p>
                       </div>
                       <p className="font-display text-lg font-bold text-destructive tracking-tight">
                         ₹{balanceSummary.youOwe.toLocaleString()}
@@ -342,11 +379,13 @@ const Dashboard = () => {
                     </CardContent>
                   </Card>
 
-                  <Card className={`flex-shrink-0 w-[140px] snap-start border-border shadow-sm bg-card`}>
+                  <Card className={`flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-muted/30`}>
                     <CardContent className="p-3">
                       <div className="flex items-center gap-2 mb-2">
-                        <Scale className={balanceSummary.netBalance >= 0 ? 'text-success' : 'text-destructive'} size={14} />
-                        <p className="text-xs text-muted-foreground">Net Balance</p>
+                        <div className={`p-1.5 rounded-lg ${balanceSummary.netBalance >= 0 ? 'bg-success/20' : 'bg-destructive/20'}`}>
+                          <Scale className={balanceSummary.netBalance >= 0 ? 'text-success' : 'text-destructive'} size={14} />
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">Net Balance</p>
                       </div>
                       <p className={`font-display text-lg font-bold tracking-tight ${balanceSummary.netBalance >= 0 ? 'text-success' : 'text-destructive'}`}>
                         {balanceSummary.netBalance >= 0 ? '+' : ''}₹{balanceSummary.netBalance.toLocaleString()}
@@ -354,23 +393,25 @@ const Dashboard = () => {
                     </CardContent>
                   </Card>
 
-                  <Card className="flex-shrink-0 w-[140px] snap-start border-border shadow-sm bg-card">
+                  <Card className="flex-shrink-0 w-[140px] snap-start border-border/50 shadow-sm bg-muted/30">
                     <CardContent className="p-3">
                       <div className="flex items-center gap-2 mb-2">
-                        <HandCoins className="text-info" size={14} />
-                        <p className="text-xs text-muted-foreground">Settled</p>
+                        <div className="p-1.5 rounded-lg bg-info/20">
+                          <HandCoins className="text-info" size={14} />
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">Settled</p>
                       </div>
                       <p className="font-display text-lg font-bold text-info tracking-tight">
                         ₹{balanceSummary.totalSettled.toLocaleString()}
                       </p>
                     </CardContent>
                   </Card>
-                </HorizontalScrollContainer>
+                </div>
               </div>
             </div>
 
             {/* Groups Section */}
-            <div className="animate-fade-in">
+            <div className="animate-fade-in" style={{ animationDelay: '0.45s' }}>
               <div className="flex items-center justify-between mb-4 lg:mb-6">
                 <h2 className="font-display text-lg sm:text-xl font-semibold text-foreground flex items-center gap-2">
                   <Users size={20} className="text-primary" />
@@ -385,22 +426,24 @@ const Dashboard = () => {
               {userGroups.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-5">
                   {userGroups.slice(0, 6).map((group, index) => (
-                    <div key={group.id} className="animate-fade-in">
+                    <div key={group.id} className="animate-fade-in" style={{ animationDelay: `${0.05 * (index + 1)}s` }}>
                       <GroupCard group={group} />
                     </div>
                   ))}
                 </div>
               ) : (
-                <Card className="border-border shadow-sm">
+                <Card className="border-border/50 shadow-sm">
                   <CardContent className="p-8 sm:p-12 text-center">
-                    <Users className="text-primary mx-auto mb-4" size={48} />
+                    <div className="w-16 h-16 rounded bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-4">
+                      <Users className="text-primary" size={28} />
+                    </div>
                     <h3 className="font-display font-semibold text-lg text-foreground mb-2">
                       No groups yet
                     </h3>
                     <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
                       Create your first group to start splitting expenses with friends and family
                     </p>
-                    <Button onClick={() => navigate('/groups')} className="min-h-[48px] h-auto shadow-sm">
+                    <Button onClick={() => navigate('/groups')} className="min-h-[48px] h-auto shadow-lg shadow-primary/25">
                       <Plus size={18} />
                       Create Group
                     </Button>
@@ -414,7 +457,7 @@ const Dashboard = () => {
           <aside className="hidden lg:block lg:col-span-4 xl:col-span-3">
             <div className="sticky top-24 space-y-6">
               {/* Quick Actions Card */}
-              <Card className="border-border shadow-sm animate-fade-in">
+              <Card className="border-border/50 shadow-sm animate-fade-in" style={{ animationDelay: '0.5s' }}>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base font-semibold flex items-center gap-2">
                     <Sparkles size={16} className="text-primary" />
@@ -425,40 +468,48 @@ const Dashboard = () => {
                   <Button
                     variant="outline"
                     onClick={() => navigate('/add-expense')}
-                    className="w-full justify-start gap-3 h-11 hover:bg-muted hover:border-primary/20 transition-colors duration-150"
+                    className="w-full justify-start gap-3 h-12 hover:bg-primary/10 hover:border-primary/40 hover:text-primary transition-all"
                   >
-                    <Plus size={16} className="text-primary" />
+                    <div className="p-1.5 rounded-lg bg-primary/10">
+                      <Plus size={16} className="text-primary" />
+                    </div>
                     Add Expense
                   </Button>
                   <Button
                     variant="outline"
                     onClick={() => navigate('/groups')}
-                    className="w-full justify-start gap-3 h-11 hover:bg-muted hover:border-primary/20 transition-colors duration-150"
+                    className="w-full justify-start gap-3 h-12 hover:bg-success/10 hover:border-success/40 hover:text-success transition-all"
                   >
-                    <Users size={16} className="text-success" />
+                    <div className="p-1.5 rounded-lg bg-success/10">
+                      <Users size={16} className="text-success" />
+                    </div>
                     Create Group
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() => navigate('/insights')}
-                    className="w-full justify-start gap-3 h-11 hover:bg-muted hover:border-primary/20 transition-colors duration-150"
+                    onClick={() => navigate('/analytics')}
+                    className="w-full justify-start gap-3 h-12 hover:bg-info/10 hover:border-info/40 hover:text-info transition-all"
                   >
-                    <BarChart3 size={16} className="text-info" />
-                    View Insights
+                    <div className="p-1.5 rounded-lg bg-info/10">
+                      <BarChart3 size={16} className="text-info" />
+                    </div>
+                    View Analytics
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() => navigate('/insights')}
-                    className="w-full justify-start gap-3 h-11 hover:bg-muted hover:border-primary/20 transition-colors duration-150"
+                    onClick={() => navigate('/summary')}
+                    className="w-full justify-start gap-3 h-12 hover:bg-warning/10 hover:border-warning/40 hover:text-warning transition-all"
                   >
-                    <PieChart size={16} className="text-warning" />
-                    Spending Summary
+                    <div className="p-1.5 rounded-lg bg-warning/10">
+                      <PieChart size={16} className="text-warning" />
+                    </div>
+                    Expense Summary
                   </Button>
                 </CardContent>
               </Card>
 
               {/* Recent Activity Card */}
-              <Card className="border-border shadow-sm animate-fade-in">
+              <Card className="border-border/50 shadow-sm animate-fade-in" style={{ animationDelay: '0.55s' }}>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base font-semibold flex items-center gap-2">
                     <Zap size={16} className="text-primary" />
@@ -467,16 +518,18 @@ const Dashboard = () => {
                 </CardHeader>
                 <CardContent>
                   {recentActivities.length > 0 ? (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {recentActivities.map((expense, index) => {
                         const group = groups.find(g => g.id === expense.groupId);
                         return (
                           <div
                             key={expense.id}
-                            className="flex items-center gap-3 p-2.5 rounded hover:bg-muted transition-colors duration-150 cursor-pointer group/item"
+                            className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group/item"
                             onClick={() => navigate(`/group/${expense.groupId}`)}
                           >
-                            <Receipt size={14} className="text-primary" />
+                            <div className="p-2 rounded-lg bg-primary/10 group-hover/item:bg-primary/20 transition-colors">
+                              <Receipt size={14} className="text-primary" />
+                            </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-foreground truncate">
                                 {expense.description || 'Expense'}
@@ -510,7 +563,7 @@ const Dashboard = () => {
               </Card>
 
               {/* Monthly Overview Mini Card */}
-              <Card className="border-border shadow-sm animate-fade-in bg-card">
+              <Card className="border-border/50 shadow-sm animate-fade-in bg-muted/30" style={{ animationDelay: '0.6s' }}>
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between mb-4">
                     <span className="text-sm font-medium text-foreground">Monthly Overview</span>
@@ -542,7 +595,7 @@ const Dashboard = () => {
         {/* Mobile Sections - Only shown on mobile/tablet */}
         <div className="lg:hidden space-y-6 mt-6">
           {/* Mobile Quick Actions */}
-          <div className="animate-fade-in">
+          <div className="animate-fade-in" style={{ animationDelay: '0.5s' }}>
             <h2 className="font-display text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
               <Sparkles size={18} className="text-primary" />
               Quick Actions
@@ -556,7 +609,7 @@ const Dashboard = () => {
                 <div className="p-2 rounded-lg bg-primary/10">
                   <Plus size={18} className="text-primary" />
                 </div>
-                <span className="text-xs font-medium">Expense</span>
+                <span className="text-[10px] font-medium">Expense</span>
               </Button>
               <Button
                 variant="outline"
@@ -566,33 +619,33 @@ const Dashboard = () => {
                 <div className="p-2 rounded-lg bg-success/10">
                   <Users size={18} className="text-success" />
                 </div>
-                <span className="text-xs font-medium">Group</span>
+                <span className="text-[10px] font-medium">Group</span>
               </Button>
               <Button
                 variant="outline"
-                onClick={() => navigate('/insights')}
+                onClick={() => navigate('/analytics')}
                 className="h-auto py-3 flex-col gap-1.5 hover:bg-info/10 hover:border-info/40 hover:text-info transition-all"
               >
                 <div className="p-2 rounded-lg bg-info/10">
                   <BarChart3 size={18} className="text-info" />
                 </div>
-                <span className="text-xs font-medium">Insights</span>
+                <span className="text-[10px] font-medium">Analytics</span>
               </Button>
               <Button
                 variant="outline"
-                onClick={() => navigate('/insights')}
+                onClick={() => navigate('/summary')}
                 className="h-auto py-3 flex-col gap-1.5 hover:bg-warning/10 hover:border-warning/40 hover:text-warning transition-all"
               >
                 <div className="p-2 rounded-lg bg-warning/10">
                   <PieChart size={18} className="text-warning" />
                 </div>
-                <span className="text-xs font-medium">Summary</span>
+                <span className="text-[10px] font-medium">Summary</span>
               </Button>
             </div>
           </div>
 
           {/* Mobile Monthly Overview */}
-          <Card className="border-border shadow-sm animate-fade-in bg-card">
+          <Card className="border-border/50 shadow-sm animate-fade-in bg-muted/30" style={{ animationDelay: '0.55s' }}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -621,7 +674,7 @@ const Dashboard = () => {
           </Card>
 
           {/* Mobile Recent Activity */}
-          <Card className="border-border shadow-sm animate-fade-in">
+          <Card className="border-border/50 shadow-sm animate-fade-in" style={{ animationDelay: '0.6s' }}>
             <CardHeader className="pb-2 px-4 pt-4">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -678,11 +731,13 @@ const Dashboard = () => {
           </Card>
 
           {/* Mobile Net Balance Highlight */}
-          <Card className={`border-2 shadow-sm animate-fade-in ${balanceSummary.netBalance >= 0 ? 'border-l-4 border-l-success bg-card' : 'border-l-4 border-l-destructive bg-card'}`}>
+          <Card className={`border-2 shadow-md animate-fade-in overflow-hidden ${balanceSummary.netBalance >= 0 ? 'border-success/30 bg-muted/30' : 'border-destructive/30 bg-muted/30'}`} style={{ animationDelay: '0.65s' }}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Scale size={20} className={balanceSummary.netBalance >= 0 ? 'text-success' : 'text-destructive'} />
+                  <div className={`p-3 rounded-xl ${balanceSummary.netBalance >= 0 ? 'bg-success/20 border border-success/30' : 'bg-destructive/20 border border-destructive/30'}`}>
+                    <Scale size={20} className={balanceSummary.netBalance >= 0 ? 'text-success' : 'text-destructive'} />
+                  </div>
                   <div>
                     <p className="text-xs text-muted-foreground mb-0.5">Your Net Balance</p>
                     <p className={`font-display text-2xl font-bold tracking-tight ${balanceSummary.netBalance >= 0 ? 'text-success' : 'text-destructive'}`}>

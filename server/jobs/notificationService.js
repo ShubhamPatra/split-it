@@ -101,7 +101,6 @@ const createNotificationWithPush = async (notificationData) => {
         'settlement_created',
         'settlement_confirmed',
         'payment_reminder',
-        'repayment_request',
     ].includes(actionType);
 
     if (shouldSendPush) {
@@ -141,13 +140,6 @@ const createNotificationWithPush = async (notificationData) => {
             pushData.requireInteraction = true;
             pushData.data = {
                 url: data.groupId ? `/group/${data.groupId}?tab=settlements` : '/summary',
-            };
-        } else if (actionType === 'repayment_request') {
-            pushData.tag = `repayment-${data.requesterId}`;
-            pushData.requireInteraction = true;
-            pushData.data = {
-                url: '/settlements?tab=people',
-                requestId: data.requestId,
             };
         }
 
@@ -260,7 +252,6 @@ export const NotificationTypes = {
     BUDGET_ALERT: 'warning',
     RECURRING_EXPENSE: 'expense',
     PAYMENT_REMINDER: 'warning',
-    REPAYMENT_REQUEST: 'warning',
 };
 
 export default {

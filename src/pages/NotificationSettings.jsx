@@ -222,7 +222,7 @@ const NotificationSettings = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <main className="container-responsive py-6 sm:py-8 pb-safe md:pb-8 max-w-2xl mx-auto">
+      <main className="container-responsive py-6 sm:py-8 pb-24 md:pb-8 max-w-2xl mx-auto">
         {/* Back Button */}
         <button
           onClick={() => navigate('/profile')}

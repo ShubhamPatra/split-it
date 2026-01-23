@@ -41,16 +41,16 @@ const HowItWorksVisual = memo(function HowItWorksVisual({ activeStep = 1 }) {
                         <div className="space-y-1.5">
                             <label className="text-xs font-medium text-muted-foreground">Members</label>
                             <div className="flex items-center gap-2 flex-wrap">
-                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 border border-border rounded bg-muted">
-                                    <div className="w-5 h-5 rounded-full bg-muted text-foreground flex items-center justify-center text-[10px] font-semibold">P</div>
+                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 border border-border rounded bg-muted/30">
+                                    <div className="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center text-[10px] font-semibold text-accent">P</div>
                                     <span className="text-xs text-foreground">Priya</span>
                                 </div>
-                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 border border-border rounded bg-muted">
-                                    <div className="w-5 h-5 rounded-full bg-muted text-foreground flex items-center justify-center text-[10px] font-semibold">A</div>
+                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 border border-border rounded bg-muted/30">
+                                    <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold text-primary-foreground">A</div>
                                     <span className="text-xs text-foreground">Arjun</span>
                                 </div>
-                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 border border-border rounded bg-muted">
-                                    <div className="w-5 h-5 rounded-full bg-muted text-foreground flex items-center justify-center text-[10px] font-semibold">R</div>
+                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 border border-border rounded bg-muted/30">
+                                    <div className="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center text-[10px] font-semibold text-accent">R</div>
                                     <span className="text-xs text-foreground">Rahul</span>
                                 </div>
                                 <button className="w-7 h-7 border border-dashed border-border rounded flex items-center justify-center text-muted-foreground hover:border-accent hover:text-accent transition-colors">
@@ -106,7 +106,7 @@ const HowItWorksVisual = memo(function HowItWorksVisual({ activeStep = 1 }) {
                         <div className="space-y-1.5">
                             <label className="text-xs font-medium text-muted-foreground">Category</label>
                             <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-1.5 px-3 py-1.5 border border-border bg-muted rounded text-foreground">
+                                <div className="flex items-center gap-1.5 px-3 py-1.5 border border-accent bg-accent/10 rounded text-accent">
                                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                                     </svg>
@@ -132,9 +132,9 @@ const HowItWorksVisual = memo(function HowItWorksVisual({ activeStep = 1 }) {
                             <label className="text-xs font-medium text-muted-foreground">Split equally among</label>
                             <div className="flex items-center gap-2">
                                 <div className="flex -space-x-2">
-                                    <div className="w-6 h-6 rounded-full bg-muted text-foreground border-2 border-card flex items-center justify-center text-[10px] font-semibold">P</div>
-                                    <div className="w-6 h-6 rounded-full bg-muted text-foreground border-2 border-card flex items-center justify-center text-[10px] font-semibold">A</div>
-                                    <div className="w-6 h-6 rounded-full bg-muted text-foreground border-2 border-card flex items-center justify-center text-[10px] font-semibold">R</div>
+                                    <div className="w-6 h-6 rounded-full bg-accent/20 border-2 border-card flex items-center justify-center text-[10px] font-semibold text-accent">P</div>
+                                    <div className="w-6 h-6 rounded-full bg-primary/20 border-2 border-card flex items-center justify-center text-[10px] font-semibold text-primary-foreground">A</div>
+                                    <div className="w-6 h-6 rounded-full bg-accent/20 border-2 border-card flex items-center justify-center text-[10px] font-semibold text-accent">R</div>
                                     <div className="w-6 h-6 rounded-full bg-muted border-2 border-card flex items-center justify-center text-[10px] font-semibold text-foreground">Y</div>
                                 </div>
                                 <span className="text-xs text-muted-foreground">4 members · ₹3,125 each</span>
@@ -249,7 +249,7 @@ const HowItWorksVisual = memo(function HowItWorksVisual({ activeStep = 1 }) {
                         <div className="space-y-2">
                             <div className="flex items-center justify-between p-3 border border-border rounded bg-background">
                                 <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 rounded-full bg-muted text-foreground flex items-center justify-center text-xs font-semibold">A</div>
+                                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-semibold text-primary-foreground">A</div>
                                     <div>
                                         <p className="text-sm font-medium text-foreground">Arjun owes you</p>
                                         <p className="text-xs text-muted-foreground">₹2,604.17</p>
@@ -262,7 +262,7 @@ const HowItWorksVisual = memo(function HowItWorksVisual({ activeStep = 1 }) {
 
                             <div className="flex items-center justify-between p-3 border border-border rounded bg-background">
                                 <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 rounded-full bg-muted text-foreground flex items-center justify-center text-xs font-semibold">P</div>
+                                    <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-xs font-semibold text-accent">P</div>
                                     <div>
                                         <p className="text-sm font-medium text-foreground">Priya owes you</p>
                                         <p className="text-xs text-muted-foreground">₹2,604.17</p>
@@ -273,9 +273,9 @@ const HowItWorksVisual = memo(function HowItWorksVisual({ activeStep = 1 }) {
                                 </button>
                             </div>
 
-                            <div className="flex items-center justify-between p-3 border border-border rounded bg-background">
+                            <div className="flex items-center justify-between p-3 border border-accent/30 rounded bg-accent/5">
                                 <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 rounded-full bg-muted text-foreground flex items-center justify-center text-xs font-semibold">R</div>
+                                    <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-xs font-semibold text-accent">R</div>
                                     <div>
                                         <p className="text-sm font-medium text-foreground">Rahul owes you</p>
                                         <p className="text-xs text-accent font-medium">₹2,604.16</p>

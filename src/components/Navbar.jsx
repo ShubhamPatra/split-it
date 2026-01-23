@@ -26,19 +26,19 @@ const Navbar = () => {
               <>
                 <Link
                   to="/dashboard"
-                  className="text-muted-foreground hover:bg-muted px-4 py-2 rounded font-medium transition-colors duration-150"
+                  className="text-foreground hover:text-primary font-medium transition-colors"
                 >
                   Dashboard
                 </Link>
                 <Link
                   to="/expenses"
-                  className="text-muted-foreground hover:bg-muted px-4 py-2 rounded font-medium transition-colors duration-150"
+                  className="text-foreground hover:text-primary font-medium transition-colors"
                 >
                   Expenses
                 </Link>
                 <Link
                   to="/groups"
-                  className="text-muted-foreground hover:bg-muted px-4 py-2 rounded font-medium transition-colors duration-150"
+                  className="text-foreground hover:text-primary font-medium transition-colors"
                 >
                   Groups
                 </Link>
@@ -46,7 +46,7 @@ const Navbar = () => {
                   <span className="text-foreground">{user?.name}</span>
                   <button
                     onClick={handleLogout}
-                    className="px-4 py-2 bg-destructive text-destructive-foreground rounded font-medium hover:bg-destructive/90 transition-colors duration-150"
+                    className="px-4 py-2 bg-destructive text-destructive-foreground rounded font-medium hover:bg-destructive/90 transition-colors"
                   >
                     Logout
                   </button>
@@ -56,13 +56,13 @@ const Navbar = () => {
               <>
                 <Link
                   to="/login"
-                  className="text-muted-foreground hover:bg-muted px-4 py-2 rounded font-medium transition-colors duration-150"
+                  className="text-foreground hover:text-primary font-medium transition-colors"
                 >
                   Login
                 </Link>
                 <Link
                   to="/register"
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded font-medium hover:bg-primary/90 transition-colors duration-150"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded font-medium hover:bg-primary/90 transition-colors"
                 >
                   Register
                 </Link>

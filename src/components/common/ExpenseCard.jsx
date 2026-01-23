@@ -41,7 +41,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
 
   const handleDelete = () => {
     deleteExpense(expense.id);
-    addNotification({ type: 'info', title: 'Expense Deleted', message: `"${expense.description}" was removed from ${group?.name || 'group'}` });
+    addNotification({ type: 'balance_update', title: 'Expense Deleted', message: `"${expense.description}" was removed from ${group?.name || 'group'}`, groupId: expense.groupId });
     toast({ title: "Expense deleted", description: `"${expense.description}" has been removed.` });
   };
 
@@ -49,7 +49,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
     if (!editDescription.trim()) { toast({ title: "Description required", variant: "destructive" }); return; }
     if (!editAmount || parseFloat(editAmount) <= 0) { toast({ title: "Invalid amount", variant: "destructive" }); return; }
     updateExpense(expense.id, { description: editDescription.trim(), amount: parseFloat(editAmount), category: editCategory, paidBy: editPaidBy, date: editDate });
-    addNotification({ type: 'success', title: 'Expense Updated', message: `"${editDescription}" was updated in ${group?.name || 'group'}` });
+    addNotification({ type: 'balance_update', title: 'Expense Updated', message: `"${editDescription}" was updated in ${group?.name || 'group'}`, groupId: expense.groupId });
     toast({ title: "Expense updated" });
     setIsEditOpen(false);
   };
@@ -62,9 +62,11 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
 
   return (
     <>
-      <div className="relative bg-card rounded p-4 border border-border shadow-sm animate-fade-in group w-full hover:border-primary/20 transition-colors duration-150">
+      <div className="relative bg-card rounded p-4 border border-border shadow-sm animate-slide-in group w-full hover:border-primary/20 transition-colors duration-200">
         <div className="flex items-start gap-3 sm:gap-4">
-          <CategoryIcon className={category.color} size={20} />
+          <div className="p-3 rounded bg-accent/10 flex-shrink-0">
+            <CategoryIcon className={category.color} size={20} />
+          </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
@@ -117,65 +119,53 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                   {category.name}
                 </span>
               </div>
-              <div className="flex-shrink-0">
+              <div className="flex items-start gap-1 sm:gap-2 flex-shrink-0">
                 <div className="text-right">
                   <p className="font-display font-bold text-xl sm:text-2xl tracking-tight text-foreground whitespace-nowrap">₹{expense.amount.toLocaleString()}</p>
                   <p className="text-[10px] sm:text-xs text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full whitespace-nowrap">₹{splitAmount.toFixed(0)}/person</p>
                 </div>
-                {/* Action buttons row below amount */}
-                {(canEdit || canDelete || isAdmin) && (
-                  <div className="flex items-center justify-end gap-1 mt-2">
-                    {canEdit && (
+                {canEdit && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                    onClick={openEditDialog}
+                  >
+                    <Pencil size={18} />
+                  </Button>
+                )}
+                {canDelete && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                        onClick={openEditDialog}
+                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity min-h-[44px] min-w-[44px] h-10 w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       >
-                        <Pencil size={16} />
+                        <Trash2 size={18} />
                       </Button>
-                    )}
-                    {canDelete && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                          >
-                            <Trash2 size={16} />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Expense</AlertDialogTitle>
-                            <AlertDialogDescription>Are you sure you want to delete "{expense.description}"?</AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel className="min-h-[44px]">Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground min-h-[44px]">Delete</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                    {isAdmin && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span
-                            tabIndex={0}
-                            role="img"
-                            aria-label="Admin privileges"
-                            className="inline-flex items-center justify-center cursor-default focus:outline-none focus:ring-2 focus:ring-primary/50 rounded"
-                          >
-                            <Shield size={14} className="text-primary flex-shrink-0" />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Admin privileges</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Expense</AlertDialogTitle>
+                        <AlertDialogDescription>Are you sure you want to delete "{expense.description}"?</AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel className="min-h-[44px]">Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground min-h-[44px]">Delete</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+                {isAdmin && (
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Shield size={16} className="text-primary ml-1 flex-shrink-0" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Admin privileges</p>
+                    </TooltipContent>
+                  </Tooltip>
                 )}
               </div>
             </div>
@@ -210,7 +200,7 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                     </p>
                     <div className="space-y-1.5">
                       {expense.lineItems.map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between text-xs p-2.5 rounded border border-border">
+                        <div key={idx} className="flex items-center justify-between text-xs p-2.5 bg-muted/30 rounded border border-border">
                           <div className="flex-1 min-w-0">
                             <span className="truncate block font-medium">{item.description || `Item ${idx + 1}`}</span>
                             {item.assignedTo && item.assignedTo.length > 0 && (

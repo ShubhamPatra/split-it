@@ -7,7 +7,6 @@ import { generateAndEmailReport } from '../utils/exportService.js';
 import { checkAndSendBudgetAlert } from '../utils/emailUtils.js';
 import { notifyUsers } from '../jobs/notificationService.js';
 import { invalidateBalanceCache } from '../jobs/balanceService.js';
-import { invalidateCrossGroupCache } from '../jobs/crossGroupBalanceService.js';
 
 // Helper: Calculate current month spending using aggregation (optimized)
 const getMonthlySpending = async (groupId) => {
@@ -345,15 +344,6 @@ export const createExpense = async (req, res) => {
     await invalidateBalanceCache(groupId);
     await invalidateExpenseCache(groupId);
 
-    // Invalidate cross-group cache for all involved users (Comment 3)
-    const involvedUserIds = new Set([
-      paidBy.toString(),
-      ...(splitAmong || []).map(id => id.toString())
-    ]);
-    for (const userId of involvedUserIds) {
-      invalidateCrossGroupCache(userId);
-    }
-
     // Send notifications for expense participants (optimized)
     const payerName = populatedExpense.paidBy?.name || 'Someone';
     const notifyIds = (splitAmong || []).filter(id => id.toString() !== paidBy.toString());
@@ -529,20 +519,6 @@ export const updateExpense = async (req, res) => {
     await invalidateBalanceCache(expense.groupId._id.toString());
     await invalidateExpenseCache(expense.groupId._id.toString());
 
-    // Invalidate cross-group cache for all involved users (Comment 3)
-    // Gather all potential users from old and new state
-    const involvedUsers = new Set([
-      expense.paidBy._id.toString(),
-      ...expense.splitAmong.map(m => m._id.toString()),
-      paidBy ? paidBy.toString() : '',
-      ...(splitAmong || []).map(id => id.toString())
-    ]);
-    involvedUsers.delete(''); // Remove empty
-
-    for (const userId of involvedUsers) {
-      invalidateCrossGroupCache(userId);
-    }
-
     // Emit socket event to group members
     const io = req.app.get('io');
     if (io) {
@@ -609,15 +585,6 @@ export const deleteExpense = async (req, res) => {
     // Invalidate caches for this group
     await invalidateBalanceCache(groupId.toString());
     await invalidateExpenseCache(groupId.toString());
-
-    // Invalidate cross-group cache for all involved users (Comment 3)
-    const involvedUsers = new Set([
-      expense.paidBy.toString(),
-      ...expense.splitAmong.map(m => m.toString())
-    ]);
-    for (const userId of involvedUsers) {
-      invalidateCrossGroupCache(userId);
-    }
 
     // Emit socket event to group members
     const io = req.app.get('io');

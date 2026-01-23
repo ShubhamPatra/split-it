@@ -10,13 +10,13 @@ const ChatPanel = ({ groupId, groupName, isOpen, onClose, unreadCount }) => {
     <>
       {/* Backdrop */}
       <div 
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:bg-black/20 landscape:bg-black/30"
+        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:bg-black/20"
         onClick={onClose}
       />
       
       {/* Chat Panel */}
       <div 
-        className={`fixed right-0 top-0 h-full w-full sm:w-[420px] md:w-[480px] landscape:w-[85vw] landscape:max-w-[600px] landscape:max-h-[100vh] landscape:overflow-hidden bg-background border-l border-border/50 shadow-2xl z-50 flex flex-col animate-slide-in-right`}
+        className={`fixed right-0 top-0 h-full w-full sm:w-[420px] md:w-[480px] bg-background border-l border-border/50 shadow-2xl z-50 flex flex-col animate-slide-in-right`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 bg-card/80 backdrop-blur-sm">

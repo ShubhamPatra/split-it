@@ -52,7 +52,10 @@
     --ring: 217 100% 55%;
 
     /* Reduced radius system for fintech look */
-    --radius: 0.5rem;
+    --radius: 0.25rem;
+    --radius-sm: 0.125rem;
+    --radius-lg: 0.375rem;
+    --radius-xl: 0.5rem;
 
     /* Semantic colors */
     --success: 169 84% 29%; /* Teal for success */
@@ -165,23 +168,6 @@
     appearance: textfield;
   }
 
-  /* Hide the default calendar picker icon in date inputs to prevent double icons */
-  input[type="date"]::-webkit-calendar-picker-indicator {
-    position: absolute;
-    right: 0;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    opacity: 0;
-    cursor: pointer;
-  }
-  
-  /* Ensure the entire date field is clickable */
-  input[type="date"] {
-    cursor: pointer;
-  }
-
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter var', 'Inter', system-ui, sans-serif;
@@ -220,8 +206,19 @@
 
 @layer utilities {
   /* Flat card styles for fintech look */
-  .card {
-    @apply bg-card border border-border shadow-sm rounded;
+  .glass-card {
+    @apply bg-card border border-border shadow-sm;
+    @apply hover:shadow-md transition-shadow duration-200;
+  }
+
+  .glass-card-elevated {
+    @apply bg-card border border-border shadow-sm;
+    @apply hover:border-primary/20 transition-colors duration-200;
+  }
+
+  .glass-card-interactive {
+    @apply bg-card border border-border shadow-sm;
+    @apply hover:border-primary/30 transition-colors duration-200 cursor-pointer;
   }
 
   .text-balance {
@@ -230,15 +227,77 @@
 
   /* Enhanced animations */
   .animate-fade-in {
-    animation: fadeIn 0.2s ease-out;
+    animation: fadeIn 0.4s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.4s ease-out;
+  }
+
+  .animate-slide-in {
+    animation: slideIn 0.3s ease-out;
+  }
+
+  .animate-slide-in-right {
+    animation: slideInRight 0.3s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.3s ease-out;
   }
 
   @keyframes fadeIn {
     from {
       opacity: 0;
+      transform: translateY(10px);
     }
     to {
       opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes slideInRight {
+    from {
+      opacity: 0;
+      transform: translateX(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
     }
   }
   
@@ -261,7 +320,7 @@
   
   /* Additional safe-area utility for padding-bottom */
   .pb-safe {
-    padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
   }
   
   /* Better mobile scrolling */

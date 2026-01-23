@@ -8,6 +8,18 @@
 import { transporter } from '../config/email.js';
 import { executeJob } from './jobRunner.js';
 
+// Debug log helper (lazy loaded)
+const logEmailEvt = async (event, data = {}) => {
+  if (process.env.DEBUG_ENABLED === 'true') {
+    try {
+      const { logEmailEvent } = await import('../internal/debug/logCollector.js');
+      logEmailEvent(event, data);
+    } catch (e) {
+      // Debug portal not available, ignore
+    }
+  }
+};
+
 import {
   brand,
   formatCurrency,
@@ -31,17 +43,6 @@ import {
   badgeComponent,
 } from '../utils/emailTemplates.js';
 
-// Debug log helper (lazy loaded)
-const logEmailEvt = async (event, data = {}) => {
-  if (process.env.DEBUG_ENABLED === 'true') {
-    try {
-      const { logEmailEvent } = await import('../internal/debug/logCollector.js');
-      logEmailEvent(event, data);
-    } catch (e) {
-      // Debug portal not available, ignore
-    }
-  }
-};
 /**
  * Email templates using the Split-It design system
  */
@@ -476,96 +477,6 @@ export const emailTemplates = {
       `
     ),
   }),
-
-  // ============================================
-  // REPAYMENT REQUEST
-  // ============================================
-  repaymentRequest: (receiverName, requesterName, amount, message, groupNames, currency = 'INR') => ({
-    subject: `Payment request: ${requesterName} is requesting ${formatCurrency(amount, currency)}`,
-    html: buildEmail(
-      { title: 'Payment Request', subtitle: 'Action required', variant: 'warning' },
-      `
-        ${greetingComponent(receiverName)}
-        ${textComponent(`<strong>${requesterName}</strong> has requested payment:`)}
-        
-        ${amountDisplayComponent(amount, {
-          currency,
-          variant: 'warning',
-          label: 'Requested Amount',
-          sublabel: groupNames ? `Across ${groupNames}` : 'Direct payment'
-        })}
-        
-        ${message ? cardComponent(`
-          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-            <tr>
-              <td>
-                <p style="margin: 0 0 8px; font-weight: 600; color: ${brand.colors.textPrimary};">Message from ${requesterName}:</p>
-                <p style="margin: 0; color: ${brand.colors.textSecondary}; font-style: italic;">"${message}"</p>
-              </td>
-            </tr>
-          </table>
-        `, { variant: 'info' }) : ''}
-        
-        ${alertComponent(`This is a friendly reminder from your group member to settle outstanding balances.`, { variant: 'info' })}
-        
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
-          <tr>
-            <td align="center" style="padding-bottom: 12px;">
-              ${buttonComponent('View Details & Pay', `${brand.clientUrl}/settlements?tab=people`, { variant: 'primary', size: 'large' })}
-            </td>
-          </tr>
-          <tr>
-            <td align="center">
-              ${buttonComponent('View Balance', `${brand.clientUrl}/settlements`, { variant: 'secondary' })}
-            </td>
-          </tr>
-        </table>
-        
-        ${textComponent("This is a friendly reminder from your group member. You can settle this balance at your convenience.", { variant: 'small', align: 'center' })}
-      `
-    ),
-  }),
-
-  // ============================================
-  // REPAYMENT CONFIRMED (Comment 7)
-  // ============================================
-  repaymentConfirmed: (receiverName, requesterName, amount, totalAmount, status, groupNames, currency = 'INR') => ({
-    subject: `Payment confirmed: ${requesterName} confirmed receiving ${formatCurrency(amount, currency)}`,
-    html: buildEmail(
-      { title: 'Payment Confirmed', subtitle: 'Payment received', variant: 'success' },
-      `
-        ${greetingComponent(receiverName)}
-        ${textComponent(`<strong>${requesterName}</strong> has confirmed receiving your payment:`)}
-        
-        ${amountDisplayComponent(amount, {
-          currency,
-          variant: 'success',
-          label: status === 'settled' ? 'Payment Confirmed' : 'Partial Payment Confirmed',
-          sublabel: groupNames ? `Across ${groupNames}` : 'Direct payment'
-        })}
-        
-        ${status === 'partially_paid' ? alertComponent(
-          `This is a partial payment of ${formatCurrency(totalAmount, currency)}. Remaining balance: ${formatCurrency(totalAmount - amount, currency)}`,
-          { variant: 'info' }
-        ) : ''}
-        
-        ${status === 'settled' ? alertComponent(
-          `Your payment has been confirmed and the balance is now settled. Thank you!`,
-          { variant: 'success' }
-        ) : ''}
-        
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
-          <tr>
-            <td align="center">
-              ${buttonComponent('View Settlement History', `${brand.clientUrl}/settlements?tab=history`, { variant: 'primary' })}
-            </td>
-          </tr>
-        </table>
-        
-        ${textComponent("Keep track of all your settlements in the app.", { variant: 'small', align: 'center' })}
-      `
-    ),
-  }),
 };
 
 /**
@@ -582,17 +493,18 @@ const processEmailData = (emailData) => {
   if (template && data) {
     const templateFn = emailTemplates[template];
     if (templateFn) {
+      const { inviterName, groupName, inviteUrl, expiresAt, memberName, recipientName, ...rest } = data;
       let generatedEmail;
 
       switch (template) {
         case 'groupInvite':
-          generatedEmail = templateFn(data.inviterName, data.groupName, data.inviteUrl, data.expiresAt);
+          generatedEmail = templateFn(inviterName, groupName, inviteUrl, expiresAt);
           break;
         case 'memberJoined':
-          generatedEmail = templateFn(data.memberName, data.groupName);
+          generatedEmail = templateFn(memberName, groupName);
           break;
         case 'newMemberJoined':
-          generatedEmail = templateFn(data.groupName, data.memberName, data.recipientName);
+          generatedEmail = templateFn(groupName, memberName, recipientName);
           break;
         case 'welcome':
           generatedEmail = templateFn(data.userName || 'User');
@@ -624,18 +536,6 @@ const processEmailData = (emailData) => {
           break;
         case 'settlementReminder':
           generatedEmail = templateFn(data.fromName, data.toName, data.amount, data.groupName, data.currency);
-          break;
-        case 'repaymentRequest':
-          generatedEmail = templateFn(
-            data.receiverName, data.requesterName, data.amount,
-            data.message, data.groupNames, data.currency
-          );
-          break;
-        case 'repaymentConfirmed':
-          generatedEmail = templateFn(
-            data.receiverName, data.requesterName, data.amount,
-            data.totalAmount, data.status, data.groupNames, data.currency
-          );
           break;
         default:
           generatedEmail = templateFn(...Object.values(data));
@@ -724,11 +624,9 @@ export const sendBulkEmails = async (emails) => {
   return results;
 };
 
-const emailService = {
+export default {
   sendEmail,
   sendEmailWithRetry,
   sendBulkEmails,
   emailTemplates,
 };
-
-export default emailService;

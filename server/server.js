@@ -194,7 +194,7 @@ const initializeServer = async () => {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
   const buildPath = path.join(__dirname, '..', 'build');
-
+  
   // Serve specific assets needed for emails (logos, icons)
   app.use('/assets', express.static(buildPath, {
     maxAge: '1y', // Cache for a year (versioned files)
@@ -237,7 +237,7 @@ const initializeServer = async () => {
     if (process.env.DEBUG_ENABLED === 'true') {
       import('./internal/debug/logCollector.js').then(({ logApiError }) => {
         logApiError(err, { path: req.path, method: req.method, statusCode: err.status || 500 });
-      }).catch(() => { });
+      }).catch(() => {});
     }
 
     // Don't leak error details in production

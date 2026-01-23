@@ -43,28 +43,28 @@ export const GroupProvider = ({ children }) => {
   const updateGroupLocally = useCallback((groupId, updates) => {
     setGroups(prev => prev.map(g => {
       if (g.id !== groupId) return g;
-
+      
       // Normalize the updates to ensure members are ID strings, not objects
       const normalizedUpdates = { ...updates };
-
+      
       // Normalize members array if present (handles populated objects from socket events)
       if (normalizedUpdates.members && Array.isArray(normalizedUpdates.members)) {
-        normalizedUpdates.members = normalizedUpdates.members.map(m =>
+        normalizedUpdates.members = normalizedUpdates.members.map(m => 
           (m._id || m.id || m)?.toString()
         );
       }
-
+      
       // Normalize createdBy if present (handles populated objects from socket events)
       if (normalizedUpdates.createdBy && typeof normalizedUpdates.createdBy === 'object') {
         normalizedUpdates.createdBy = (normalizedUpdates.createdBy._id || normalizedUpdates.createdBy.id)?.toString();
       }
-
+      
       // Normalize id/_id
       if (normalizedUpdates._id) {
         normalizedUpdates.id = normalizedUpdates._id.toString();
         delete normalizedUpdates._id;
       }
-
+      
       return { ...g, ...normalizedUpdates };
     }));
   }, []);
@@ -95,37 +95,37 @@ export const GroupProvider = ({ children }) => {
   const updateExpenseLocally = useCallback((expenseId, updates) => {
     setExpenses(prev => prev.map(e => {
       if (e.id !== expenseId) return e;
-
+      
       // Normalize updates to ensure IDs are strings, not populated objects
       const normalizedUpdates = { ...updates };
-
+      
       // Normalize id/_id
       if (normalizedUpdates._id) {
         normalizedUpdates.id = normalizedUpdates._id.toString();
         delete normalizedUpdates._id;
       }
-
+      
       // Normalize groupId (handles populated object from socket events)
       if (normalizedUpdates.groupId && typeof normalizedUpdates.groupId === 'object') {
         normalizedUpdates.groupId = (normalizedUpdates.groupId._id || normalizedUpdates.groupId.id)?.toString();
       } else if (normalizedUpdates.groupId) {
         normalizedUpdates.groupId = normalizedUpdates.groupId.toString();
       }
-
+      
       // Normalize paidBy (handles populated object from socket events)
       if (normalizedUpdates.paidBy && typeof normalizedUpdates.paidBy === 'object') {
         normalizedUpdates.paidBy = (normalizedUpdates.paidBy._id || normalizedUpdates.paidBy.id)?.toString();
       } else if (normalizedUpdates.paidBy) {
         normalizedUpdates.paidBy = normalizedUpdates.paidBy.toString();
       }
-
+      
       // Normalize splitAmong array (handles populated objects from socket events)
       if (normalizedUpdates.splitAmong && Array.isArray(normalizedUpdates.splitAmong)) {
-        normalizedUpdates.splitAmong = normalizedUpdates.splitAmong.map(s =>
+        normalizedUpdates.splitAmong = normalizedUpdates.splitAmong.map(s => 
           (s._id || s.id || s)?.toString()
         );
       }
-
+      
       return { ...e, ...normalizedUpdates };
     }));
   }, []);
@@ -153,36 +153,6 @@ export const GroupProvider = ({ children }) => {
       }
       return [transformed, ...prev];
     });
-
-    // Immediately update balancesByGroup to reflect the settlement in the UI
-    // This provides instant feedback even though pending settlements are excluded
-    // from the standard balance calculation in getGroupBalances()
-    // The balance will be properly recalculated when socket emits balance:update
-    // or when getGroupBalances() is called after cache invalidation
-    setBalancesByGroup(prev => {
-      const groupId = transformed.groupId;
-      if (!prev[groupId]) {
-        // No cached balances for this group, nothing to update
-        // The getGroupBalances fallback will calculate client-side
-        return prev;
-      }
-
-      const currentBalances = { ...prev[groupId] };
-      const fromUserId = transformed.fromUserId;
-      const toUserId = transformed.toUserId;
-      const amount = transformed.amount;
-
-      // Settlement: fromUser paid toUser, so:
-      // - fromUser's balance increases (they paid off debt)
-      // - toUser's balance decreases (they received money owed to them)
-      currentBalances[fromUserId] = (currentBalances[fromUserId] || 0) + amount;
-      currentBalances[toUserId] = (currentBalances[toUserId] || 0) - amount;
-
-      return {
-        ...prev,
-        [groupId]: currentBalances
-      };
-    });
   }, []);
 
   const addGroupLocally = useCallback((group) => {
@@ -206,37 +176,37 @@ export const GroupProvider = ({ children }) => {
   const updateSettlementLocally = useCallback((settlementId, updates) => {
     setSettlements(prev => prev.map(s => {
       if (s.id !== settlementId) return s;
-
+      
       // Normalize updates to ensure IDs are strings, not populated objects
       const normalizedUpdates = { ...updates };
-
+      
       // Normalize id/_id
       if (normalizedUpdates._id) {
         normalizedUpdates.id = normalizedUpdates._id.toString();
         delete normalizedUpdates._id;
       }
-
+      
       // Normalize groupId (handles populated object from socket events)
       if (normalizedUpdates.groupId && typeof normalizedUpdates.groupId === 'object') {
         normalizedUpdates.groupId = (normalizedUpdates.groupId._id || normalizedUpdates.groupId.id)?.toString();
       } else if (normalizedUpdates.groupId) {
         normalizedUpdates.groupId = normalizedUpdates.groupId.toString();
       }
-
+      
       // Normalize fromUserId (handles populated object from socket events)
       if (normalizedUpdates.fromUserId && typeof normalizedUpdates.fromUserId === 'object') {
         normalizedUpdates.fromUserId = (normalizedUpdates.fromUserId._id || normalizedUpdates.fromUserId.id)?.toString();
       } else if (normalizedUpdates.fromUserId) {
         normalizedUpdates.fromUserId = normalizedUpdates.fromUserId.toString();
       }
-
+      
       // Normalize toUserId (handles populated object from socket events)
       if (normalizedUpdates.toUserId && typeof normalizedUpdates.toUserId === 'object') {
         normalizedUpdates.toUserId = (normalizedUpdates.toUserId._id || normalizedUpdates.toUserId.id)?.toString();
       } else if (normalizedUpdates.toUserId) {
         normalizedUpdates.toUserId = normalizedUpdates.toUserId.toString();
       }
-
+      
       return { ...s, ...normalizedUpdates };
     }));
   }, []);
@@ -249,7 +219,7 @@ export const GroupProvider = ({ children }) => {
   const loadUserData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-
+    
     // Clear balance cache to prevent stale balances after refresh
     setBalancesByGroup({});
 
@@ -284,7 +254,7 @@ export const GroupProvider = ({ children }) => {
 
       setGroups(transformedGroups);
       setSettlements(transformedSettlements);
-
+      
       // Reset lazy loading state
       loadedGroupsRef.current = new Set();
       setExpenses([]);
@@ -299,9 +269,9 @@ export const GroupProvider = ({ children }) => {
       groupsData.forEach(g => {
         if (g.createdBy && typeof g.createdBy === 'object') {
           const id = g.createdBy._id?.toString();
-          profilesMap[id] = {
-            id,
-            name: g.createdBy.name,
+          profilesMap[id] = { 
+            id, 
+            name: g.createdBy.name, 
             email: g.createdBy.email,
             upiId: g.createdBy.upiId || ''
           };
@@ -309,9 +279,9 @@ export const GroupProvider = ({ children }) => {
         g.members.forEach(m => {
           if (m && typeof m === 'object') {
             const id = m._id?.toString();
-            profilesMap[id] = {
-              id,
-              name: m.name,
+            profilesMap[id] = { 
+              id, 
+              name: m.name, 
               email: m.email,
               upiId: m.upiId || ''
             };
@@ -329,26 +299,26 @@ export const GroupProvider = ({ children }) => {
   // Lazy load expenses for a specific group
   const loadGroupExpenses = useCallback(async (groupId, forceReload = false) => {
     if (!groupId) return [];
-
+    
     // Skip if already loaded and not forcing reload
     if (loadedGroupsRef.current.has(groupId) && !forceReload) {
       // Access expenses directly instead of using expensesByGroup
       return expenses.filter(e => e.groupId === groupId);
     }
-
+    
     // Use ref for synchronous check to prevent race conditions between renders
     if (loadingGroupsRef.current.has(groupId)) {
       return expenses.filter(e => e.groupId === groupId);
     }
-
+    
     // Mark as loading synchronously BEFORE any async operations
     loadingGroupsRef.current.add(groupId);
     setLoadingGroups(prev => new Set(prev).add(groupId));
-
+    
     try {
       const response = await apiClient.get(`/expenses/group/${groupId}?limit=${EXPENSES_PER_PAGE}`);
       const expensesData = Array.isArray(response) ? response : (response.data || []);
-
+      
       const transformedExpenses = expensesData.map(e => ({
         id: (e._id || e.id)?.toString(),
         groupId: (e.groupId?._id || e.groupId)?.toString(),
@@ -362,19 +332,19 @@ export const GroupProvider = ({ children }) => {
         splitConfig: e.splitConfig,
         receipts: e.receipts || [],
       }));
-
+      
       // Update expenses state - replace expenses for this group
       setExpenses(prev => {
         const otherExpenses = prev.filter(e => e.groupId !== groupId);
         return [...otherExpenses, ...transformedExpenses];
       });
-
+      
       loadedGroupsRef.current.add(groupId);
-
+      
       // Join socket room for real-time updates after initial load
       const { joinGroupRoom } = await import('../lib/socketClient');
       joinGroupRoom(groupId);
-
+      
       return transformedExpenses;
     } catch (error) {
       console.error('Error loading group expenses:', error);
@@ -526,8 +496,8 @@ export const GroupProvider = ({ children }) => {
     try {
       await apiClient.delete(`/groups/${groupId}/members/${memberId}`);
       // Update group locally removing member
-      setGroups(prev => prev.map(g =>
-        g.id === groupId
+      setGroups(prev => prev.map(g => 
+        g.id === groupId 
           ? { ...g, members: g.members.filter(m => m !== memberId) }
           : g
       ));
@@ -543,8 +513,8 @@ export const GroupProvider = ({ children }) => {
     try {
       const response = await apiClient.post(`/groups/${groupId}/invite-code`);
       // Update group locally with new invite code
-      setGroups(prev => prev.map(g =>
-        g.id === groupId
+      setGroups(prev => prev.map(g => 
+        g.id === groupId 
           ? { ...g, inviteCode: response.inviteCode }
           : g
       ));
@@ -563,25 +533,25 @@ export const GroupProvider = ({ children }) => {
         code: code || undefined,
         token: token || undefined,
       });
-
+      
       if (response.group) {
         addGroupLocally(response.group);
-
+        
         // Add profile for group creator
         if (response.group.createdBy && typeof response.group.createdBy === 'object') {
           const creator = response.group.createdBy;
           const creatorId = creator._id?.toString();
           setProfiles(prev => ({
             ...prev,
-            [creatorId]: {
-              id: creatorId,
-              name: creator.name,
+            [creatorId]: { 
+              id: creatorId, 
+              name: creator.name, 
               email: creator.email,
               upiId: creator.upiId || ''
             }
           }));
         }
-
+        
         // Add profiles for new group members
         if (response.group.members) {
           response.group.members.forEach(m => {
@@ -589,9 +559,9 @@ export const GroupProvider = ({ children }) => {
               const memberId = m._id?.toString();
               setProfiles(prev => ({
                 ...prev,
-                [memberId]: {
-                  id: memberId,
-                  name: m.name,
+                [memberId]: { 
+                  id: memberId, 
+                  name: m.name, 
                   email: m.email,
                   upiId: m.upiId || ''
                 }
@@ -611,7 +581,7 @@ export const GroupProvider = ({ children }) => {
   const addMemberToGroupLocally = useCallback((groupId, member) => {
     // Ensure groupId is a string for comparison
     const groupIdStr = groupId?.toString() || groupId;
-
+    
     setGroups(prev => prev.map(g => {
       if (g.id === groupIdStr) {
         const memberId = (member.id || member._id || member)?.toString();
@@ -621,15 +591,15 @@ export const GroupProvider = ({ children }) => {
       }
       return g;
     }));
-
+    
     // Add profile for the new member
     if (member && typeof member === 'object') {
       const memberId = (member.id || member._id)?.toString();
       setProfiles(prev => ({
         ...prev,
-        [memberId]: {
-          id: memberId,
-          name: member.name,
+        [memberId]: { 
+          id: memberId, 
+          name: member.name, 
           email: member.email,
           upiId: member.upiId || ''
         }
@@ -658,15 +628,15 @@ export const GroupProvider = ({ children }) => {
     if (balancesByGroup[groupId]) {
       return balancesByGroup[groupId];
     }
-
+    
     // Fallback to client-side calculation
     const groupExpenses = getGroupExpenses(groupId);
     const groupSettlements = getGroupSettlements(groupId);
-
+    
     // Calculate balances
     const balances = {};
     const group = getGroupById(groupId);
-
+    
     if (!group) return balances;
 
     // Initialize balances
@@ -677,30 +647,14 @@ export const GroupProvider = ({ children }) => {
     // Process expenses
     groupExpenses.forEach(expense => {
       const shares = expense.splitConfig?.shares || {};
-      const splitType = expense.splitConfig?.type || 'equal';
-      const splitAmong = expense.splitAmong || Object.keys(shares);
-
+      
       // Payer gets credited
       balances[expense.paidBy] = (balances[expense.paidBy] || 0) + expense.amount;
-
-      // Calculate debits based on split type
-      if (splitType === 'equal') {
-        // For equal splits, divide amount equally among splitAmong members
-        const shareAmount = expense.amount / splitAmong.length;
-        splitAmong.forEach(memberId => {
-          balances[memberId] = (balances[memberId] || 0) - shareAmount;
-        });
-      } else if (splitType === 'exact' || splitType === 'itemized') {
-        // For exact/itemized splits, use the shares directly
-        Object.entries(shares).forEach(([memberId, amount]) => {
-          balances[memberId] = (balances[memberId] || 0) - amount;
-        });
-      } else if (splitType === 'percentage') {
-        // For percentage splits, calculate from percentages
-        Object.entries(shares).forEach(([memberId, percentage]) => {
-          balances[memberId] = (balances[memberId] || 0) - (percentage / 100) * expense.amount;
-        });
-      }
+      
+      // Each member owes their share
+      Object.entries(shares).forEach(([memberId, amount]) => {
+        balances[memberId] = (balances[memberId] || 0) - amount;
+      });
     });
 
     // Process settlements (only count confirmed settlements for balances)
@@ -712,7 +666,7 @@ export const GroupProvider = ({ children }) => {
       });
 
     return balances;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [balancesByGroup, getGroupExpenses, groups]);
 
   // Get total expenses for a group
@@ -775,7 +729,7 @@ export const GroupProvider = ({ children }) => {
     socket.on('group:updated', (group) => {
       const groupId = (group._id || group.id)?.toString();
       updateGroupLocally(groupId, group);
-
+      
       // Also update profiles from populated members if present
       if (group.members && Array.isArray(group.members)) {
         group.members.forEach(m => {
@@ -799,7 +753,7 @@ export const GroupProvider = ({ children }) => {
     socket.on('group:update', (group) => {
       const groupId = (group._id || group.id)?.toString();
       updateGroupLocally(groupId, group);
-
+      
       // Also update profiles from populated members if present
       if (group.members && Array.isArray(group.members)) {
         group.members.forEach(m => {
@@ -838,10 +792,10 @@ export const GroupProvider = ({ children }) => {
         };
         return [transformed, ...prev];
       });
-
+      
       // Join socket room immediately so client receives expense/settlement/chat updates
       joinGroupRoom(groupId);
-
+      
       // Update profiles from populated members
       if (group.members && Array.isArray(group.members)) {
         group.members.forEach(m => {
@@ -859,7 +813,7 @@ export const GroupProvider = ({ children }) => {
           }
         });
       }
-
+      
       // Update profile for creator if populated
       if (group.createdBy && typeof group.createdBy === 'object' && group.createdBy._id) {
         const creatorId = group.createdBy._id.toString();
@@ -878,7 +832,7 @@ export const GroupProvider = ({ children }) => {
     // New invite-related socket events
     socket.on('group:memberJoined', ({ groupId, member }) => {
       addMemberToGroupLocally(groupId, member);
-
+      
       // Comment 3 fix: Invalidate balance cache or add new member with zero balance
       const memberId = (member.id || member._id || member)?.toString();
       setBalancesByGroup(prev => {
@@ -892,7 +846,7 @@ export const GroupProvider = ({ children }) => {
           }
         };
       });
-
+      
       // If the current user is the one being added, join the socket room
       if (memberId === user?.id) {
         joinGroupRoom(groupId);
@@ -902,7 +856,7 @@ export const GroupProvider = ({ children }) => {
     // Comment 3: Subscribe to aliased events for contract alignment
     socket.on('group:join', ({ groupId, member }) => {
       addMemberToGroupLocally(groupId, member);
-
+      
       // Comment 3 fix: Invalidate balance cache or add new member with zero balance
       const memberId = (member.id || member._id || member)?.toString();
       setBalancesByGroup(prev => {
@@ -916,13 +870,13 @@ export const GroupProvider = ({ children }) => {
           }
         };
       });
-
+      
       // If the current user is the one being added, join the socket room
       if (memberId === user?.id) {
         joinGroupRoom(groupId);
       }
     });
-
+    
     socket.on('group:memberRemoved', ({ groupId, memberId }) => {
       // Check if the current user was removed from the group
       if (memberId === user?.id) {
@@ -946,12 +900,12 @@ export const GroupProvider = ({ children }) => {
         leaveGroupRoom(groupId);
       } else {
         // Another member was removed, just update the members list
-        setGroups(prev => prev.map(g =>
-          g.id === groupId
+        setGroups(prev => prev.map(g => 
+          g.id === groupId 
             ? { ...g, members: g.members.filter(m => m !== memberId) }
             : g
         ));
-
+        
         // Comment 3 fix: Remove the member from balance cache to keep balance view consistent
         setBalancesByGroup(prev => {
           if (!prev[groupId]) return prev;
@@ -984,8 +938,8 @@ export const GroupProvider = ({ children }) => {
         });
         leaveGroupRoom(groupId);
       } else {
-        setGroups(prev => prev.map(g =>
-          g.id === groupId
+        setGroups(prev => prev.map(g => 
+          g.id === groupId 
             ? { ...g, members: g.members.filter(m => m !== memberId) }
             : g
         ));
@@ -1068,17 +1022,8 @@ export const GroupProvider = ({ children }) => {
       socket.off('balance:update');
       // Note: Socket disconnection is now managed by AuthContext
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, addExpenseLocally, updateExpenseLocally, deleteExpenseLocally, addSettlementLocally, updateSettlementLocally, deleteSettlementLocally, updateGroupLocally, addMemberToGroupLocally]);
-
-  // Helper to invalidate balance cache for a specific group
-  const invalidateBalanceCache = useCallback((groupId) => {
-    setBalancesByGroup(prev => {
-      const next = { ...prev };
-      delete next[groupId];
-      return next;
-    });
-  }, []);
 
   // Memoize context value to prevent unnecessary re-renders
   // Functions are stable and adding all to deps would be excessive
@@ -1088,7 +1033,7 @@ export const GroupProvider = ({ children }) => {
     settlements,
     profiles,
     loading,
-    loadingGroups,
+    loadingGroups: loadingGroups.size > 0,
     groupsById,
     expensesByGroup,
     addGroup,
@@ -1111,10 +1056,8 @@ export const GroupProvider = ({ children }) => {
     getUserProfile,
     loadGroupExpenses, // Expose for explicit lazy loading
     refreshData: loadUserData,
-    addSettlementLocally, // Expose for local state updates without API calls
-    invalidateBalanceCache, // Expose to clear balance cache when needed
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [groups, expenses, settlements, profiles, loading, Array.from(loadingGroups).sort().join(','), groupsById, expensesByGroup, loadUserData, joinGroupByInvite, getGroupExpenses, loadGroupExpenses, getGroupBalances, addSettlementLocally, invalidateBalanceCache]);
+  }), [groups, expenses, settlements, profiles, loading, loadingGroups.size, groupsById, expensesByGroup, loadUserData, joinGroupByInvite, getGroupExpenses, loadGroupExpenses, getGroupBalances]);
 
   return (
     <GroupContext.Provider value={contextValue}>

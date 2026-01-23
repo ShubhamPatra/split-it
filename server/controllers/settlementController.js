@@ -1,780 +1,548 @@
-/**
- * Settlement Controller
- * 
- * Handles settlement creation, confirmation, and cross-group settlements
- */
-
 import Settlement from '../models/Settlement.js';
-import RepaymentRequest from '../models/RepaymentRequest.js';
 import Group from '../models/Group.js';
-import { calculateGroupBalances, invalidateBalanceCache } from '../jobs/balanceService.js';
-import {
-    calculateCrossGroupBalances,
-    calculatePersonBalance,
-    distributeSettlementAmount,
-    getGroupsWithBalances as getGroupsWithBalancesService,
-    invalidateCrossGroupCache,
-} from '../jobs/crossGroupBalanceService.js';
-// Socket emitter functions are imported dynamically when needed
+import Notification from '../models/Notification.js';
+import User from '../models/User.js';
+import Message from '../models/Message.js';
+import { validateUpiId, validatePaymentAmount, generateTransactionRef } from '../utils/upiValidation.js';
+import { sendPreferenceEmail } from '../utils/emailUtils.js';
+import { invalidateBalanceCache } from '../jobs/balanceService.js';
 
-/**
- * Get all settlements for the current user
- * @route GET /api/settlements
- */
+// @desc    Get all settlements for user's groups
+// @route   GET /api/settlements
+// @access  Private
 export const getSettlements = async (req, res) => {
-    try {
-        const userId = req.user._id;
+  try {
+    const groups = await Group.find({ members: req.user._id });
+    const groupIds = groups.map(g => g._id);
 
-        const settlements = await Settlement.find({
-            $or: [{ fromUserId: userId }, { toUserId: userId }],
-        })
-            .populate('fromUserId', 'name email')
-            .populate('toUserId', 'name email')
-            .populate('groupId', 'name')
-            .sort({ createdAt: -1 })
-            .limit(100)
-            .lean();
+    const settlements = await Settlement.find({ groupId: { $in: groupIds } })
+      .populate('fromUserId', 'name email')
+      .populate('toUserId', 'name email')
+      .populate('groupId', 'name')
+      .sort({ settledAt: -1 });
 
-        res.json(settlements);
-    } catch (error) {
-        console.error('Error fetching settlements:', error);
-        res.status(500).json({ message: 'Failed to fetch settlements', error: error.message });
-    }
+    res.json(settlements);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
-/**
- * Get settlements by group
- * @route GET /api/settlements/group/:groupId
- */
+// @desc    Get settlements by group
+// @route   GET /api/settlements/group/:groupId
+// @access  Private
 export const getSettlementsByGroup = async (req, res) => {
-    try {
-        const { groupId } = req.params;
-        const userId = req.user._id;
+  try {
+    const group = await Group.findById(req.params.groupId);
 
-        // Verify user is a member of the group
-        const group = await Group.findById(groupId);
-        if (!group) {
-            return res.status(404).json({ message: 'Group not found' });
-        }
-
-        if (!group.members.includes(userId)) {
-            return res.status(403).json({ message: 'Not authorized to view this group' });
-        }
-
-        const settlements = await Settlement.find({ groupId })
-            .populate('fromUserId', 'name email')
-            .populate('toUserId', 'name email')
-            .sort({ createdAt: -1 })
-            .lean();
-
-        res.json(settlements);
-    } catch (error) {
-        console.error('Error fetching group settlements:', error);
-        res.status(500).json({ message: 'Failed to fetch settlements', error: error.message });
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
     }
+
+    // Check if user is a member
+    if (!group.members.includes(req.user._id)) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    const settlements = await Settlement.find({ groupId: req.params.groupId })
+      .populate('fromUserId', 'name email')  // Remove upiId from populate
+      .populate('toUserId', 'name email')
+      .sort({ settledAt: -1 })
+      .lean()
+      .limit(50);
+
+    res.json(settlements);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
-/**
- * Create a new settlement
- * @route POST /api/settlements
- */
+// @desc    Create new settlement
+// @route   POST /api/settlements
+// @access  Private
 export const createSettlement = async (req, res) => {
-    try {
-        const { groupId, fromUserId, toUserId, amount, paymentMethod, paymentNotes, transactionRef, idempotencyKey } = req.body;
-        const currentUserId = req.user._id;
+  try {
+    const { groupId, fromUserId, toUserId, amount, currency, settledAt, paymentMethod, paymentStatus, transactionRef } = req.body;
 
-        // Validation
-        if (!groupId || !fromUserId || !toUserId || !amount) {
-            return res.status(400).json({ message: 'Missing required fields' });
-        }
-
-        if (amount <= 0) {
-            return res.status(400).json({ message: 'Amount must be greater than 0' });
-        }
-
-        // Verify group exists and user is a member
-        const group = await Group.findById(groupId);
-        if (!group) {
-            return res.status(404).json({ message: 'Group not found' });
-        }
-
-        if (!group.members.includes(currentUserId)) {
-            return res.status(403).json({ message: 'Not authorized to create settlement in this group' });
-        }
-
-        // Verify both users are members
-        if (!group.members.includes(fromUserId) || !group.members.includes(toUserId)) {
-            return res.status(400).json({ message: 'Both users must be members of the group' });
-        }
-
-        // Check for duplicate settlement (within 1 minute with same amount)
-        const oneMinuteAgo = new Date(Date.now() - 60000);
-        const duplicateSettlement = await Settlement.findOne({
-            groupId,
-            fromUserId,
-            toUserId,
-            amount,
-            createdAt: { $gte: oneMinuteAgo },
-        });
-
-        if (duplicateSettlement) {
-            return res.status(409).json({
-                message: 'Duplicate settlement detected. Please wait before creating another identical settlement.',
-                existingSettlement: duplicateSettlement,
-            });
-        }
-
-        // Get current balances to validate
-        const balanceResult = await calculateGroupBalances(groupId);
-        const fromUserBalance = balanceResult.balances[fromUserId.toString()] || 0;
-
-        // Check if settlement amount exceeds balance (with some tolerance)
-        if (fromUserBalance >= 0 && amount > fromUserBalance + 0.01) {
-            return res.status(400).json({
-                message: 'Settlement amount exceeds balance',
-                currentBalance: fromUserBalance,
-            });
-        }
-
-        // Create settlement
-        const settlement = new Settlement({
-            groupId,
-            fromUserId,
-            toUserId,
-            amount,
-            paymentMethod: paymentMethod || 'cash',
-            paymentNotes,
-            transactionRef,
-            idempotencyKey,
-            paymentStatus: 'pending',
-            paymentInitiatedAt: new Date(),
-        });
-
-        await settlement.save();
-
-        // Populate for response
-        await settlement.populate('fromUserId', 'name email');
-        await settlement.populate('toUserId', 'name email');
-        await settlement.populate('groupId', 'name');
-
-        // Invalidate cache
-        invalidateBalanceCache(groupId);
-
-        // Emit socket event
-        const io = req.app.get('io');
-        if (io) {
-            const { emitToGroup } = await import('../utils/socketEmitter.js');
-            emitToGroup(io, groupId, 'settlement:created', settlement);
-        }
-
-        res.status(201).json(settlement);
-    } catch (error) {
-        console.error('Error creating settlement:', error);
-        res.status(500).json({ message: 'Failed to create settlement', error: error.message });
+    // Validate amount
+    const amountValidation = validatePaymentAmount(amount);
+    if (!amountValidation.isValid) {
+      return res.status(400).json({ message: amountValidation.error });
     }
+
+    // Verify group exists and user is a member
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    if (!group.members.includes(req.user._id)) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    // Validate both parties are group members
+    const memberStrings = group.members.map(m => m.toString());
+    if (!memberStrings.includes(fromUserId.toString())) {
+      return res.status(400).json({ message: 'Payer (fromUser) must be a group member' });
+    }
+    if (!memberStrings.includes(toUserId.toString())) {
+      return res.status(400).json({ message: 'Receiver (toUser) must be a group member' });
+    }
+
+    // Caller must be a participant (fromUser or toUser) or group admin
+    const isFromUser = fromUserId.toString() === req.user._id.toString();
+    const isToUser = toUserId.toString() === req.user._id.toString();
+    const isAdmin = group.createdBy.toString() === req.user._id.toString();
+    if (!isFromUser && !isToUser && !isAdmin) {
+      return res.status(403).json({ message: 'Only settlement participants or group admin can create this settlement' });
+    }
+
+    // If payment method is UPI, validate receiver's UPI ID
+    if (paymentMethod === 'upi') {
+      const receiver = await User.findById(toUserId);
+      if (!receiver) {
+        return res.status(404).json({ message: 'Receiver not found' });
+      }
+
+      if (!receiver.upiId) {
+        return res.status(400).json({ message: 'Receiver has not set up UPI ID' });
+      }
+
+      const upiValidation = validateUpiId(receiver.upiId);
+      if (!upiValidation.isValid) {
+        return res.status(400).json({
+          message: 'Receiver has invalid UPI ID',
+          error: upiValidation.error
+        });
+      }
+    }
+
+    // Generate transaction reference if not provided
+    const finalTransactionRef = transactionRef || generateTransactionRef();
+
+    const settlement = await Settlement.create({
+      groupId,
+      fromUserId,
+      toUserId,
+      amount,
+      currency: currency || 'INR',
+      settledAt: settledAt || new Date().toISOString().split('T')[0],
+      paymentMethod: paymentMethod || 'cash',
+      paymentStatus: paymentStatus || 'pending',
+      transactionRef: finalTransactionRef,
+      paymentInitiatedAt: paymentMethod === 'upi' ? new Date() : undefined,
+    });
+
+    const populatedSettlement = await Settlement.findById(settlement._id)
+      .populate('fromUserId', 'name email upiId')
+      .populate('toUserId', 'name email upiId')
+      .populate('groupId', 'name');
+
+    // Create notification for the receiver
+    const payer = await User.findById(fromUserId);
+    await Notification.create({
+      userId: toUserId,
+      type: 'info',
+      title: paymentMethod === 'upi' ? 'UPI Payment Received' : 'Payment Received',
+      message: `${payer.name} has sent you ₹${amount} payment${paymentMethod === 'upi' ? ' via UPI' : ''}. Please confirm once you receive it.`,
+      actionType: 'confirm_payment',
+      relatedId: settlement._id,
+      actionCompleted: false,
+    });
+
+    // Send settlement confirmation emails to both parties
+    const receiver = await User.findById(toUserId);
+
+    // Email to payer
+    await sendPreferenceEmail(fromUserId, 'settlementConfirmation', {
+      to: payer.email,
+      template: 'settlementConfirmation',
+      data: {
+        payerName: payer.name,
+        receiverName: receiver.name,
+        amount,
+        groupName: group.name,
+        transactionRef: finalTransactionRef,
+        paymentMethod,
+        isReceiver: false,
+        currency: currency || 'INR',
+      },
+    });
+
+    // Email to receiver
+    await sendPreferenceEmail(toUserId, 'settlementConfirmation', {
+      to: receiver.email,
+      template: 'settlementConfirmation',
+      data: {
+        payerName: payer.name,
+        receiverName: receiver.name,
+        amount,
+        groupName: group.name,
+        transactionRef: finalTransactionRef,
+        paymentMethod,
+        isReceiver: true,
+        currency: currency || 'INR',
+      },
+    });
+
+    // Invalidate balance cache for this group before emitting
+    invalidateBalanceCache(groupId);
+
+    // Emit socket event to group members
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, groupId, 'settlement:created', populatedSettlement);
+
+        // Emit balance update (cache already invalidated above)
+        try {
+          const { calculateGroupBalances } = await import('../jobs/balanceService.js');
+          const result = await calculateGroupBalances(groupId);
+          emitBalanceUpdate(io, groupId, result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for settlement creation:', balanceError);
+          // Don't fail the request if balance emission fails
+        }
+
+        // Create system message for chat
+        try {
+          const systemMessage = await Message.create({
+            groupId,
+            senderId: fromUserId,
+            content: `${payer.name} paid ${receiver.name} ${currency || 'INR'}${amount}${paymentMethod === 'upi' ? ' via UPI' : ''}`,
+            type: 'system',
+            metadata: {
+              settlementId: settlement._id,
+              action: 'created',
+            },
+            readBy: [fromUserId, toUserId],
+          });
+
+          const populatedSystemMessage = await Message.findById(systemMessage._id)
+            .populate('senderId', 'name email')
+            .lean();
+
+          emitToGroup(io, groupId, 'chat:new', populatedSystemMessage);
+        } catch (msgError) {
+          console.error('Error creating system message for settlement:', msgError);
+          // Don't fail the request if message creation fails
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket events for settlement creation:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
+
+    res.status(201).json(populatedSettlement);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
-/**
- * Update a settlement
- * @route PUT /api/settlements/:id
- */
+// @desc    Update settlement
+// @route   PUT /api/settlements/:id
+// @access  Private
 export const updateSettlement = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { paymentMethod, paymentNotes, transactionRef } = req.body;
-        const userId = req.user._id;
+  try {
+    const settlement = await Settlement.findById(req.params.id).populate('groupId');
 
-        const settlement = await Settlement.findById(id);
-        if (!settlement) {
-            return res.status(404).json({ message: 'Settlement not found' });
-        }
-
-        // Only the payer can update
-        if (settlement.fromUserId.toString() !== userId.toString()) {
-            return res.status(403).json({ message: 'Not authorized to update this settlement' });
-        }
-
-        // Update fields
-        if (paymentMethod) settlement.paymentMethod = paymentMethod;
-        if (paymentNotes !== undefined) settlement.paymentNotes = paymentNotes;
-        if (transactionRef !== undefined) settlement.transactionRef = transactionRef;
-
-        await settlement.save();
-
-        await settlement.populate('fromUserId', 'name email');
-        await settlement.populate('toUserId', 'name email');
-        await settlement.populate('groupId', 'name');
-
-        // Emit socket event
-        const io = req.app.get('io');
-        if (io) {
-            const { emitToGroup } = await import('../utils/socketEmitter.js');
-            emitToGroup(io, settlement.groupId, 'settlement:updated', settlement);
-        }
-
-        res.json(settlement);
-    } catch (error) {
-        console.error('Error updating settlement:', error);
-        res.status(500).json({ message: 'Failed to update settlement', error: error.message });
+    if (!settlement) {
+      return res.status(404).json({ message: 'Settlement not found' });
     }
+
+    // Check if user is a group member
+    if (!settlement.groupId.members.includes(req.user._id)) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    // Only participants (fromUser or toUser) or group admin can modify
+    const isFromUser = settlement.fromUserId.toString() === req.user._id.toString();
+    const isToUser = settlement.toUserId.toString() === req.user._id.toString();
+    const isAdmin = settlement.groupId.createdBy.toString() === req.user._id.toString();
+    if (!isFromUser && !isToUser && !isAdmin) {
+      return res.status(403).json({ message: 'Only settlement participants or group admin can modify this settlement' });
+    }
+
+    const { amount, currency, settledAt, paymentMethod, paymentStatus } = req.body;
+
+    if (amount !== undefined) settlement.amount = amount;
+    if (currency !== undefined) settlement.currency = currency;
+    if (settledAt !== undefined) settlement.settledAt = settledAt;
+    if (paymentMethod !== undefined) settlement.paymentMethod = paymentMethod;
+    if (paymentStatus !== undefined) settlement.paymentStatus = paymentStatus;
+
+    await settlement.save();
+
+    const updatedSettlement = await Settlement.findById(settlement._id)
+      .populate('fromUserId', 'name email')
+      .populate('toUserId', 'name email')
+      .populate('groupId', 'name');
+
+    // Invalidate balance cache for this group before emitting
+    invalidateBalanceCache(settlement.groupId._id.toString());
+
+    // Emit socket event to group members
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, settlement.groupId._id.toString(), 'settlement:updated', updatedSettlement);
+
+        // Emit balance update (cache already invalidated above)
+        try {
+          const { calculateGroupBalances } = await import('../jobs/balanceService.js');
+          const result = await calculateGroupBalances(settlement.groupId._id.toString());
+          emitBalanceUpdate(io, settlement.groupId._id.toString(), result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for settlement update:', balanceError);
+          // Don't fail the request if balance emission fails
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket events for settlement update:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
+
+    res.json(updatedSettlement);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
-/**
- * Delete a settlement
- * @route DELETE /api/settlements/:id
- */
+// @desc    Delete settlement
+// @route   DELETE /api/settlements/:id
+// @access  Private
 export const deleteSettlement = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.user._id;
+  try {
+    const settlement = await Settlement.findById(req.params.id).populate('groupId');
 
-        const settlement = await Settlement.findById(id);
-        if (!settlement) {
-            return res.status(404).json({ message: 'Settlement not found' });
-        }
-
-        // Only the payer can delete, and only if not confirmed
-        if (settlement.fromUserId.toString() !== userId.toString()) {
-            return res.status(403).json({ message: 'Not authorized to delete this settlement' });
-        }
-
-        if (settlement.paymentStatus === 'confirmed') {
-            return res.status(400).json({ message: 'Cannot delete confirmed settlement' });
-        }
-
-        const groupId = settlement.groupId;
-        await Settlement.findByIdAndDelete(id);
-
-        // Invalidate cache
-        invalidateBalanceCache(groupId);
-
-        // Emit socket event
-        const io = req.app.get('io');
-        if (io) {
-            const { emitToGroup } = await import('../utils/socketEmitter.js');
-            emitToGroup(io, groupId, 'settlement:deleted', { settlementId: id });
-        }
-
-        res.json({ message: 'Settlement deleted successfully' });
-    } catch (error) {
-        console.error('Error deleting settlement:', error);
-        res.status(500).json({ message: 'Failed to delete settlement', error: error.message });
+    if (!settlement) {
+      return res.status(404).json({ message: 'Settlement not found' });
     }
+
+    // Check if user is a group member
+    if (!settlement.groupId.members.includes(req.user._id)) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    // Only participants (fromUser or toUser) or group admin can delete
+    const isFromUser = settlement.fromUserId.toString() === req.user._id.toString();
+    const isToUser = settlement.toUserId.toString() === req.user._id.toString();
+    const isAdmin = settlement.groupId.createdBy.toString() === req.user._id.toString();
+    if (!isFromUser && !isToUser && !isAdmin) {
+      return res.status(403).json({ message: 'Only settlement participants or group admin can delete this settlement' });
+    }
+
+    const groupId = settlement.groupId._id.toString();
+    await Settlement.findByIdAndDelete(req.params.id);
+
+    // Invalidate balance cache for this group before emitting
+    invalidateBalanceCache(groupId);
+
+    // Emit socket event to group members
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, groupId, 'settlement:deleted', { settlementId: req.params.id });
+
+        // Emit balance update (cache already invalidated above)
+        try {
+          const { calculateGroupBalances } = await import('../jobs/balanceService.js');
+          const result = await calculateGroupBalances(groupId);
+          emitBalanceUpdate(io, groupId, result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for settlement deletion:', balanceError);
+          // Don't fail the request if balance emission fails
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket events for settlement deletion:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
+
+    res.json({ message: 'Settlement deleted successfully', success: true });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
-/**
- * Confirm payment receipt
- * @route POST /api/settlements/:id/confirm
- */
+// @desc    Confirm payment receipt (receiver only)
+// @route   POST /api/settlements/:id/confirm
+// @access  Private
 export const confirmPaymentReceipt = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.user._id;
+  try {
+    const settlement = await Settlement.findById(req.params.id)
+      .populate('groupId')
+      .populate('fromUserId', 'name email')
+      .populate('toUserId', 'name email');
 
-        const settlement = await Settlement.findById(id);
-        if (!settlement) {
-            return res.status(404).json({ message: 'Settlement not found' });
-        }
-
-        // Only the receiver can confirm
-        if (settlement.toUserId.toString() !== userId.toString()) {
-            return res.status(403).json({ message: 'Not authorized to confirm this settlement' });
-        }
-
-        if (settlement.paymentStatus === 'confirmed') {
-            return res.status(400).json({ message: 'Settlement already confirmed' });
-        }
-
-        settlement.paymentStatus = 'confirmed';
-        settlement.paymentConfirmedAt = new Date();
-        await settlement.save();
-
-        await settlement.populate('fromUserId', 'name email');
-        await settlement.populate('toUserId', 'name email');
-        await settlement.populate('groupId', 'name');
-
-        // Invalidate cache
-        invalidateBalanceCache(settlement.groupId);
-        if (settlement.isCrossGroup) {
-            invalidateCrossGroupCache(settlement.fromUserId);
-            invalidateCrossGroupCache(settlement.toUserId);
-        }
-
-        // Emit socket event
-        const io = req.app.get('io');
-        if (io) {
-            const { emitToGroup } = await import('../utils/socketEmitter.js');
-            emitToGroup(io, settlement.groupId, 'settlement:confirmed', settlement);
-        }
-
-        res.json(settlement);
-    } catch (error) {
-        console.error('Error confirming settlement:', error);
-        res.status(500).json({ message: 'Failed to confirm settlement', error: error.message });
+    if (!settlement) {
+      return res.status(404).json({ message: 'Settlement not found' });
     }
+
+    // Only the receiver can confirm payment receipt
+    if (settlement.toUserId._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the payment receiver can confirm receipt' });
+    }
+
+    // Check if already confirmed
+    if (settlement.paymentStatus === 'confirmed') {
+      return res.status(400).json({ message: 'Payment already confirmed' });
+    }
+
+    // Update settlement status
+    settlement.paymentStatus = 'confirmed';
+    settlement.paymentConfirmedAt = new Date();
+    await settlement.save();
+
+    // Mark notification as completed
+    await Notification.updateOne(
+      { relatedId: settlement._id, actionType: 'confirm_payment', userId: req.user._id },
+      { actionCompleted: true, read: true }
+    );
+
+    // Notify the payer that payment was confirmed
+    await Notification.create({
+      userId: settlement.fromUserId._id,
+      type: 'success',
+      title: 'Payment Confirmed',
+      message: `${settlement.toUserId.name} confirmed receiving ₹${settlement.amount} payment.`,
+      actionType: 'none',
+    });
+
+    const updatedSettlement = await Settlement.findById(settlement._id)
+      .populate('fromUserId', 'name email')
+      .populate('toUserId', 'name email')
+      .populate('groupId', 'name');
+
+    // Invalidate balance cache for this group before emitting
+    invalidateBalanceCache(settlement.groupId._id.toString());
+
+    // Emit socket event to group members for real-time update
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, settlement.groupId._id.toString(), 'settlement:updated', updatedSettlement);
+
+        // Emit balance update (cache already invalidated above)
+        try {
+          const { calculateGroupBalances } = await import('../jobs/balanceService.js');
+          const result = await calculateGroupBalances(settlement.groupId._id.toString());
+          emitBalanceUpdate(io, settlement.groupId._id.toString(), result.balances);
+        } catch (balanceError) {
+          console.error('Error emitting balance update for payment confirmation:', balanceError);
+          // Don't fail the request if balance emission fails
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket events for payment confirmation:', socketError);
+        // Don't fail the request if socket emission fails
+      }
+    }
+
+    // Send push notification to the payer about confirmation
+    try {
+      const { sendPushToUser } = await import('../utils/pushNotifier.js');
+      await sendPushToUser(settlement.fromUserId._id.toString(), {
+        title: 'Payment Confirmed',
+        body: `${settlement.toUserId.name} confirmed receiving ₹${settlement.amount} payment.`,
+        icon: '/logo192.png',
+        data: { url: `/groups/${settlement.groupId._id}` },
+      });
+    } catch (pushError) {
+      console.error('Push notification failed:', pushError);
+      // Don't fail the request if push fails
+    }
+
+    res.json(updatedSettlement);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
-/**
- * Reject payment receipt
- * @route POST /api/settlements/:id/reject
- */
+// @desc    Reject payment receipt (receiver didn't receive payment)
+// @route   POST /api/settlements/:id/reject
+// @access  Private
 export const rejectPaymentReceipt = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.user._id;
+  try {
+    const { reason } = req.body;
+    
+    const settlement = await Settlement.findById(req.params.id)
+      .populate('groupId')
+      .populate('fromUserId', 'name email')
+      .populate('toUserId', 'name email');
 
-        const settlement = await Settlement.findById(id);
-        if (!settlement) {
-            return res.status(404).json({ message: 'Settlement not found' });
-        }
-
-        // Only the receiver can reject
-        if (settlement.toUserId.toString() !== userId.toString()) {
-            return res.status(403).json({ message: 'Not authorized to reject this settlement' });
-        }
-
-        settlement.paymentStatus = 'failed';
-        await settlement.save();
-
-        await settlement.populate('fromUserId', 'name email');
-        await settlement.populate('toUserId', 'name email');
-        await settlement.populate('groupId', 'name');
-
-        // Emit socket event
-        const io = req.app.get('io');
-        if (io) {
-            const { emitToGroup } = await import('../utils/socketEmitter.js');
-            emitToGroup(io, settlement.groupId, 'settlement:rejected', settlement);
-        }
-
-        res.json(settlement);
-    } catch (error) {
-        console.error('Error rejecting settlement:', error);
-        res.status(500).json({ message: 'Failed to reject settlement', error: error.message });
+    if (!settlement) {
+      return res.status(404).json({ message: 'Settlement not found' });
     }
-};
 
-/**
- * Get people with balances (cross-group)
- * @route GET /api/settlements/people
- */
-export const getPeopleWithBalances = async (req, res) => {
-    try {
-        const userId = req.user._id;
-
-        const result = await calculateCrossGroupBalances(userId);
-
-        res.json(result);
-    } catch (error) {
-        console.error('Error fetching people with balances:', error);
-        res.status(500).json({ message: 'Failed to fetch balances', error: error.message });
+    // Only the receiver can reject payment receipt
+    if (settlement.toUserId._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the payment receiver can reject receipt' });
     }
-};
 
-/**
- * Get balance with a specific person
- * @route GET /api/settlements/people/:otherUserId
- */
-export const getPersonBalance = async (req, res) => {
-    try {
-        const { otherUserId } = req.params;
-        const userId = req.user._id;
-
-        const result = await calculatePersonBalance(userId, otherUserId);
-
-        res.json(result);
-    } catch (error) {
-        console.error('Error fetching person balance:', error);
-        res.status(500).json({ message: 'Failed to fetch balance', error: error.message });
+    // Check if already confirmed
+    if (settlement.paymentStatus === 'confirmed') {
+      return res.status(400).json({ message: 'Cannot reject an already confirmed payment' });
     }
-};
 
-/**
- * Create cross-group settlement
- * @route POST /api/settlements/cross-group
- */
-export const createCrossGroupSettlement = async (req, res) => {
-    try {
-        const { toUserId, amount, paymentMethod, paymentNotes, transactionRef, idempotencyKey, paymentStatus, isReceiverInitiated } = req.body;
-        const currentUserId = req.user._id;
-
-        // Validation
-        if (!toUserId || !amount) {
-            return res.status(400).json({ message: 'Missing required fields' });
-        }
-
-        if (amount <= 0) {
-            return res.status(400).json({ message: 'Amount must be greater than 0' });
-        }
-
-        // Determine the actual payer and receiver based on who initiated
-        // If receiver initiated (marking as paid), swap the direction
-        // because toUserId is actually the payer in this case
-        let actualFromUserId, actualToUserId;
-        
-        if (isReceiverInitiated) {
-            // Current user is the receiver marking payment as received
-            // toUserId is the person who paid (the debtor)
-            actualFromUserId = toUserId;
-            actualToUserId = currentUserId;
-        } else {
-            // Current user is the payer
-            // toUserId is the receiver
-            actualFromUserId = currentUserId;
-            actualToUserId = toUserId;
-        }
-
-        // Get distribution plan using the actual payer's perspective
-        const distribution = await distributeSettlementAmount(actualFromUserId, actualToUserId, amount);
-
-        if (!distribution || distribution.distributions.length === 0) {
-            return res.status(400).json({ message: 'No balances found to settle' });
-        }
-
-        // Create settlements for each affected group
-        const settlements = [];
-        const affectedGroupIds = [];
-
-        for (const dist of distribution.distributions) {
-            const settlement = new Settlement({
-                groupId: dist.groupId,
-                fromUserId: actualFromUserId,
-                toUserId: actualToUserId,
-                amount: dist.amount,
-                paymentMethod: paymentMethod || 'cash',
-                paymentNotes,
-                transactionRef,
-                paymentStatus: paymentStatus || 'pending',
-                paymentInitiatedAt: new Date(),
-                paymentConfirmedAt: paymentStatus === 'confirmed' ? new Date() : undefined,
-                isCrossGroup: true,
-                affectedGroups: distribution.distributions.map(d => d.groupId),
-                distributionDetails: distribution.distributions.map(d => ({
-                    groupId: d.groupId,
-                    amount: d.amount,
-                    originalBalance: d.originalBalance,
-                })),
-                crossGroupMetadata: {
-                    totalGroupsInvolved: distribution.affectedGroupCount,
-                    settlementStrategy: distribution.strategy,
-                    isReceiverInitiated: isReceiverInitiated || false,
-                },
-                // Only set idempotencyKey if provided (to avoid null duplicate key errors)
-                ...(idempotencyKey && { idempotencyKey: `${idempotencyKey}-${dist.groupId}` }),
-            });
-
-            await settlement.save();
-            settlements.push(settlement);
-            affectedGroupIds.push(dist.groupId);
-        }
-
-        // Populate settlements
-        for (const settlement of settlements) {
-            await settlement.populate('fromUserId', 'name email');
-            await settlement.populate('toUserId', 'name email');
-            await settlement.populate('groupId', 'name');
-        }
-
-        // Invalidate caches
-        affectedGroupIds.forEach(groupId => invalidateBalanceCache(groupId));
-        invalidateCrossGroupCache(actualFromUserId);
-        invalidateCrossGroupCache(actualToUserId);
-
-        // Emit socket events
-        const io = req.app.get('io');
-        if (io) {
-            const { emitToGroup } = await import('../utils/socketEmitter.js');
-            affectedGroupIds.forEach(groupId => {
-                emitToGroup(io, groupId, 'settlement:created', settlements.find(s => s.groupId._id.toString() === groupId));
-            });
-        }
-
-        res.status(201).json({
-            settlements,
-            distribution,
-            totalAmount: amount,
-            affectedGroups: distribution.affectedGroupCount,
-        });
-    } catch (error) {
-        console.error('Error creating cross-group settlement:', error);
-        res.status(500).json({ message: 'Failed to create settlement', error: error.message });
+    // Check if already rejected/failed
+    if (settlement.paymentStatus === 'failed') {
+      return res.status(400).json({ message: 'Payment already marked as not received' });
     }
-};
 
-/**
- * Get groups with balances
- * @route GET /api/settlements/groups
- */
-export const getGroupsWithBalances = async (req, res) => {
-    try {
-        const userId = req.user._id;
+    // Update settlement status to failed
+    settlement.paymentStatus = 'failed';
+    settlement.paymentNotes = reason || 'Payment not received by recipient';
+    await settlement.save();
 
-        const groups = await getGroupsWithBalancesService(userId);
+    // Mark notification as completed
+    await Notification.updateOne(
+      { relatedId: settlement._id, actionType: 'confirm_payment', userId: req.user._id },
+      { actionCompleted: true, read: true }
+    );
 
-        res.json(groups);
-    } catch (error) {
-        console.error('Error fetching groups with balances:', error);
-        res.status(500).json({ message: 'Failed to fetch groups', error: error.message });
+    // Notify the payer that payment was NOT received
+    await Notification.create({
+      userId: settlement.fromUserId._id,
+      type: 'warning',
+      title: 'Payment Not Received',
+      message: `${settlement.toUserId.name} reported they did not receive the ₹${settlement.amount} payment.${reason ? ` Reason: ${reason}` : ''} Please try again or use a different payment method.`,
+      actionType: 'none',
+    });
+
+    const updatedSettlement = await Settlement.findById(settlement._id)
+      .populate('fromUserId', 'name email')
+      .populate('toUserId', 'name email')
+      .populate('groupId', 'name');
+
+    // Emit socket event to group members for real-time update
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToGroup } = await import('../utils/socketEmitter.js');
+        emitToGroup(io, settlement.groupId._id.toString(), 'settlement:updated', updatedSettlement);
+      } catch (socketError) {
+        console.error('Error emitting socket events for payment rejection:', socketError);
+      }
     }
-};
 
-/**
- * Get settlement history
- * @route GET /api/settlements/history
- */
-export const getSettlementHistory = async (req, res) => {
+    // Send push notification to the payer
     try {
-        const userId = req.user._id;
-        const { limit = 50, skip = 0 } = req.query;
-
-        const settlements = await Settlement.find({
-            $or: [{ fromUserId: userId }, { toUserId: userId }],
-            paymentStatus: 'confirmed',
-        })
-            .populate('fromUserId', 'name email')
-            .populate('toUserId', 'name email')
-            .populate('groupId', 'name')
-            .sort({ paymentConfirmedAt: -1 })
-            .limit(parseInt(limit))
-            .skip(parseInt(skip))
-            .lean();
-
-        const total = await Settlement.countDocuments({
-            $or: [{ fromUserId: userId }, { toUserId: userId }],
-            paymentStatus: 'confirmed',
-        });
-
-        res.json({
-            settlements,
-            total,
-            limit: parseInt(limit),
-            skip: parseInt(skip),
-        });
-    } catch (error) {
-        console.error('Error fetching settlement history:', error);
-        res.status(500).json({ message: 'Failed to fetch history', error: error.message });
+      const { sendPushToUser } = await import('../utils/pushNotifier.js');
+      await sendPushToUser(settlement.fromUserId._id.toString(), {
+        title: 'Payment Not Received',
+        body: `${settlement.toUserId.name} reported they did not receive ₹${settlement.amount}. Please verify and try again.`,
+        icon: '/logo192.png',
+        data: { url: `/groups/${settlement.groupId._id}` },
+      });
+    } catch (pushError) {
+      console.error('Push notification failed:', pushError);
     }
-};
 
-/**
- * Create repayment request
- * @route POST /api/settlements/repayment-request
- */
-export const createRepaymentRequest = async (req, res) => {
-    try {
-        const { receiverId, amount, message } = req.body;
-        const requesterId = req.user._id;
-
-        // Validation
-        if (!receiverId || !amount) {
-            return res.status(400).json({ message: 'Missing required fields' });
-        }
-
-        if (amount <= 0) {
-            return res.status(400).json({ message: 'Amount must be greater than 0' });
-        }
-
-        if (requesterId.toString() === receiverId.toString()) {
-            return res.status(400).json({ message: 'Cannot request payment from yourself' });
-        }
-
-        // Check cooldown period
-        const canRequest = await RepaymentRequest.checkCooldownPeriod(requesterId, receiverId);
-        if (!canRequest) {
-            return res.status(429).json({
-                message: 'Please wait 24 hours before sending another request to this person',
-            });
-        }
-
-        // Get balance details
-        const personBalance = await calculatePersonBalance(requesterId, receiverId);
-
-        if (personBalance.netBalance <= 0) {
-            return res.status(400).json({ message: 'This person does not owe you money' });
-        }
-
-        if (amount > personBalance.netBalance) {
-            return res.status(400).json({
-                message: 'Request amount exceeds balance',
-                currentBalance: personBalance.netBalance,
-            });
-        }
-
-        // Create repayment request
-        const request = new RepaymentRequest({
-            requesterId,
-            receiverId,
-            amount,
-            message,
-            relatedGroups: personBalance.groupBreakdown.map(g => g.groupId),
-            groupBreakdown: personBalance.groupBreakdown.map(g => ({
-                groupId: g.groupId,
-                amount: g.balance,
-                originalBalance: g.balance,
-            })),
-        });
-
-        await request.save();
-
-        await request.populate('requesterId', 'name email');
-        await request.populate('receiverId', 'name email');
-
-        // Emit socket event
-        const io = req.app.get('io');
-        if (io) {
-            const { emitToUser } = await import('../utils/socketEmitter.js');
-            emitToUser(io, receiverId, 'repayment:request', request);
-        }
-
-        res.status(201).json(request);
-    } catch (error) {
-        console.error('Error creating repayment request:', error);
-        res.status(500).json({ message: 'Failed to create request', error: error.message });
-    }
-};
-
-/**
- * Get repayment request history with a person
- * @route GET /api/settlements/repayment-request/history/:otherUserId
- */
-export const getRepaymentRequestHistory = async (req, res) => {
-    try {
-        const { otherUserId } = req.params;
-        const userId = req.user._id;
-
-        const requests = await RepaymentRequest.find({
-            $or: [
-                { requesterId: userId, receiverId: otherUserId },
-                { requesterId: otherUserId, receiverId: userId },
-            ],
-        })
-            .populate('requesterId', 'name email')
-            .populate('receiverId', 'name email')
-            .sort({ requestedAt: -1 })
-            .lean();
-
-        res.json(requests);
-    } catch (error) {
-        console.error('Error fetching repayment request history:', error);
-        res.status(500).json({ message: 'Failed to fetch history', error: error.message });
-    }
-};
-
-/**
- * Cancel repayment request
- * @route DELETE /api/settlements/repayment-request/:requestId
- */
-export const cancelRepaymentRequest = async (req, res) => {
-    try {
-        const { requestId } = req.params;
-        const userId = req.user._id;
-
-        const request = await RepaymentRequest.findById(requestId);
-        if (!request) {
-            return res.status(404).json({ message: 'Request not found' });
-        }
-
-        // Only requester can cancel
-        if (request.requesterId.toString() !== userId.toString()) {
-            return res.status(403).json({ message: 'Not authorized to cancel this request' });
-        }
-
-        if (request.status === 'settled' || request.status === 'cancelled') {
-            return res.status(400).json({ message: 'Cannot cancel this request' });
-        }
-
-        request.status = 'cancelled';
-        request.cancelledAt = new Date();
-        await request.save();
-
-        // Emit socket event
-        const io = req.app.get('io');
-        if (io) {
-            const { emitToUser } = await import('../utils/socketEmitter.js');
-            emitToUser(io, request.receiverId, 'repayment:cancelled', request);
-        }
-
-        res.json({ message: 'Request cancelled successfully' });
-    } catch (error) {
-        console.error('Error cancelling repayment request:', error);
-        res.status(500).json({ message: 'Failed to cancel request', error: error.message });
-    }
-};
-
-/**
- * Get my repayment requests (sent and received)
- * @route GET /api/settlements/repayment-request/my-requests
- */
-export const getMyRepaymentRequests = async (req, res) => {
-    try {
-        const userId = req.user._id;
-        const { type = 'all' } = req.query; // 'sent', 'received', or 'all'
-
-        let query = {};
-        if (type === 'sent') {
-            query.requesterId = userId;
-        } else if (type === 'received') {
-            query.receiverId = userId;
-        } else {
-            query.$or = [{ requesterId: userId }, { receiverId: userId }];
-        }
-
-        const requests = await RepaymentRequest.find(query)
-            .populate('requesterId', 'name email')
-            .populate('receiverId', 'name email')
-            .sort({ requestedAt: -1 })
-            .lean();
-
-        res.json(requests);
-    } catch (error) {
-        console.error('Error fetching repayment requests:', error);
-        res.status(500).json({ message: 'Failed to fetch requests', error: error.message });
-    }
-};
-
-/**
- * Update repayment request status
- * @route PATCH /api/settlements/repayment-request/:requestId/status
- */
-export const updateRepaymentRequestStatus = async (req, res) => {
-    try {
-        const { requestId } = req.params;
-        const { status, settledAmount } = req.body;
-        const userId = req.user._id;
-
-        const request = await RepaymentRequest.findById(requestId);
-        if (!request) {
-            return res.status(404).json({ message: 'Request not found' });
-        }
-
-        // Only receiver can update status
-        if (request.receiverId.toString() !== userId.toString()) {
-            return res.status(403).json({ message: 'Not authorized to update this request' });
-        }
-
-        if (status) {
-            request.status = status;
-        }
-
-        if (settledAmount !== undefined) {
-            await request.updateStatus(settledAmount);
-        }
-
-        await request.save();
-
-        await request.populate('requesterId', 'name email');
-        await request.populate('receiverId', 'name email');
-
-        // Emit socket event
-        const io = req.app.get('io');
-        if (io) {
-            const { emitToUser } = await import('../utils/socketEmitter.js');
-            emitToUser(io, request.requesterId, 'repayment:updated', request);
-        }
-
-        res.json(request);
-    } catch (error) {
-        console.error('Error updating repayment request:', error);
-        res.status(500).json({ message: 'Failed to update request', error: error.message });
-    }
+    res.json(updatedSettlement);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };

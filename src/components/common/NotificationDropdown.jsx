@@ -101,7 +101,7 @@ const NotificationDropdown = () => {
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={8} className="w-[calc(100vw-2rem)] max-w-80 sm:max-w-96 bg-popover z-[60]">
+      <DropdownMenuContent align="end" className="w-80 sm:w-96 bg-popover z-[60]">
         <DropdownMenuLabel className="flex items-center justify-between">
           <span>Notifications</span>
           {notifications.length > 0 && (
@@ -126,7 +126,7 @@ const NotificationDropdown = () => {
           )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <ScrollArea className="h-[min(300px,50vh)] sm:h-[400px]">
+        <ScrollArea className="h-[300px] sm:h-[400px]">
           {notifications.length === 0 ? (
             <div className="p-6 text-center text-muted-foreground">
               <Bell className="mx-auto mb-2 opacity-50" size={32} />

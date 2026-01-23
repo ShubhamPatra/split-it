@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Users, PlusCircle, LogOut, Settings, BarChart3, Moon, Sun, Wallet } from 'lucide-react';
+import { Home, Users, PlusCircle, PieChart, LogOut, Settings, BarChart3, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import Logo from '../common/Logo';
@@ -30,9 +30,9 @@ const Navbar = () => {
   const navItems = [
     { path: '/dashboard', icon: Home, label: 'Dashboard' },
     { path: '/groups', icon: Users, label: 'Groups' },
-    { path: '/settlements', icon: Wallet, label: 'Settlements' },
     { path: '/add-expense', icon: PlusCircle, label: 'Add Expense' },
-    { path: '/insights', icon: BarChart3, label: 'Insights' },
+    { path: '/analytics', icon: BarChart3, label: 'Analytics' },
+    { path: '/summary', icon: PieChart, label: 'Summary' },
   ];
 
   const getInitials = (name) => {
@@ -52,7 +52,7 @@ const Navbar = () => {
   return (
     <>
       {/* Top Navbar */}
-      <nav className="sticky top-0 z-50 bg-background border-b border-border">
+      <nav className="sticky top-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50 shadow-sm">
         <div className="container-responsive">
           <div className="flex items-center justify-between h-14 sm:h-16">
             <div onClick={() => navigate('/dashboard')} className="cursor-pointer min-h-[44px] min-w-[44px] flex items-center">
@@ -60,7 +60,7 @@ const Navbar = () => {
             </div>
 
             {/* Desktop Navigation */}
-            <div className="hidden md:flex items-center gap-1 bg-muted p-1.5 rounded border border-border">
+            <div className="hidden md:flex items-center gap-1 bg-card/50 p-1.5 rounded-xl border border-border/50">
               {navItems.map(item => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
@@ -69,9 +69,9 @@ const Navbar = () => {
                   <button
                     key={item.path}
                     onClick={() => navigate(item.path)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded transition-colors duration-150 min-h-[44px]
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 min-h-[44px]
                       ${isActive
-                        ? 'bg-primary text-primary-foreground'
+                        ? 'bg-gradient-to-r from-primary to-primary-dark text-white shadow-md'
                         : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                       }`}
                   >
@@ -99,19 +99,19 @@ const Navbar = () => {
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-10 w-10 rounded-full min-h-[44px] min-w-[44px] p-0 ring-2 ring-primary/20 hover:ring-primary/40 transition-all">
                     <Avatar className="h-9 w-9">
-                      <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">
+                      <AvatarFallback className="bg-gradient-to-br from-primary to-primary-dark text-white text-sm font-semibold">
                         {user?.name ? getInitials(user.name) : 'U'}
                       </AvatarFallback>
                     </Avatar>
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={8} className="w-[calc(100vw-2rem)] max-w-56 bg-popover z-[60] rounded border border-border shadow-sm">
+                <DropdownMenuContent align="end" className="w-56 bg-popover z-[60] rounded-xl border border-border/50 shadow-lg">
                   <DropdownMenuLabel>
                     <div className="flex flex-col space-y-1">
                       <p className="text-sm font-medium leading-none">{user?.name}</p>
                       <p className="text-xs text-muted-foreground leading-none">{user?.email}</p>
                       {user?.upiId && (
-                        <p className="text-xs text-muted-foreground font-mono leading-none mt-1 truncate">{user.upiId}</p>
+                        <p className="text-xs text-muted-foreground font-mono leading-none mt-1">{user.upiId}</p>
                       )}
                     </div>
                   </DropdownMenuLabel>
@@ -133,9 +133,9 @@ const Navbar = () => {
       </nav>
 
       {/* Mobile Bottom Navigation - Completely separate from top nav */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background border-t border-border z-50" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background/90 backdrop-blur-xl border-t border-border/50 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] z-50" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="flex items-center justify-around w-full px-2 py-1.5">
-          {navItems.slice(0, 5).map(item => {
+          {navItems.slice(0, 4).map(item => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
 
@@ -143,7 +143,7 @@ const Navbar = () => {
               <button
                 key={item.path}
                 onClick={() => navigate(item.path)}
-                className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded transition-colors duration-150 min-h-[56px] flex-1 max-w-[80px]
+                className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 min-h-[56px] flex-1 max-w-[80px]
                   ${isActive
                     ? 'text-primary bg-primary/10 shadow-sm'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
@@ -152,7 +152,7 @@ const Navbar = () => {
                 <div className={`p-1.5 rounded-lg transition-all ${isActive ? 'bg-primary/20' : ''}`}>
                   <Icon size={20} className="flex-shrink-0" />
                 </div>
-                <span className={`text-xs font-medium leading-tight truncate w-full text-center ${isActive ? 'text-primary' : ''}`}>{item.label}</span>
+                <span className={`text-[10px] font-medium leading-tight truncate w-full text-center ${isActive ? 'text-primary' : ''}`}>{item.label}</span>
               </button>
             );
           })}
