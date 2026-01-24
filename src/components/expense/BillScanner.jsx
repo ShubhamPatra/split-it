@@ -102,10 +102,25 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
       clearInterval(progressInterval);
       setScanProgress(100);
 
-      const data = await response.json();
+      // Safely handle non-JSON error responses (e.g. Nginx HTML 413 page)
+      let data;
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        if (!response.ok) {
+          throw new Error(`Server error ${response.status}: ${text.slice(0,200)}`);
+        }
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          data = { text };
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to scan receipt');
+        throw new Error((data && data.message) || 'Failed to scan receipt');
       }
 
       const extracted = {
