@@ -45,6 +45,20 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
       // Select all members that exist in shares, or all members if shares is empty
       const sharesKeys = Object.keys(currentSplit.shares);
       setSelectedMembers(sharesKeys.length > 0 ? sharesKeys : members);
+
+      // Initialize line items from currentSplit if available (OCR-003)
+      if (currentSplit.type === 'itemized' && currentSplit.lineItems && currentSplit.lineItems.length > 0) {
+        // Ensure each restored line item has a unique ID
+        setLineItems(currentSplit.lineItems.map((item, index) => ({
+          ...item,
+          id: item.id || Date.now() + index, // Generate ID if missing
+        })));
+      } else {
+        // Reset to default single empty item
+        setLineItems([
+          { id: 1, description: '', quantity: 1, unitPrice: 0, assignedTo: [] }
+        ]);
+      }
     }
   }, [open, currentSplit, members, totalAmount]);
 
@@ -352,8 +366,8 @@ const AdvancedSplitDialog = ({ open, onOpenChange, members, totalAmount, current
                             type="button"
                             onClick={() => toggleLineItemMember(item.id, memberId)}
                             className={`px-2 py-1 text-xs rounded-full border transition-colors ${isAssigned
-                                ? 'bg-primary text-primary-foreground border-primary'
-                                : 'bg-secondary border-border hover:border-primary/50'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-secondary border-border hover:border-primary/50'
                               }`}
                           >
                             {getUserProfile(memberId)?.name?.split(' ')[0] || 'User'}

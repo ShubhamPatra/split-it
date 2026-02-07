@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Mail, Lock, LogIn, AlertCircle } from 'lucide-react';
+import { Mail, Lock, LogIn } from 'lucide-react';
 import { GoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
 import SEO from '../components/common/SEO';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { FormFieldError } from '../components/ui/form-field-error';
 import Logo from '../components/common/Logo';
 import { useToast } from '../hooks/use-toast';
 import { isValidEmail } from '../lib/utils';
@@ -187,12 +188,7 @@ const Login = () => {
                   required
                 />
               </div>
-              {errors.email && (
-                <div className="flex items-center gap-1.5 text-sm text-destructive">
-                  <AlertCircle size={14} />
-                  <span>{errors.email}</span>
-                </div>
-              )}
+              <FormFieldError error={errors.email} />
             </div>
 
             {/* Password Field */}
@@ -219,12 +215,7 @@ const Login = () => {
                   required
                 />
               </div>
-              {errors.password && (
-                <div className="flex items-center gap-1.5 text-sm text-destructive">
-                  <AlertCircle size={14} />
-                  <span>{errors.password}</span>
-                </div>
-              )}
+              <FormFieldError error={errors.password} />
             </div>
 
             {/* Submit Button */}

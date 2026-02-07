@@ -6,6 +6,7 @@ import Message from '../models/Message.js';
 import { validateUpiId, validatePaymentAmount, generateTransactionRef } from '../utils/upiValidation.js';
 import { sendPreferenceEmail } from '../utils/emailUtils.js';
 import { invalidateBalanceCache } from '../jobs/balanceService.js';
+import { invalidateCrossGroupCacheForMembers } from '../jobs/crossGroupBalanceService.js';
 
 // @desc    Get all settlements for user's groups
 // @route   GET /api/settlements
@@ -61,7 +62,7 @@ export const getSettlementsByGroup = async (req, res) => {
 // @access  Private
 export const createSettlement = async (req, res) => {
   try {
-    const { groupId, fromUserId, toUserId, amount, currency, settledAt, paymentMethod, paymentStatus, transactionRef } = req.body;
+    const { groupId, fromUserId, toUserId, amount, currency, settledAt, paymentMethod, transactionRef } = req.body;
 
     // Validate amount
     const amountValidation = validatePaymentAmount(amount);
@@ -88,12 +89,11 @@ export const createSettlement = async (req, res) => {
       return res.status(400).json({ message: 'Receiver (toUser) must be a group member' });
     }
 
-    // Caller must be a participant (fromUser or toUser) or group admin
+    // CRITICAL: Only the sender (fromUser) can initiate a settlement
+    // The receiver must confirm it separately via the confirm endpoint
     const isFromUser = fromUserId.toString() === req.user._id.toString();
-    const isToUser = toUserId.toString() === req.user._id.toString();
-    const isAdmin = group.createdBy.toString() === req.user._id.toString();
-    if (!isFromUser && !isToUser && !isAdmin) {
-      return res.status(403).json({ message: 'Only settlement participants or group admin can create this settlement' });
+    if (!isFromUser) {
+      return res.status(403).json({ message: 'Only the payer can initiate a settlement' });
     }
 
     // If payment method is UPI, validate receiver's UPI ID
@@ -119,6 +119,8 @@ export const createSettlement = async (req, res) => {
     // Generate transaction reference if not provided
     const finalTransactionRef = transactionRef || generateTransactionRef();
 
+    // CRITICAL: Always create settlements with 'pending' status
+    // Only the receiver can confirm via the /confirm endpoint
     const settlement = await Settlement.create({
       groupId,
       fromUserId,
@@ -127,7 +129,7 @@ export const createSettlement = async (req, res) => {
       currency: currency || 'INR',
       settledAt: settledAt || new Date().toISOString().split('T')[0],
       paymentMethod: paymentMethod || 'cash',
-      paymentStatus: paymentStatus || 'pending',
+      paymentStatus: 'pending', // Always pending - receiver must confirm
       transactionRef: finalTransactionRef,
       paymentInitiatedAt: paymentMethod === 'upi' ? new Date() : undefined,
     });
@@ -186,6 +188,12 @@ export const createSettlement = async (req, res) => {
 
     // Invalidate balance cache for this group before emitting
     invalidateBalanceCache(groupId);
+    
+    // Invalidate cross-group cache for all members
+    const groupForCache = await Group.findById(groupId).select('members').lean();
+    if (groupForCache && groupForCache.members) {
+      invalidateCrossGroupCacheForMembers(groupForCache.members);
+    }
 
     // Emit socket event to group members
     const io = req.app.get('io');
@@ -265,11 +273,18 @@ export const updateSettlement = async (req, res) => {
 
     const { amount, currency, settledAt, paymentMethod, paymentStatus } = req.body;
 
+    // CRITICAL: Disallow paymentStatus changes via generic update endpoint
+    // Only the receiver can change paymentStatus via confirmPaymentReceipt or rejectPaymentReceipt
+    if (paymentStatus !== undefined) {
+      return res.status(403).json({ 
+        message: 'Payment status cannot be changed via update endpoint. Use /confirm or /reject endpoints instead.' 
+      });
+    }
+
     if (amount !== undefined) settlement.amount = amount;
     if (currency !== undefined) settlement.currency = currency;
     if (settledAt !== undefined) settlement.settledAt = settledAt;
     if (paymentMethod !== undefined) settlement.paymentMethod = paymentMethod;
-    if (paymentStatus !== undefined) settlement.paymentStatus = paymentStatus;
 
     await settlement.save();
 
@@ -280,6 +295,12 @@ export const updateSettlement = async (req, res) => {
 
     // Invalidate balance cache for this group before emitting
     invalidateBalanceCache(settlement.groupId._id.toString());
+    
+    // Invalidate cross-group cache for all members
+    const groupForCache = await Group.findById(settlement.groupId._id).select('members').lean();
+    if (groupForCache && groupForCache.members) {
+      invalidateCrossGroupCacheForMembers(groupForCache.members);
+    }
 
     // Emit socket event to group members
     const io = req.app.get('io');
@@ -338,6 +359,11 @@ export const deleteSettlement = async (req, res) => {
 
     // Invalidate balance cache for this group before emitting
     invalidateBalanceCache(groupId);
+    
+    // Invalidate cross-group cache for all members
+    if (settlement.groupId.members) {
+      invalidateCrossGroupCacheForMembers(settlement.groupId.members);
+    }
 
     // Emit socket event to group members
     const io = req.app.get('io');
@@ -418,6 +444,12 @@ export const confirmPaymentReceipt = async (req, res) => {
 
     // Invalidate balance cache for this group before emitting
     invalidateBalanceCache(settlement.groupId._id.toString());
+    
+    // Invalidate cross-group cache for all members
+    const groupForCache = await Group.findById(settlement.groupId._id).select('members').lean();
+    if (groupForCache && groupForCache.members) {
+      invalidateCrossGroupCacheForMembers(groupForCache.members);
+    }
 
     // Emit socket event to group members for real-time update
     const io = req.app.get('io');
@@ -543,6 +575,110 @@ export const rejectPaymentReceipt = async (req, res) => {
 
     res.json(updatedSettlement);
   } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
+// @desc    Send payment reminder for pending settlement
+// @route   POST /api/settlements/:id/remind
+// @access  Private
+export const sendPaymentReminder = async (req, res) => {
+  try {
+    const settlement = await Settlement.findById(req.params.id)
+      .populate('groupId')
+      .populate('fromUserId', 'name email')
+      .populate('toUserId', 'name email');
+
+    if (!settlement) {
+      return res.status(404).json({ message: 'Settlement not found' });
+    }
+
+    // Only the receiver (toUserId) can send reminders
+    if (settlement.toUserId._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the payment receiver can send reminders' });
+    }
+
+    // Can only remind for pending settlements
+    if (settlement.paymentStatus !== 'pending') {
+      return res.status(400).json({ message: 'Can only send reminders for pending settlements' });
+    }
+
+    // Rate limiting: Check if a reminder was sent in the last 24 hours
+    const lastReminder = settlement.lastReminderSentAt;
+    if (lastReminder) {
+      const hoursSinceLastReminder = (Date.now() - new Date(lastReminder).getTime()) / (1000 * 60 * 60);
+      if (hoursSinceLastReminder < 24) {
+        const hoursRemaining = Math.ceil(24 - hoursSinceLastReminder);
+        return res.status(429).json({ 
+          message: `Please wait ${hoursRemaining} hour(s) before sending another reminder`,
+          hoursRemaining 
+        });
+      }
+    }
+
+    // Update last reminder timestamp
+    settlement.lastReminderSentAt = new Date();
+    await settlement.save();
+
+    // Send in-app notification to payer
+    await Notification.create({
+      userId: settlement.fromUserId._id,
+      type: 'info',
+      title: 'Payment Reminder',
+      message: `${settlement.toUserId.name} is waiting for your ₹${settlement.amount} payment${settlement.groupId ? ` in ${settlement.groupId.name}` : ''}.`,
+      actionType: 'view_settlement',
+      relatedId: settlement._id,
+      groupId: settlement.groupId?._id,
+    });
+
+    // Send email notification if user has email preferences enabled
+    try {
+      await sendPreferenceEmail(
+        settlement.fromUserId._id,
+        'paymentReminders',
+        {
+          to: settlement.fromUserId.email,
+          template: 'settlementReminder',
+          data: {
+            payerName: settlement.fromUserId.name,
+            receiverName: settlement.toUserId.name,
+            amount: settlement.amount,
+            currency: settlement.currency || 'INR',
+            groupName: settlement.groupId?.name || 'Unknown Group',
+            transactionRef: settlement.transactionRef,
+          },
+        }
+      );
+    } catch (emailError) {
+      console.error('Error sending reminder email:', emailError);
+      // Don't fail the request if email fails
+    }
+
+    // Emit socket event for real-time update
+    const io = req.app.get('io');
+    if (io) {
+      try {
+        const { emitToUser } = await import('../utils/socketEmitter.js');
+        emitToUser(io, settlement.fromUserId._id.toString(), 'notification:new', {
+          type: 'info',
+          title: 'Payment Reminder',
+          message: `${settlement.toUserId.name} is waiting for your payment`,
+        });
+      } catch (socketError) {
+        console.error('Error emitting socket event for reminder:', socketError);
+      }
+    }
+
+    res.json({ 
+      message: 'Reminder sent successfully',
+      settlement: {
+        id: settlement._id,
+        lastReminderSentAt: settlement.lastReminderSentAt,
+      }
+    });
+  } catch (error) {
+    console.error('Error sending payment reminder:', error);
     res.status(500).json({ message: error.message });
   }
 };

@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import apiClient from '../lib/apiClient';
 import { initializePushNotifications, unsubscribeFromPush } from '../utils/registerServiceWorker';
 import { initializeSocket, disconnectSocket } from '../lib/socketClient';
+import offlineStorage from '../lib/offlineStorage';
+import { cleanupSync, unregisterBackgroundSync } from '../lib/syncService';
 
 // Create the context with default values
 const AuthContext = createContext(undefined);
@@ -18,9 +20,9 @@ export const AuthProvider = ({ children }) => {
   // Create session helper - stores only user info, NOT token (token is in HttpOnly cookie)
   const createSession = (userData) => {
     const session = {
-      user: { 
-        id: userData.id?.toString() || userData.id, 
-        name: userData.name, 
+      user: {
+        id: userData.id?.toString() || userData.id,
+        name: userData.name,
         email: userData.email,
         upiId: userData.upiId || ''
       },
@@ -29,21 +31,21 @@ export const AuthProvider = ({ children }) => {
     // Use localStorage for persistent login across page refreshes and PWA restarts
     localStorage.setItem('splitit_user', JSON.stringify(session));
     setUser(session.user);
-    
+
     // Initialize push notifications after login (async, don't block)
     initializePushNotifications().then(result => {
       if (!result.success && !result.alreadySubscribed) {
         console.log('Push notifications not enabled:', result.error);
       }
     }).catch(err => console.warn('Push init failed:', err));
-    
+
     return session;
   };
 
   // Socket lifecycle management - single owner pattern
   // AuthContext owns the socket connection, initializes on login, disconnects on logout
   const socketInitializedRef = useRef(false);
-  
+
   useEffect(() => {
     if (user && !socketInitializedRef.current) {
       // Initialize socket after successful login
@@ -63,21 +65,42 @@ export const AuthProvider = ({ children }) => {
         // Check if we have a session marker (cookie auth will be sent automatically)
         const sessionData = localStorage.getItem('splitit_user');
         if (sessionData) {
-          const { expiresAt } = JSON.parse(sessionData);
+          const { user: cachedUser, expiresAt } = JSON.parse(sessionData);
           if (new Date(expiresAt) > new Date()) {
+            // If offline, use cached session directly without API verification
+            if (!navigator.onLine) {
+              console.log('Offline mode: using cached session');
+              setUser(cachedUser);
+              setLoading(false);
+              return;
+            }
+
             // Verify session is still valid by fetching user data
             // Cookie will be sent automatically with credentials: 'include'
             try {
               const userData = await apiClient.get('/auth/me');
-              setUser({ 
-                id: userData.id?.toString() || userData.id, 
-                name: userData.name, 
+              setUser({
+                id: userData.id?.toString() || userData.id,
+                name: userData.name,
                 email: userData.email,
                 upiId: userData.upiId || ''
               });
             } catch (error) {
-              console.error('Session invalid:', error);
-              localStorage.removeItem('splitit_user');
+              // Only clear session if it's NOT a network error
+              // Network errors mean we're offline, so keep the cached session
+              const isNetworkError =
+                error.message?.includes('Network') ||
+                error.message?.includes('offline') ||
+                error.message?.includes('Failed to fetch') ||
+                error.message?.includes('No internet');
+
+              if (isNetworkError) {
+                console.log('Network error: using cached session');
+                setUser(cachedUser);
+              } else {
+                console.error('Session invalid:', error);
+                localStorage.removeItem('splitit_user');
+              }
             }
           } else {
             localStorage.removeItem('splitit_user');
@@ -156,28 +179,42 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.warn('Push unsubscribe failed:', error);
     }
-    
+
     try {
       await apiClient.post('/auth/logout', {});
     } catch (error) {
       console.error('Logout API error:', error);
     }
+
+    // Clear all offline data to prevent pending actions from syncing under a different user
+    try {
+      // Unregister background sync to cancel any pending sync tasks
+      await unregisterBackgroundSync();
+      // Clear all IndexedDB data (groups, expenses, settlements, pending_actions, etc.)
+      await offlineStorage.clearAllData();
+      // Remove sync listeners (online/offline event handlers)
+      cleanupSync();
+      console.log('Offline data cleared on logout');
+    } catch (error) {
+      console.warn('Failed to clear offline data:', error);
+    }
+
     localStorage.removeItem('splitit_user');
     setUser(null);
   };
 
   // Provide the context value to children
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      isAuthenticated, 
+    <AuthContext.Provider value={{
+      user,
+      isAuthenticated,
       login,
       googleLogin,
-      signup, 
+      signup,
       register,
-      logout, 
-      updateUserProfile, 
-      loading 
+      logout,
+      updateUserProfile,
+      loading
     }}>
       {children}
     </AuthContext.Provider>

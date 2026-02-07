@@ -8,6 +8,8 @@ import {
   updateEmailPreferences,
   getBudgetSettings,
   updateBudgetSettings,
+  getUserSpending,
+  deleteAccount,
 } from '../controllers/userController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -33,6 +35,12 @@ router.route('/email-preferences')
 router.route('/budget-settings')
   .get(getBudgetSettings)
   .put(updateBudgetSettings);
+
+// User spending and budget status
+router.get('/spending', getUserSpending);
+
+// Account deletion route (GDPR compliance)
+router.delete('/account', deleteAccount);
 
 router.get('/search', searchUsers);
 router.get('/:id', getUserById);

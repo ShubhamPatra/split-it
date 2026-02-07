@@ -52,6 +52,24 @@ const groupSchema = new mongoose.Schema({
       type: Boolean,
       default: false,
     },
+    // Category-specific budget limits
+    categoryLimits: {
+      type: Map,
+      of: {
+        limit: {
+          type: Number,
+          min: 0,
+          default: 0, // 0 means no limit for this category
+        },
+        alertThreshold: {
+          type: Number,
+          min: 0,
+          max: 100,
+          default: 80, // Alert at 80% of category budget
+        },
+      },
+      default: new Map(),
+    },
   },
   createdAt: {
     type: Date,
@@ -116,6 +134,44 @@ groupSchema.methods.getMemberRole = function(userId) {
 // Method to set member role
 groupSchema.methods.setMemberRole = function(userId, role) {
   this.memberRoles.set(userId.toString(), role);
+};
+
+// Method to set category budget limit
+groupSchema.methods.setCategoryLimit = function(categoryId, limit, alertThreshold = 80) {
+  if (!this.budget.categoryLimits) {
+    this.budget.categoryLimits = new Map();
+  }
+  this.budget.categoryLimits.set(categoryId, {
+    limit: limit || 0,
+    alertThreshold: alertThreshold || 80,
+  });
+};
+
+// Method to get category budget limit
+groupSchema.methods.getCategoryLimit = function(categoryId) {
+  if (!this.budget.categoryLimits) {
+    return null;
+  }
+  return this.budget.categoryLimits.get(categoryId) || null;
+};
+
+// Method to remove category budget limit
+groupSchema.methods.removeCategoryLimit = function(categoryId) {
+  if (this.budget.categoryLimits) {
+    this.budget.categoryLimits.delete(categoryId);
+  }
+};
+
+// Method to get all category limits as plain object
+groupSchema.methods.getCategoryLimitsObject = function() {
+  if (!this.budget.categoryLimits) {
+    return {};
+  }
+  const limits = {};
+  this.budget.categoryLimits.forEach((value, key) => {
+    limits[key] = value;
+  });
+  return limits;
 };
 
 const Group = mongoose.model('Group', groupSchema);

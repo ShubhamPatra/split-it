@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Mail, Lock, User, UserPlus, AlertCircle } from 'lucide-react';
+import { Mail, Lock, User, UserPlus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import SEO from '../components/common/SEO';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { FormFieldError } from '../components/ui/form-field-error';
 import Logo from '../components/common/Logo';
 import { useToast } from '../hooks/use-toast';
 import { isValidEmail } from '../lib/utils';
@@ -174,12 +175,7 @@ const Signup = () => {
                   required
                 />
               </div>
-              {errors.name && (
-                <div className="flex items-center gap-1.5 text-sm text-destructive">
-                  <AlertCircle size={14} />
-                  <span>{errors.name}</span>
-                </div>
-              )}
+              <FormFieldError error={errors.name} />
             </div>
 
             {/* Email Field */}
@@ -201,12 +197,7 @@ const Signup = () => {
                   required
                 />
               </div>
-              {errors.email && (
-                <div className="flex items-center gap-1.5 text-sm text-destructive">
-                  <AlertCircle size={14} />
-                  <span>{errors.email}</span>
-                </div>
-              )}
+              <FormFieldError error={errors.email} />
             </div>
 
             {/* Password Field */}
@@ -228,12 +219,7 @@ const Signup = () => {
                   required
                 />
               </div>
-              {errors.password && (
-                <div className="flex items-center gap-1.5 text-sm text-destructive">
-                  <AlertCircle size={14} />
-                  <span>{errors.password}</span>
-                </div>
-              )}
+              <FormFieldError error={errors.password} />
             </div>
 
             {/* Confirm Password Field */}
@@ -255,12 +241,7 @@ const Signup = () => {
                   required
                 />
               </div>
-              {errors.confirmPassword && (
-                <div className="flex items-center gap-1.5 text-sm text-destructive">
-                  <AlertCircle size={14} />
-                  <span>{errors.confirmPassword}</span>
-                </div>
-              )}
+              <FormFieldError error={errors.confirmPassword} />
             </div>
 
             {/* Submit Button */}

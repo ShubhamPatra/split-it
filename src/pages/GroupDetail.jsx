@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, Smartphone, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Wallet, AlertTriangle, Mail, Calendar } from 'lucide-react';
+import { ArrowLeft, Plus, Users, Receipt, CheckCircle, History, Filter, X, Download, FileText, FileSpreadsheet, Shield, Crown, UserPlus, UserMinus, Settings, Wallet, AlertTriangle, Mail } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useChat } from '../context/ChatContext';
@@ -14,15 +14,17 @@ import {
   exportFullReportToPdf
 } from '../lib/exportCsv';
 import Navbar from '../components/layout/Navbar';
-import ExpenseCard from '../components/common/ExpenseCard';
+import VirtualizedExpenseList from '../components/expense/VirtualizedExpenseList';
 import BalanceCard from '../components/common/BalanceCard';
 import SettlementCard from '../components/common/SettlementCard';
 import SettlementSuggestions from '../components/common/SettlementSuggestions';
+import UnifiedSettlementModal from '../components/settlement/UnifiedSettlementModal';
 import ExpenseAnalytics from '../components/common/ExpenseAnalytics';
 import UpiPaymentButton from '../components/common/UpiPaymentButton';
 import InviteModal from '../components/group/InviteModal';
 import ChatButton from '../components/group/ChatButton';
 import ChatPanel from '../components/group/ChatPanel';
+import { SkeletonExpenseCardList, SkeletonBalanceCardList, SkeletonSettlementCardList } from '../components/common/SkeletonCards';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -36,13 +38,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select';
 import { Switch } from '../components/ui/switch';
 import {
   DropdownMenu,
@@ -93,11 +88,6 @@ const GroupDetail = () => {
   const initialTab = searchParams.get('tab') || 'expenses';
 
   const [isSettleDialogOpen, setIsSettleDialogOpen] = useState(false);
-  const [settlePaidBy, setSettlePaidBy] = useState('');
-  const [settlePaidTo, setSettlePaidTo] = useState('');
-  const [settleAmount, setSettleAmount] = useState('');
-  const [settleDate, setSettleDate] = useState(new Date().toISOString().split('T')[0]);
-  const [paymentMethod, setPaymentMethod] = useState('cash');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isMemberDialogOpen, setIsMemberDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -118,7 +108,9 @@ const GroupDetail = () => {
   const [budgetEnabled, setBudgetEnabled] = useState(false);
   const [monthlyLimit, setMonthlyLimit] = useState('');
   const [alertThreshold, setAlertThreshold] = useState(80);
+  const [categoryLimits, setCategoryLimits] = useState({});
   const [budgetLoading, setBudgetLoading] = useState(false);
+  const [expensesLoading, setExpensesLoading] = useState(true);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -132,7 +124,10 @@ const GroupDetail = () => {
   useEffect(() => {
     if (id && isAuthenticated && hasLoadedRef.current !== id) {
       hasLoadedRef.current = id;
-      loadGroupExpenses(id);
+      setExpensesLoading(true);
+      loadGroupExpenses(id).finally(() => {
+        setExpensesLoading(false);
+      });
     }
 
     // Cleanup: leave socket room when unmounting or group changes
@@ -160,22 +155,6 @@ const GroupDetail = () => {
     }
   }, [group?.inviteCode]);
 
-  useEffect(() => {
-    if (user?.id) {
-      setSettlePaidBy(user.id);
-    }
-  }, [user]);
-
-  // Auto-switch to cash if UPI is selected but receiver doesn't have UPI ID
-  useEffect(() => {
-    if (paymentMethod === 'upi' && settlePaidTo) {
-      const receiver = getUserProfile(settlePaidTo);
-      if (!receiver?.upiId) {
-        setPaymentMethod('cash');
-      }
-    }
-  }, [settlePaidTo, paymentMethod, getUserProfile]);
-
   // Load budget settings (Comment 4)
   useEffect(() => {
     const loadBudget = async () => {
@@ -185,6 +164,18 @@ const GroupDetail = () => {
         setBudgetEnabled(budget.enabled || false);
         setMonthlyLimit(budget.monthlyLimit?.toString() || '');
         setAlertThreshold(budget.alertThreshold || 80);
+        
+        // Load category limits
+        if (budget.categoryLimits) {
+          const limits = {};
+          Object.entries(budget.categoryLimits).forEach(([categoryId, limitData]) => {
+            limits[categoryId] = {
+              limit: limitData.limit || 0,
+              alertThreshold: limitData.alertThreshold || 80,
+            };
+          });
+          setCategoryLimits(limits);
+        }
       } catch (error) {
         console.error('Error loading budget:', error);
       }
@@ -267,17 +258,6 @@ const GroupDetail = () => {
     return calculateOptimalSettlements(balancesForMemo);
   }, [balancesForMemo]);
 
-  // Just the current user's debts
-  const userDebts = React.useMemo(() => {
-    if (!user?.id) return [];
-    return allDebts.filter(s => s.from === user.id);
-  }, [allDebts, user?.id]);
-
-  // Get debts for a specific payer (used in admin mode)
-  const getDebtsForPayer = (payerId) => {
-    return allDebts.filter(s => s.from === payerId);
-  };
-
   if (!isAuthenticated) return null;
 
   const expenses = getGroupExpenses(id || '');
@@ -323,69 +303,6 @@ const GroupDetail = () => {
       </div>
     );
   }
-
-  const handleSettle = () => {
-    const payerId = (isAdmin(user?.id || '') || isCreator(user?.id || '')) ? settlePaidBy : user?.id;
-
-    if (!payerId) {
-      toast({ title: "Select payer", description: "Please select who made the payment.", variant: "destructive" });
-      return;
-    }
-    if (!settlePaidTo) {
-      toast({ title: "Select recipient", description: "Please select who received the payment.", variant: "destructive" });
-      return;
-    }
-    if (payerId === settlePaidTo) {
-      toast({ title: "Invalid selection", description: "Payer and receiver cannot be the same person.", variant: "destructive" });
-      return;
-    }
-    if (!settleAmount || parseFloat(settleAmount) <= 0) {
-      toast({ title: "Invalid amount", description: "Please enter a valid amount greater than 0.", variant: "destructive" });
-      return;
-    }
-
-    addSettlement({
-      groupId: group.id,
-      fromUserId: payerId,
-      toUserId: settlePaidTo,
-      amount: parseFloat(settleAmount),
-      currency: 'INR',
-      settledAt: settleDate,
-      paymentMethod: paymentMethod,
-    });
-
-    const payerName = payerId === user?.id ? 'Your' : `${getUserProfile(payerId)?.name}'s`;
-    toast({ title: "Settlement recorded!", description: `${payerName} ₹${parseFloat(settleAmount).toLocaleString()} settlement has been recorded.` });
-
-    // If UPI payment and current user is the payer, offer to pay now
-    if (paymentMethod === 'upi' && payerId === user?.id) {
-      const receiver = getUserProfile(settlePaidTo);
-      if (receiver?.upiId) {
-        setPendingPayment({
-          amount: parseFloat(settleAmount),
-          receiverName: receiver.name,
-          receiverUpiId: receiver.upiId,
-          note: `Settlement payment to ${receiver.name}`,
-        });
-        setShowPaymentPrompt(true);
-      }
-    }
-
-    setSettleAmount('');
-    setSettlePaidBy('');
-    setSettlePaidTo('');
-    setPaymentMethod('cash');
-    setIsSettleDialogOpen(false);
-  };
-
-  const suggestAmount = (receiverId) => {
-    if (!receiverId) return;
-    // Find the debt amount for this receiver
-    const debt = userDebts.find(d => d.to === receiverId);
-    if (debt) {
-      setSettleAmount(debt.amount.toFixed(2));
-    }
-  };
 
   // eslint-disable-next-line no-unused-vars
   const handleInviteMember = async () => {
@@ -491,6 +408,7 @@ const GroupDetail = () => {
         monthlyLimit: budgetEnabled ? parseFloat(monthlyLimit) || 0 : 0,
         alertThreshold: alertThreshold,
         currency: 'INR',
+        categoryLimits: budgetEnabled ? categoryLimits : {},
       });
 
       toast({
@@ -702,14 +620,16 @@ const GroupDetail = () => {
               </div>
             )}
 
-            {filteredExpenses.length > 0 ? (
-              <div className="space-y-3 sm:space-y-4">
-                {filteredExpenses.map((expense, index) => (
-                  <div key={expense.id} style={{ animationDelay: `${0.1 * index}s` }}>
-                    <ExpenseCard expense={expense} canEdit={canEditExpense(user?.id || '', expense.paidBy)} canDelete={canDeleteExpense(user?.id || '', expense.paidBy)} isAdmin={isAdmin(user?.id || '')} />
-                  </div>
-                ))}
-              </div>
+            {expensesLoading ? (
+              <SkeletonExpenseCardList count={5} />
+            ) : filteredExpenses.length > 0 ? (
+              <VirtualizedExpenseList
+                expenses={filteredExpenses}
+                canEditExpense={canEditExpense}
+                canDeleteExpense={canDeleteExpense}
+                isAdmin={isAdmin}
+                userId={user?.id || ''}
+              />
             ) : expenses.length > 0 ? (
               <Card className="border-border/50">
                 <CardContent className="p-8 sm:p-12 text-center">
@@ -770,36 +690,53 @@ const GroupDetail = () => {
            * @see BalanceCard component for individual balance display
            */}
           <TabsContent value="balances">
-            {/* Settlement Suggestions */}
-            <div className="mb-4 sm:mb-6">
-              <SettlementSuggestions
-                balances={balances}
-                settlements={settlements}
-                profiles={group.members.reduce((acc, memberId) => {
-                  acc[memberId] = { name: getUserProfile(memberId)?.name || 'User' };
-                  return acc;
-                }, {})}
-                onSettleClick={(fromId, toId, amount) => {
-                  setSettlePaidBy(fromId);
-                  setSettlePaidTo(toId);
-                  setSettleAmount(amount.toString());
-                  setIsSettleDialogOpen(true);
-                }}
-              />
-            </div>
-
-            {/* Individual Balances */}
-            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-              <Users size={20} />
-              Member Balances
-            </h3>
-            <div className="space-y-4">
-              {group.members.map((memberId, index) => (
-                <div key={memberId} style={{ animationDelay: `${0.1 * index}s` }}>
-                  <BalanceCard memberId={memberId} balance={balances[memberId] || 0} />
+            {expensesLoading ? (
+              <>
+                <div className="mb-4 sm:mb-6">
+                  <SkeletonBalanceCardList count={2} />
                 </div>
-              ))}
-            </div>
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+                  <Users size={20} />
+                  Member Balances
+                </h3>
+                <SkeletonBalanceCardList count={4} />
+              </>
+            ) : (
+              <>
+                {/* Settlement Suggestions */}
+                <div className="mb-4 sm:mb-6">
+                  <SettlementSuggestions
+                    balances={balances}
+                    settlements={settlements}
+                    profiles={group.members.reduce((acc, memberId) => {
+                      acc[memberId] = { name: getUserProfile(memberId)?.name || 'User' };
+                      return acc;
+                    }, {})}
+                    onSettleClick={() => {
+                      setIsSettleDialogOpen(true);
+                    }}
+                  />
+                </div>
+
+                {/* Individual Balances */}
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                    <Users size={20} />
+                    Member Balances
+                  </h3>
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                    All balances in INR
+                  </span>
+                </div>
+                <div className="space-y-4">
+                  {group.members.map((memberId, index) => (
+                    <div key={memberId} style={{ animationDelay: `${0.1 * index}s` }}>
+                      <BalanceCard memberId={memberId} balance={balances[memberId] || 0} />
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </TabsContent>
 
           {/**
@@ -839,7 +776,9 @@ const GroupDetail = () => {
            * @see handleSettle function for settlement recording logic
            */}
           <TabsContent value="settlements">
-            {settlements.length > 0 ? (
+            {expensesLoading ? (
+              <SkeletonSettlementCardList count={5} />
+            ) : settlements.length > 0 ? (
               <div className="space-y-4">
                 {settlements.map((settlement, index) => (
                   <div key={settlement.id} style={{ animationDelay: `${0.1 * index}s` }}>
@@ -877,167 +816,41 @@ const GroupDetail = () => {
         />
       </main>
 
-      <Dialog open={isSettleDialogOpen} onOpenChange={setIsSettleDialogOpen}>
-        <DialogContent className="w-[calc(100%-2rem)] sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base sm:text-lg">Record Settlement</DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm">Record a payment you made to settle up</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 sm:space-y-6 py-4">
-            {/* Admin/Creator mode - can record for anyone */}
-            {(isAdmin(user?.id || '') || isCreator(user?.id || '')) ? (
-              <>
-                {allDebts.length === 0 ? (
-                  <div className="text-center py-6">
-                    <CheckCircle className="mx-auto text-success mb-3" size={48} />
-                    <p className="text-lg font-medium text-foreground">All settled up!</p>
-                    <p className="text-sm text-muted-foreground">No pending settlements in this group.</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <Label className="text-sm sm:text-base">Who paid?</Label>
-                      <Select value={settlePaidBy} onValueChange={(val) => { setSettlePaidBy(val); setSettlePaidTo(''); setSettleAmount(''); }}>
-                        <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select payer" /></SelectTrigger>
-                        <SelectContent>
-                          {[...new Set(allDebts.map(d => d.from))].map(memberId => (
-                            <SelectItem key={memberId} value={memberId}>
-                              {getUserProfile(memberId)?.name || 'Unknown'}{memberId === user?.id && ' (You)'}
-                              <span className="text-destructive ml-2">(owes ₹{Math.abs(balances[memberId] || 0).toFixed(0)})</span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {settlePaidBy && (
-                      <div className="space-y-2">
-                        <Label className="text-sm sm:text-base">Paid to</Label>
-                        <Select value={settlePaidTo} onValueChange={(val) => { setSettlePaidTo(val); const debt = getDebtsForPayer(settlePaidBy).find(d => d.to === val); if (debt) setSettleAmount(debt.amount.toFixed(2)); }}>
-                          <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select receiver" /></SelectTrigger>
-                          <SelectContent>
-                            {getDebtsForPayer(settlePaidBy).map(debt => (
-                              <SelectItem key={debt.to} value={debt.to}>
-                                {getUserProfile(debt.to)?.name || 'Unknown'}
-                                <span className="text-success ml-2">(owed ₹{debt.amount.toFixed(0)})</span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                    {settlePaidBy && settlePaidTo && (
-                      <>
-                        <div className="space-y-2">
-                          <Label htmlFor="settleAmount" className="text-sm sm:text-base">Amount</Label>
-                          <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" className="min-h-[44px]" />
-                          <p className="text-xs text-muted-foreground">
-                            <span className="font-medium">Note:</span> {getUserProfile(settlePaidBy)?.name} owes ₹{getDebtsForPayer(settlePaidBy).find(d => d.to === settlePaidTo)?.amount.toFixed(2) || 0} to {getUserProfile(settlePaidTo)?.name}
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-sm sm:text-base">Payment Method</Label>
-                          <div className="flex gap-2">
-                            <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>Paid</Button>
-                            <Button
-                              type="button"
-                              variant={paymentMethod === 'upi' ? 'default' : 'outline'}
-                              className="flex-1 min-h-[44px] h-auto text-sm"
-                              onClick={() => setPaymentMethod('upi')}
-                              disabled={!getUserProfile(settlePaidTo)?.upiId}
-                              title={!getUserProfile(settlePaidTo)?.upiId ? 'Receiver has not set up UPI ID' : 'Pay via UPI'}
-                            >
-                              <Smartphone size={16} className="mr-1" />UPI
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="settleDate" className="text-sm sm:text-base">Date</Label>
-                          <div className="relative">
-                            <Input id="settleDate" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} className="pr-10 min-h-[44px] cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer" />
-                            <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={18} />
-                          </div>
-                        </div>
-                        <Button onClick={handleSettle} className="w-full min-h-[44px] h-auto"><CheckCircle size={18} />Record Settlement</Button>
-                      </>
-                    )}
-                  </>
-                )}
-              </>
-            ) : (
-              /* Regular member mode - can only record their own payments */
-              userDebts.length === 0 ? (
-                <div className="text-center py-6">
-                  <CheckCircle className="mx-auto text-success mb-3" size={48} />
-                  <p className="text-lg font-medium text-foreground">You're all settled up!</p>
-                  <p className="text-sm text-muted-foreground">You don't owe anyone in this group.</p>
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <Label className="text-sm sm:text-base">You are paying</Label>
-                    <div className="p-3 bg-muted/50 rounded-lg border border-border/50">
-                      <span className="font-medium">{getUserProfile(user?.id)?.name || 'You'}</span>
-                      <span className="text-destructive ml-2">(owes ₹{Math.abs(balances[user?.id] || 0).toFixed(0)})</span>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-sm sm:text-base">Pay to</Label>
-                    <Select value={settlePaidTo} onValueChange={(val) => { setSettlePaidTo(val); suggestAmount(val); }}>
-                      <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Select who to pay" /></SelectTrigger>
-                      <SelectContent>
-                        {userDebts.map(debt => (
-                          <SelectItem key={debt.to} value={debt.to}>
-                            {getUserProfile(debt.to)?.name || 'Unknown'}
-                            <span className="text-success ml-2">(you owe ₹{debt.amount.toFixed(0)})</span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="settleAmount" className="text-sm sm:text-base">Amount</Label>
-                    <Input id="settleAmount" type="number" placeholder="Enter amount" value={settleAmount} onChange={(e) => setSettleAmount(e.target.value)} min="0" step="0.01" className="min-h-[44px]" />
-                    {settlePaidTo && (
-                      <p className="text-xs text-muted-foreground">
-                        <span className="font-medium">Note:</span> You owe ₹{userDebts.find(d => d.to === settlePaidTo)?.amount.toFixed(2) || 0} to {getUserProfile(settlePaidTo)?.name}
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-sm sm:text-base">Payment Method</Label>
-                    <div className="flex gap-2">
-                      <Button type="button" variant={paymentMethod === 'cash' ? 'default' : 'outline'} className="flex-1 min-h-[44px] h-auto text-sm" onClick={() => setPaymentMethod('cash')}>Paid</Button>
-                      <Button
-                        type="button"
-                        variant={paymentMethod === 'upi' ? 'default' : 'outline'}
-                        className="flex-1 min-h-[44px] h-auto text-sm"
-                        onClick={() => setPaymentMethod('upi')}
-                        disabled={!settlePaidTo || !getUserProfile(settlePaidTo)?.upiId}
-                        title={!settlePaidTo ? 'Select receiver first' : !getUserProfile(settlePaidTo)?.upiId ? 'Receiver has not set up UPI ID' : 'Pay via UPI'}
-                      >
-                        <Smartphone size={16} className="mr-1" />UPI
-                      </Button>
-                    </div>
-                    {settlePaidTo && !getUserProfile(settlePaidTo)?.upiId && (
-                      <p className="text-xs text-muted-foreground">
-                        <span className="font-medium">Note:</span> UPI payment unavailable - {getUserProfile(settlePaidTo)?.name} hasn't added their UPI ID yet
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="settleDate" className="text-sm sm:text-base">Date</Label>
-                    <div className="relative">
-                      <Input id="settleDate" type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} className="pr-10 min-h-[44px] cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer" />
-                      <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" size={18} />
-                    </div>
-                  </div>
-                  <Button onClick={handleSettle} className="w-full min-h-[44px] h-auto"><CheckCircle size={18} />Record Settlement</Button>
-                </>
-              )
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Settlement Modal - Unified */}
+      <UnifiedSettlementModal
+        open={isSettleDialogOpen}
+        onOpenChange={setIsSettleDialogOpen}
+        mode="in-group"
+        group={group}
+        balances={balances}
+        debts={allDebts}
+        getUserProfile={getUserProfile}
+        onSubmit={async (settlementData) => {
+          await addSettlement(settlementData);
+          
+          const payerName = settlementData.fromUserId === user?.id ? 'Your' : `${getUserProfile(settlementData.fromUserId)?.name}'s`;
+          toast({ 
+            title: "Settlement recorded!", 
+            description: `${payerName} ₹${parseFloat(settlementData.amount).toLocaleString()} settlement has been recorded.` 
+          });
+
+          // If UPI payment and current user is the payer, offer to pay now
+          if (settlementData.paymentMethod === 'upi' && settlementData.fromUserId === user?.id) {
+            const receiver = getUserProfile(settlementData.toUserId);
+            if (receiver?.upiId) {
+              setPendingPayment({
+                amount: parseFloat(settlementData.amount),
+                receiverName: receiver.name,
+                receiverUpiId: receiver.upiId,
+                note: `Settlement payment to ${receiver.name}`,
+              });
+              setShowPaymentPrompt(true);
+            }
+          }
+        }}
+        isAdmin={isAdmin(user?.id || '')}
+        isCreator={isCreator(user?.id || '')}
+      />
 
       <Dialog open={isMemberDialogOpen} onOpenChange={setIsMemberDialogOpen}>
         <DialogContent className="w-[calc(100%-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
@@ -1191,6 +1004,62 @@ const GroupDetail = () => {
                     </p>
                   </div>
                 )}
+
+                {/* Category Limits Section */}
+                <div className="space-y-3 pt-4 border-t border-border">
+                  <div>
+                    <p className="font-medium text-sm">Category Budgets (Optional)</p>
+                    <p className="text-xs text-muted-foreground">Set spending limits for specific categories</p>
+                  </div>
+                  
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                    {[
+                      { id: 'food', name: 'Food & Drinks' },
+                      { id: 'travel', name: 'Travel' },
+                      { id: 'entertainment', name: 'Entertainment' },
+                      { id: 'shopping', name: 'Shopping' },
+                      { id: 'housing', name: 'Housing' },
+                      { id: 'transport', name: 'Transport' },
+                      { id: 'healthcare', name: 'Healthcare' },
+                      { id: 'utilities', name: 'Utilities' },
+                    ].map(category => (
+                      <div key={category.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-secondary/30 transition-colors">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{category.name}</p>
+                        </div>
+                        <Input
+                          type="number"
+                          placeholder="0"
+                          value={categoryLimits[category.id]?.limit || ''}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === '' || value === '0') {
+                              // Remove category limit
+                              const newLimits = { ...categoryLimits };
+                              delete newLimits[category.id];
+                              setCategoryLimits(newLimits);
+                            } else {
+                              setCategoryLimits({
+                                ...categoryLimits,
+                                [category.id]: {
+                                  limit: parseFloat(value) || 0,
+                                  alertThreshold: categoryLimits[category.id]?.alertThreshold || 80,
+                                },
+                              });
+                            }
+                          }}
+                          min="0"
+                          step="100"
+                          className="w-32 h-9 text-sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <p className="text-xs text-muted-foreground italic">
+                    Leave blank or set to 0 to disable limit for a category
+                  </p>
+                </div>
               </>
             )}
 

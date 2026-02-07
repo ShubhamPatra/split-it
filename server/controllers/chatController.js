@@ -239,7 +239,7 @@ export const sendMessage = async (req, res) => {
       emitToGroup(io, groupId, 'chat:new', populatedMessage);
     }
 
-    // Send notifications to offline members
+    // Send notifications to offline members (with batching)
     const otherMemberIds = group.members
       .filter(m => m._id.toString() !== req.user._id.toString())
       .map(m => m._id.toString());
@@ -254,7 +254,14 @@ export const sendMessage = async (req, res) => {
           messageId: message._id.toString(),
           actionType: 'chat_message',
         },
-      }).catch(err => console.error('Chat notification error:', err));
+        batchMeta: {
+          actorId: req.user._id.toString(),
+          actorName: req.user.name,
+          groupId,
+          groupName: group.name,
+          actionType: 'chat_message',
+        },
+      }, { batch: true }).catch(err => console.error('Chat notification error:', err));
 
       // Invalidate unread cache for members
       for (const memberId of otherMemberIds) {

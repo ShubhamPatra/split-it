@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import crypto from 'crypto';
+import { logAuthEvent } from './auditMiddleware.js';
 
 // Refresh token settings
 const REFRESH_TOKEN_EXPIRY = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
@@ -42,6 +43,39 @@ setInterval(() => {
     if (data.expiry < now) refreshTokens.delete(token);
   }
 }, 5 * 60 * 1000);
+
+/**
+ * Revoke all tokens for a specific user
+ * Used for security operations like password change
+ * @param {string} userId - User ID to revoke tokens for
+ * @param {object} req - Request object for audit logging (optional)
+ */
+export const revokeAllUserTokens = async (userId, req = null) => {
+  const userIdStr = userId.toString();
+  
+  // Count tokens being revoked
+  let revokedCount = 0;
+  
+  // Remove all refresh tokens for this user
+  for (const [token, data] of refreshTokens.entries()) {
+    if (data.userId === userIdStr) {
+      refreshTokens.delete(token);
+      revokedCount++;
+    }
+  }
+  
+  // Log session invalidation if request context provided
+  if (req) {
+    await logAuthEvent('auth.session.invalidated', userIdStr, 'success', req, {
+      message: `All sessions invalidated (${revokedCount} refresh tokens revoked)`,
+      revokedCount,
+    });
+  }
+  
+  // Note: Access tokens cannot be revoked from memory since we don't track them by user
+  // They will expire naturally (7 days max), but user must re-authenticate immediately
+  // This is acceptable for password change security
+};
 
 export const protect = async (req, res, next) => {
   let token;
@@ -148,6 +182,13 @@ export const refreshAccessToken = async (req, res) => {
     const tokenData = refreshTokens.get(refreshToken);
     if (!tokenData || tokenData.expiry < Date.now()) {
       refreshTokens.delete(refreshToken);
+      
+      // Log failed token refresh
+      await logAuthEvent('auth.token.refresh', 'unknown', 'failure', req, {
+        message: 'Invalid or expired refresh token',
+        code: 'INVALID_REFRESH_TOKEN',
+      });
+      
       return res.status(401).json({ message: 'Invalid or expired refresh token' });
     }
 
@@ -181,6 +222,9 @@ export const refreshAccessToken = async (req, res) => {
       sameSite: 'strict',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
+
+    // Log token refresh
+    await logAuthEvent('auth.token.refresh', userId, 'success', req);
 
     res.json({
       success: true,

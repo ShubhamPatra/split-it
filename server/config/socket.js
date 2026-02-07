@@ -4,6 +4,7 @@ import cookie from 'cookie';
 import { notifyUsers } from '../jobs/notificationService.js';
 import { verifyTokenWithBlacklist } from '../middleware/authMiddleware.js';
 import { checkRateLimit, getRateLimitInfo } from '../utils/rateLimiter.js';
+import { getRedisPubSubClients, isRedisConnected } from './redis.js';
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -19,20 +20,17 @@ const logSocketEvt = async (event, data = {}) => {
   }
 };
 
-// Redis adapter for horizontal scaling (Comment 5)
-// Only loaded when REDIS_URL is configured
+// Redis adapter for horizontal scaling
+// Only loaded when Redis is available
 let createAdapter = null;
-let Redis = null;
 if (process.env.REDIS_URL) {
   try {
     const { createAdapter: ca } = await import('@socket.io/redis-adapter');
-    const { default: IORedis } = await import('ioredis');
     createAdapter = ca;
-    Redis = IORedis;
-    console.log('Socket.IO: Redis adapter modules loaded');
+    console.log('Socket.IO: Redis adapter module loaded');
   } catch (err) {
     console.warn('Socket.IO: Redis adapter not available, running in single-instance mode');
-    console.warn('  Install with: npm install @socket.io/redis-adapter ioredis');
+    console.warn('  Install with: npm install @socket.io/redis-adapter');
   }
 }
 
@@ -67,11 +65,9 @@ const onlineUsers = new Map(); // groupId -> Map<userId, connectionCount> (local
 const typingUsers = new Map(); // groupId -> Map<userId, {userName, timestamp}> (local fallback)
 const groupMembershipCache = new Map(); // groupId -> {name, memberIds, expiry}
 
-// Redis clients for horizontal scaling (Comment 5)
-// These are initialized when REDIS_URL is set
+// Redis client for presence state (uses centralized Redis from redis.js)
+// Initialized when Redis is available
 let redisClient = null;
-let redisPubClient = null;
-let redisSubClient = null;
 let useRedisState = false;
 
 // Cache TTL
@@ -85,6 +81,9 @@ const REDIS_TYPING_PREFIX = 'socket:typing:'; // Hash: groupId -> {userId: JSON(
 
 // Store io instance for exports
 let ioInstance = null;
+
+// Track Redis adapter clients for cleanup
+let ioAdapterClients = null;
 
 /**
  * Get or cache group membership for fast authorization checks
@@ -165,7 +164,7 @@ export const removeUserPresence = async (groupId, userId) => {
   // Local fallback
   const groupUsers = onlineUsers.get(groupId);
   if (!groupUsers) return false;
-  
+
   const currentCount = groupUsers.get(userId) || 0;
   if (currentCount <= 1) {
     // Last connection, remove user entirely
@@ -255,7 +254,7 @@ const startTypingCleanup = () => {
 
   typingCleanupInterval = setInterval(async () => {
     const now = Date.now();
-    
+
     // Clean up local typing state
     for (const [groupId, users] of typingUsers) {
       for (const [userId, data] of users) {
@@ -267,7 +266,7 @@ const startTypingCleanup = () => {
         typingUsers.delete(groupId);
       }
     }
-    
+
     // Redis typing keys auto-expire via TYPING_REDIS_TTL, no manual cleanup needed
   }, 5000);
 };
@@ -282,18 +281,8 @@ export const stopTypingCleanup = () => {
 
 // Comment 5: Cleanup Redis connections on shutdown
 export const cleanupRedisConnections = async () => {
-  if (redisClient) {
-    await redisClient.quit();
-    redisClient = null;
-  }
-  if (redisPubClient) {
-    await redisPubClient.quit();
-    redisPubClient = null;
-  }
-  if (redisSubClient) {
-    await redisSubClient.quit();
-    redisSubClient = null;
-  }
+  // Redis clients are managed by redis.js, no cleanup needed here
+  redisClient = null;
   useRedisState = false;
 };
 
@@ -321,38 +310,60 @@ export const initializeSocket = async (httpServer) => {
   // Store io instance for exports
   ioInstance = io;
 
-  // Comment 5: Set up Redis adapter for horizontal scaling
-  // When REDIS_URL is configured, use Redis adapter for cross-instance communication
-  if (process.env.REDIS_URL && createAdapter && Redis) {
+  // Set up Redis adapter for horizontal scaling
+  // Uses centralized Redis from redis.js for pub/sub
+  if (isRedisConnected() && createAdapter) {
     try {
-      redisPubClient = new Redis(process.env.REDIS_URL);
-      redisSubClient = redisPubClient.duplicate();
-      redisClient = redisPubClient.duplicate();
-      
-      // Wait for connections
-      await Promise.all([
-        new Promise((resolve, reject) => {
-          redisPubClient.on('connect', resolve);
-          redisPubClient.on('error', reject);
-        }),
-        new Promise((resolve, reject) => {
-          redisSubClient.on('connect', resolve);
-          redisSubClient.on('error', reject);
-        }),
-      ]);
-      
-      io.adapter(createAdapter(redisPubClient, redisSubClient));
-      useRedisState = true;
-      console.log('Socket.IO: Redis adapter connected - horizontal scaling enabled');
-      console.log('  Presence and typing state synced across instances via Redis');
+      const { pubClient, subClient } = getRedisPubSubClients();
+
+      if (pubClient && subClient) {
+        // The @socket.io/redis-adapter expects ioredis-compatible clients
+        // Since redis.js provides node-redis clients, we need to create ioredis clients
+        // but we'll track them for cleanup
+        const IORedis = (await import('ioredis')).default;
+
+        // Create dedicated adapter clients (required for Redis adapter)
+        // These are tracked at module scope for cleanup
+        const adapterPubClient = new IORedis(process.env.REDIS_URL);
+        const adapterSubClient = adapterPubClient.duplicate();
+
+        // Wait for connections
+        await Promise.all([
+          new Promise((resolve, reject) => {
+            adapterPubClient.on('connect', resolve);
+            adapterPubClient.on('error', reject);
+            setTimeout(() => reject(new Error('Connection timeout')), 5000);
+          }),
+          new Promise((resolve, reject) => {
+            adapterSubClient.on('connect', resolve);
+            adapterSubClient.on('error', reject);
+            setTimeout(() => reject(new Error('Connection timeout')), 5000);
+          }),
+        ]);
+
+        io.adapter(createAdapter(adapterPubClient, adapterSubClient));
+
+        // Store adapter clients for cleanup
+        ioAdapterClients = { pub: adapterPubClient, sub: adapterSubClient };
+
+        // Use the centralized Redis client for presence state instead of creating another
+        // Reuse the pubClient from redis.js (convert to ioredis for consistency)
+        redisClient = adapterPubClient; // Reuse for presence to avoid extra connections
+
+        useRedisState = true;
+        console.log('Socket.IO: Redis adapter connected - horizontal scaling enabled');
+        console.log('  Presence and typing state synced across instances via Redis');
+      } else {
+        console.log('Socket.IO: Redis pub/sub clients not available, running in single-instance mode');
+      }
     } catch (err) {
       console.error('Socket.IO: Failed to connect Redis adapter:', err.message);
       console.log('Socket.IO: Falling back to single-instance mode');
       useRedisState = false;
     }
   } else {
-    console.log('Socket.IO: Running in single-instance mode (no REDIS_URL configured)');
-    console.log('  For horizontal scaling, set REDIS_URL environment variable');
+    console.log('Socket.IO: Running in single-instance mode (Redis not available)');
+    console.log('  For horizontal scaling, configure Redis and install @socket.io/redis-adapter');
   }
 
   // Authentication middleware - use cookie-based auth with blacklist check and origin verification
@@ -399,7 +410,7 @@ export const initializeSocket = async (httpServer) => {
 
   io.on('connection', (socket) => {
     const userId = socket.userId;
-    
+
     // Log connection for debug portal
     logSocketEvt('connection', { userId, socketId: socket.id });
 
@@ -540,8 +551,8 @@ export const initializeSocket = async (httpServer) => {
       if (!withinLimit) {
         const { resetIn } = getRateLimitInfo(userId, groupId);
         if (typeof ackCallback === 'function') {
-          ackCallback({ 
-            success: false, 
+          ackCallback({
+            success: false,
             error: 'Rate limit exceeded. Please slow down.',
             retryAfter: Math.ceil(resetIn / 1000)
           });
@@ -676,7 +687,7 @@ export const initializeSocket = async (httpServer) => {
     socket.on('disconnect', () => {
       // Log disconnect for debug portal
       logSocketEvt('disconnect', { userId, socketId: socket.id });
-      
+
       // Decrement connection count (presence cleanup already done in disconnecting)
       const count = userConnections.get(userId) - 1;
       if (count <= 0) {
@@ -711,3 +722,23 @@ export const isUserOnline = async (groupId, userId) => {
  * Get the Socket.io instance
  */
 export const getSocketIO = () => ioInstance;
+
+/**
+ * Cleanup Redis adapter connections on shutdown
+ */
+export const cleanupSocketIO = async () => {
+  if (ioAdapterClients) {
+    try {
+      if (ioAdapterClients.pub) {
+        await ioAdapterClients.pub.quit();
+      }
+      if (ioAdapterClients.sub) {
+        await ioAdapterClients.sub.quit();
+      }
+      ioAdapterClients = null;
+      console.log('Socket.IO: Redis adapter clients disconnected');
+    } catch (err) {
+      console.error('Socket.IO: Error disconnecting adapter clients:', err.message);
+    }
+  }
+};

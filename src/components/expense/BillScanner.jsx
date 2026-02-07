@@ -53,14 +53,14 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
     }
 
     setImage(file);
-    
+
     // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
       setImagePreview(reader.result);
     };
     reader.readAsDataURL(file);
-    
+
     setScanStatus('idle');
     setExtractedData(null);
   };
@@ -110,7 +110,7 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
       } else {
         const text = await response.text();
         if (!response.ok) {
-          throw new Error(`Server error ${response.status}: ${text.slice(0,200)}`);
+          throw new Error(`Server error ${response.status}: ${text.slice(0, 200)}`);
         }
         try {
           data = JSON.parse(text);
@@ -126,14 +126,21 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
       const extracted = {
         amount: data.extracted?.amount || null,
         date: data.extracted?.date || null,
-        merchantName: null, // Can be added if OCR extracts it
-        rawText: data.text || '',
+        merchantName: data.extracted?.merchantName || null,
+        lineItems: data.extracted?.lineItems || null,
+        rawText: data.rawText || '',
+        ocrConfidence: data.ocrConfidence || 0,
+        extractionConfidence: data.extractionConfidence || 0,
       };
-      
+
       setExtractedData(extracted);
       setScanStatus('success');
-      
-      if (!extracted.amount && !extracted.date) {
+
+      // Determine confidence level
+      const confidence = extracted.extractionConfidence;
+      const confidenceLevel = confidence > 0.7 ? 'high' : confidence > 0.5 ? 'medium' : 'low';
+
+      if (!extracted.amount && !extracted.date && !extracted.merchantName) {
         toast({
           title: "No data extracted",
           description: "Could not extract expense details. Please enter manually.",
@@ -141,12 +148,16 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
         });
         setScanStatus('error');
       } else {
+        const extractedFields = [
+          extracted.merchantName ? 'merchant' : null,
+          extracted.amount ? 'amount' : null,
+          extracted.date ? 'date' : null,
+          extracted.lineItems ? `${extracted.lineItems.length} items` : null,
+        ].filter(Boolean);
+
         toast({
-          title: "Scan successful!",
-          description: `Extracted ${[
-            extracted.amount ? 'amount' : null,
-            extracted.date ? 'date' : null,
-          ].filter(Boolean).join(', ')}`,
+          title: `Scan successful! (${confidenceLevel} confidence)`,
+          description: `Extracted: ${extractedFields.join(', ')}`,
         });
       }
 
@@ -172,6 +183,7 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
         amount: extractedData.amount || '',
         date: extractedData.date || '',
         description: extractedData.merchantName || '',
+        lineItems: extractedData.lineItems || null,
       });
       handleClose();
     }
@@ -193,11 +205,11 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4"
       onClick={handleClose}
     >
-      <Card 
+      <Card
         className="w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
@@ -293,15 +305,34 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
               {scanStatus === 'success' && extractedData && (
                 <Card className="bg-primary/5 border-primary/20">
                   <CardContent className="pt-3 sm:pt-4 p-3 sm:p-4">
-                    <div className="flex items-center gap-2 mb-2 sm:mb-3">
-                      <CheckCircle size={18} className="text-primary flex-shrink-0" />
-                      <h3 className="font-semibold text-sm sm:text-base text-foreground">Extracted Data</h3>
+                    <div className="flex items-center justify-between mb-2 sm:mb-3">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle size={18} className="text-primary flex-shrink-0" />
+                        <h3 className="font-semibold text-sm sm:text-base text-foreground">Extracted Data</h3>
+                      </div>
+                      {extractedData.extractionConfidence > 0 && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${extractedData.extractionConfidence > 0.7
+                            ? 'bg-success/20 text-success'
+                            : extractedData.extractionConfidence > 0.5
+                              ? 'bg-warning/20 text-warning'
+                              : 'bg-destructive/20 text-destructive'
+                          }`}>
+                          {extractedData.extractionConfidence > 0.7 ? 'High' :
+                            extractedData.extractionConfidence > 0.5 ? 'Medium' : 'Low'} confidence
+                        </span>
+                      )}
                     </div>
                     <div className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm">
+                      {extractedData.merchantName && (
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">Merchant:</span>
+                          <span className="font-medium truncate">{extractedData.merchantName}</span>
+                        </div>
+                      )}
                       {extractedData.amount && (
                         <div className="flex justify-between gap-2">
                           <span className="text-muted-foreground">Amount:</span>
-                          <span className="font-medium">₹{extractedData.amount}</span>
+                          <span className="font-medium">₹{(Number(extractedData.amount) || 0).toLocaleString()}</span>
                         </div>
                       )}
                       {extractedData.date && (
@@ -310,10 +341,20 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
                           <span className="font-medium">{extractedData.date}</span>
                         </div>
                       )}
-                      {extractedData.merchantName && (
-                        <div className="flex justify-between gap-2">
-                          <span className="text-muted-foreground">Merchant:</span>
-                          <span className="font-medium truncate">{extractedData.merchantName}</span>
+                      {extractedData.lineItems && extractedData.lineItems.length > 0 && (
+                        <div className="pt-2 border-t border-border/50">
+                          <span className="text-muted-foreground block mb-1.5">Line Items:</span>
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {extractedData.lineItems.map((item, idx) => {
+                              const price = Number(item.totalPrice) || 0;
+                              return (
+                                <div key={idx} className="flex justify-between gap-2 text-xs bg-background/50 p-1.5 rounded">
+                                  <span className="truncate">{item.description} {item.quantity > 1 && `x${item.quantity}`}</span>
+                                  <span className="font-medium whitespace-nowrap">₹{price.toFixed(2)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -349,7 +390,7 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
                 >
                   Choose Different Image
                 </Button>
-                
+
                 {scanStatus === 'idle' && (
                   <Button
                     className="flex-1 min-h-[44px] text-sm sm:text-base"

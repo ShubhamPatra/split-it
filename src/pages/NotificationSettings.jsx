@@ -41,6 +41,9 @@ const NotificationSettings = () => {
     alertThreshold: 80,
   });
 
+  const [spendingData, setSpendingData] = useState(null);
+  const [spendingLoading, setSpendingLoading] = useState(true);
+
   const [pushStatus, setPushStatus] = useState({
     supported: false,
     subscribed: false,
@@ -66,6 +69,13 @@ const NotificationSettings = () => {
         setEmailPreferences(prev => ({ ...prev, ...emailPrefs }));
         setBudgetSettings(prev => ({ ...prev, ...budgetPrefs }));
         setPushStatus(prev => ({ ...prev, ...pushStatusResult }));
+        
+        // Fetch spending data if budget is enabled
+        if (budgetPrefs.monthlyLimit > 0) {
+          fetchSpendingData();
+        } else {
+          setSpendingLoading(false);
+        }
       } catch (error) {
         console.error('Failed to fetch preferences:', error);
         toast({
@@ -80,6 +90,17 @@ const NotificationSettings = () => {
 
     fetchPreferences();
   }, [isAuthenticated, navigate, toast]);
+
+  const fetchSpendingData = async () => {
+    try {
+      const spending = await apiClient.get('/users/spending');
+      setSpendingData(spending);
+    } catch (error) {
+      console.error('Failed to fetch spending data:', error);
+    } finally {
+      setSpendingLoading(false);
+    }
+  };
 
   const handleToggle = (key) => {
     setEmailPreferences(prev => ({ ...prev, [key]: !prev[key] }));
@@ -493,14 +514,66 @@ const NotificationSettings = () => {
                 <FileText className="text-primary" size={20} />
               </div>
               <div>
-                <CardTitle className="text-lg">Budget Settings</CardTitle>
+                <CardTitle className="text-lg">Personal Budget</CardTitle>
                 <CardDescription>
-                  Set spending limits to receive alerts
+                  Track your spending across all groups
                 </CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Spending Status - Show if budget is set */}
+            {budgetSettings.monthlyLimit > 0 && spendingData && !spendingLoading && (
+              <div className="p-4 rounded-lg border border-border bg-secondary/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">This Month's Spending</span>
+                  <span className={`text-lg font-bold ${spendingData.isOverBudget ? 'text-destructive' : spendingData.isNearLimit ? 'text-warning' : 'text-foreground'}`}>
+                    ₹{spendingData.totalSpending.toLocaleString()}
+                  </span>
+                </div>
+                
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Budget: ₹{spendingData.monthlyLimit.toLocaleString()}</span>
+                    <span className={`font-medium ${spendingData.isOverBudget ? 'text-destructive' : 'text-foreground'}`}>
+                      {spendingData.percentUsed.toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
+                    <div 
+                      className={`h-full transition-all ${spendingData.isOverBudget ? 'bg-destructive' : spendingData.isNearLimit ? 'bg-warning' : 'bg-success'}`}
+                      style={{ width: `${Math.min(spendingData.percentUsed, 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {spendingData.isOverBudget && (
+                  <p className="text-xs text-destructive flex items-center gap-1">
+                    <XCircle size={12} />
+                    Over budget by ₹{(spendingData.totalSpending - spendingData.monthlyLimit).toLocaleString()}
+                  </p>
+                )}
+                
+                {spendingData.isNearLimit && !spendingData.isOverBudget && (
+                  <p className="text-xs text-warning flex items-center gap-1">
+                    <Bell size={12} />
+                    Approaching budget limit (₹{spendingData.remaining.toLocaleString()} remaining)
+                  </p>
+                )}
+
+                {!spendingData.isOverBudget && !spendingData.isNearLimit && spendingData.monthlyLimit > 0 && (
+                  <p className="text-xs text-success flex items-center gap-1">
+                    <CheckCircle size={12} />
+                    ₹{spendingData.remaining.toLocaleString()} remaining this month
+                  </p>
+                )}
+
+                <div className="pt-2 border-t border-border/50 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{spendingData.groupCount} groups • {spendingData.expenseCount} expenses</span>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="monthlyLimit">Monthly Spending Limit (₹)</Label>
               <Input

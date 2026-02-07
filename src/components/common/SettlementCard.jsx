@@ -6,8 +6,11 @@ import { useToast } from '../../hooks/use-toast';
 import UpiPaymentButton from './UpiPaymentButton';
 import apiClient from '../../lib/apiClient';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/alert-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { Textarea } from '../ui/textarea';
+import { Label } from '../ui/label';
 import { formatUpiIdForDisplay } from '../../utils/upiHelpers';
 
 const SettlementCard = memo(({ settlement }) => {
@@ -15,13 +18,20 @@ const SettlementCard = memo(({ settlement }) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
 
   const handleDelete = () => { deleteSettlement(settlement.id); toast({ title: "Settlement deleted" }); };
 
   const handleConfirm = async () => {
     setIsProcessing(true);
     try {
-      await apiClient.post(`/settlements/${settlement.id}/confirm`);
+      // Use different endpoint for cross-group settlements
+      const endpoint = settlement.isCrossGroup 
+        ? `/cross-group/settlements/${settlement.id}/confirm`
+        : `/settlements/${settlement.id}/confirm`;
+      
+      await apiClient.post(endpoint);
       toast({ title: 'Payment confirmed!', description: 'The settlement has been marked as confirmed.' });
       if (settlement.groupId) refreshGroup(settlement.groupId);
     } catch (error) {
@@ -31,12 +41,25 @@ const SettlementCard = memo(({ settlement }) => {
     }
   };
 
-  const handleReject = async () => {
+  const handleRejectClick = () => {
+    setRejectionReason('');
+    setShowRejectDialog(true);
+  };
+
+  const handleRejectConfirm = async () => {
     setIsProcessing(true);
     try {
-      await apiClient.post(`/settlements/${settlement.id}/reject`, { reason: 'Payment not received' });
+      // Use different endpoint for cross-group settlements
+      const endpoint = settlement.isCrossGroup
+        ? `/cross-group/settlements/${settlement.id}/reject`
+        : `/settlements/${settlement.id}/reject`;
+      
+      await apiClient.post(endpoint, { 
+        reason: rejectionReason.trim() || 'Payment not received' 
+      });
       toast({ title: 'Marked as not received', description: 'The payer has been notified.' });
       if (settlement.groupId) refreshGroup(settlement.groupId);
+      setShowRejectDialog(false);
     } catch (error) {
       toast({ title: 'Error', description: error.response?.data?.message || 'Failed to reject payment.', variant: 'destructive' });
     } finally {
@@ -44,7 +67,29 @@ const SettlementCard = memo(({ settlement }) => {
     }
   };
 
+  const handleSendReminder = async () => {
+    setIsProcessing(true);
+    try {
+      // Use different endpoint for cross-group settlements
+      const endpoint = settlement.isCrossGroup
+        ? `/cross-group/settlements/${settlement.id}/remind`
+        : `/settlements/${settlement.id}/remind`;
+      
+      await apiClient.post(endpoint);
+      toast({ 
+        title: 'Reminder sent!', 
+        description: `${payer?.name || 'The payer'} has been notified.` 
+      });
+    } catch (error) {
+      const message = error.response?.data?.message || 'Failed to send reminder.';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const receiver = getUserProfile(settlement.toUserId);
+  const payer = getUserProfile(settlement.fromUserId);
   const isPending = settlement.paymentStatus === 'pending';
   const isFailed = settlement.paymentStatus === 'failed';
   const isUpi = settlement.paymentMethod === 'upi';
@@ -111,6 +156,11 @@ const SettlementCard = memo(({ settlement }) => {
               {getPaymentMethodIcon()}
               {getPaymentMethodLabel()}
             </Badge>
+            {settlement.isCrossGroup && (
+              <Badge variant="outline" className="text-[10px] sm:text-xs bg-primary/10 text-primary border-primary/20 flex-shrink-0">
+                Cross-Group
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-xs sm:text-sm text-muted-foreground">{new Date(settlement.settledAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
@@ -153,13 +203,26 @@ const SettlementCard = memo(({ settlement }) => {
                 size="sm" 
                 variant="outline"
                 className="h-9 text-xs min-h-[36px] text-destructive hover:text-destructive border-destructive/50 hover:bg-destructive/10"
-                onClick={handleReject}
+                onClick={handleRejectClick}
                 disabled={isProcessing}
               >
                 <X size={14} className="mr-1" />
                 Not Received
               </Button>
             </div>
+          )}
+          {/* Send Reminder button for receiver when pending */}
+          {isPending && isCurrentUserReceiver && (
+            <Button 
+              size="sm" 
+              variant="ghost"
+              className="h-9 text-xs min-h-[36px] mt-2 w-full"
+              onClick={handleSendReminder}
+              disabled={isProcessing}
+            >
+              <Clock size={14} className="mr-1" />
+              Send Reminder
+            </Button>
           )}
         </div>
         <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-between sm:justify-end">
@@ -209,6 +272,50 @@ const SettlementCard = memo(({ settlement }) => {
           </div>
         </div>
       </div>
+
+      {/* Rejection Dialog */}
+      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Report Payment Not Received</DialogTitle>
+            <DialogDescription>
+              Let {payer?.name || 'the payer'} know why you didn't receive the payment. They will be notified.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="reason">Reason (optional)</Label>
+              <Textarea
+                id="reason"
+                placeholder="e.g., Wrong UPI ID, payment failed, didn't receive notification..."
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                className="min-h-[100px]"
+                maxLength={200}
+              />
+              <p className="text-xs text-muted-foreground">
+                {rejectionReason.length}/200 characters
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowRejectDialog(false)}
+              disabled={isProcessing}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRejectConfirm}
+              disabled={isProcessing}
+            >
+              {isProcessing ? 'Processing...' : 'Report Not Received'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 });

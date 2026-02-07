@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Users, PlusCircle, PieChart, LogOut, Settings, BarChart3, Moon, Sun } from 'lucide-react';
+import { Home, Users, PlusCircle, PieChart, LogOut, Settings, BarChart3, Moon, Sun, UserCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import Logo from '../common/Logo';
@@ -30,6 +30,7 @@ const Navbar = () => {
   const navItems = [
     { path: '/dashboard', icon: Home, label: 'Dashboard' },
     { path: '/groups', icon: Users, label: 'Groups' },
+    { path: '/people', icon: UserCircle, label: 'People' },
     { path: '/add-expense', icon: PlusCircle, label: 'Add Expense' },
     { path: '/analytics', icon: BarChart3, label: 'Analytics' },
     { path: '/summary', icon: PieChart, label: 'Summary' },

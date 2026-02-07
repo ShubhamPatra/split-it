@@ -14,14 +14,14 @@ import { executeJob } from './jobRunner.js';
 
 // Debug log helper (lazy loaded)
 const logJobEvt = async (jobName, status, data = {}) => {
-  if (process.env.DEBUG_ENABLED === 'true') {
-    try {
-      const { logJobEvent } = await import('../internal/debug/logCollector.js');
-      logJobEvent(jobName, status, data);
-    } catch (e) {
-      // Debug portal not available, ignore
+    if (process.env.DEBUG_ENABLED === 'true') {
+        try {
+            const { logJobEvent } = await import('../internal/debug/logCollector.js');
+            logJobEvent(jobName, status, data);
+        } catch (e) {
+            // Debug portal not available, ignore
+        }
     }
-  }
 };
 
 // Store all cron jobs for cleanup
@@ -159,12 +159,14 @@ export const initializeScheduler = () => {
     // DUE REMINDERS
     // ============================================
 
+    // TEMPORARILY DISABLED - Due reminders (uncomment to re-enable)
     // Due reminders - Daily at 10:00 AM
-    const dueReminderJob = cron.schedule('0 10 * * *', () => {
-        executeScheduledJob('due-reminders', processDueReminders);
-    }, { scheduled: true });
-    cronJobs.push({ name: 'due-reminders', job: dueReminderJob });
-    console.log('[Scheduler] Scheduled: Due reminders (daily 10:00 AM)');
+    // const dueReminderJob = cron.schedule('0 10 * * *', () => {
+    //     executeScheduledJob('due-reminders', processDueReminders);
+    // }, { scheduled: true });
+    // cronJobs.push({ name: 'due-reminders', job: dueReminderJob });
+    // console.log('[Scheduler] Scheduled: Due reminders (daily 10:00 AM)');
+    console.log('[Scheduler] SKIPPED: Due reminders (TEMPORARILY DISABLED)');
 
     isInitialized = true;
     console.log(`[Scheduler] Initialized with ${cronJobs.length} scheduled jobs`);

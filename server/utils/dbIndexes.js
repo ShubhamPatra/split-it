@@ -47,6 +47,10 @@ export const createIndexes = async () => {
     );
     // Index for budget calculations (amount aggregation by date)
     await safeCreateIndex(Expense.collection, { groupId: 1, date: 1, amount: 1 });
+    // PERF-003: Optimized indexes for balance calculation aggregation
+    await safeCreateIndex(Expense.collection, { groupId: 1, paidBy: 1 });
+    await safeCreateIndex(Expense.collection, { groupId: 1, amountInBaseCurrency: 1 });
+    await safeCreateIndex(Expense.collection, { groupId: 1, 'splitConfig.type': 1 });
     
     // Settlement indexes - comprehensive coverage for all query patterns
     await safeCreateIndex(Settlement.collection, { groupId: 1, settledAt: -1 });
@@ -57,6 +61,9 @@ export const createIndexes = async () => {
     await safeCreateIndex(Settlement.collection, { groupId: 1, paymentStatus: 1, settledAt: -1 });
     await safeCreateIndex(Settlement.collection, { toUserId: 1, paymentStatus: 1, settledAt: -1 });
     await safeCreateIndex(Settlement.collection, { transactionRef: 1 }, { sparse: true });
+    // PERF-003: Optimized indexes for balance calculation aggregation
+    await safeCreateIndex(Settlement.collection, { groupId: 1, paymentStatus: 1, fromUserId: 1 });
+    await safeCreateIndex(Settlement.collection, { groupId: 1, paymentStatus: 1, toUserId: 1 });
     
     // Notification indexes - optimized for unread queries and cleanup
     await safeCreateIndex(Notification.collection, { userId: 1, timestamp: -1 });

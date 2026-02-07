@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import Navbar from '../components/layout/Navbar';
 import GroupCard from '../components/common/GroupCard';
+import { SkeletonGroupCardList } from '../components/common/SkeletonCards';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Progress } from '../components/ui/progress';
@@ -435,7 +436,9 @@ const Dashboard = () => {
                 </Button>
               </div>
 
-              {userGroups.length > 0 ? (
+              {loading ? (
+                <SkeletonGroupCardList count={3} />
+              ) : userGroups.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-5">
                   {userGroups.slice(0, 6).map((group, index) => (
                     <div key={group.id} className="animate-fade-in" style={{ animationDelay: `${0.05 * (index + 1)}s` }}>

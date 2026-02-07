@@ -2,6 +2,24 @@ import dotenv from 'dotenv';
 // Load environment variables FIRST (before any process.env checks)
 dotenv.config();
 
+// Validate configuration immediately after loading environment variables
+import { ConfigValidator } from './config/configValidator.js';
+try {
+  ConfigValidator.assertValidConfig();
+  console.log('✓ Configuration validation passed');
+} catch (error) {
+  console.error('✗ Configuration validation failed:');
+  console.error(error.message);
+  if (error.missingVars && error.missingVars.length > 0) {
+    console.error('\nPlease set the following environment variables:');
+    error.missingVars.forEach(varName => {
+      console.error(`  - ${varName}`);
+    });
+    console.error('\nSee .env.example for reference.');
+  }
+  process.exit(1);
+}
+
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -12,10 +30,12 @@ import mongoose from 'mongoose';
 import helmet from 'helmet';
 import hpp from 'hpp';
 import connectDB from './config/db.js';
-import { initializeSocket, getSocketIO, stopTypingCleanup, cleanupRedisConnections } from './config/socket.js';
+import { initializeSocket, getSocketIO, stopTypingCleanup, cleanupRedisConnections, cleanupSocketIO } from './config/socket.js';
 import { createIndexes } from './utils/dbIndexes.js';
 import { securityHeaders, sanitizeInput, rateLimiter } from './middleware/security.js';
+import { errorHandler } from './middleware/errorHandler.js';
 import authRoutes from './routes/authRoutes.js';
+import twoFactorRoutes from './routes/twoFactorRoutes.js';
 import groupRoutes from './routes/groupRoutes.js';
 import expenseRoutes from './routes/expenseRoutes.js';
 import settlementRoutes from './routes/settlementRoutes.js';
@@ -25,6 +45,10 @@ import pushRoutes from './routes/pushRoutes.js';
 import ocrRoutes from './routes/ocrRoutes.js';
 import inviteRoutes from './routes/inviteRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
+import auditRoutes from './routes/auditRoutes.js';
+import crossGroupRoutes from './routes/crossGroupRoutes.js';
+import balanceRoutes from './routes/balanceRoutes.js';
+import healthRoutes from './routes/healthRoutes.js';
 import { initializeVapid } from './config/vapid.js';
 
 // Job system imports
@@ -78,6 +102,10 @@ const initializeServer = async () => {
   await connectDB();
   await createIndexes();
 
+  // Initialize Redis (optional, falls back to in-memory cache)
+  const { initializeRedis } = await import('./config/redis.js');
+  await initializeRedis();
+
   // Initialize Socket.IO (with optional Redis adapter for horizontal scaling)
   io = await initializeSocket(httpServer);
 
@@ -99,14 +127,87 @@ const initializeServer = async () => {
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
+        // Default source for all content types
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'", process.env.CLIENT_URL || 'http://localhost:3000'],
+
+        // Scripts: Allow self and Google OAuth
+        scriptSrc: [
+          "'self'",
+          "https://accounts.google.com",
+          "https://apis.google.com",
+        ],
+
+        // Styles: Allow self and Google OAuth
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'", // Required for React inline styles and Tailwind
+          "https://accounts.google.com",
+        ],
+
+        // Images: Allow self, data URIs, blob URIs, and Google
+        imgSrc: [
+          "'self'",
+          "data:",
+          "blob:",
+          "https:",
+          "https://accounts.google.com",
+          "https://*.googleusercontent.com",
+        ],
+
+        // Fonts: Allow self and data URIs
+        fontSrc: [
+          "'self'",
+          "data:",
+        ],
+
+        // Connect (AJAX, WebSocket, etc.): Allow self, API, and Google
+        connectSrc: [
+          "'self'",
+          process.env.CLIENT_URL || "http://localhost:3000",
+          "https://accounts.google.com",
+          "https://apis.google.com",
+          // WebSocket connections - conditional on environment
+          ...(process.env.NODE_ENV === 'production'
+            ? [
+              // Production: derive WSS URL from CLIENT_URL
+              process.env.CLIENT_URL?.replace('https://', 'wss://') || 'wss://localhost:*',
+            ]
+            : [
+              // Development: allow any localhost WebSocket
+              "wss://localhost:*",
+              "ws://localhost:*",
+            ]
+          ),
+        ],
+
+        // Frames: Allow Google OAuth
+        frameSrc: [
+          "'self'",
+          "https://accounts.google.com",
+        ],
+
+        // Object/Embed: Disallow all
+        objectSrc: ["'none'"],
+
+        // Base URI: Restrict to self
+        baseUri: ["'self'"],
+
+        // Form actions: Restrict to self
+        formAction: ["'self'"],
+
+        // Frame ancestors: Prevent clickjacking
+        frameAncestors: ["'none'"],
+
+        // Upgrade insecure requests in production
+        ...(process.env.NODE_ENV === 'production' ? {
+          upgradeInsecureRequests: [],
+        } : {}),
       },
+      // Report CSP violations (optional - can be configured later)
+      reportOnly: false,
     },
-    crossOriginEmbedderPolicy: false, // Disable for compatibility
+    crossOriginEmbedderPolicy: false, // Disable for compatibility with Google OAuth
+    crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin resources
   }));
 
   // HPP prevents HTTP Parameter Pollution attacks
@@ -166,8 +267,12 @@ const initializeServer = async () => {
     });
   }
 
+  // Health check routes (should be first for quick responses)
+  app.use('/', healthRoutes);
+
   // Routes
   app.use('/api/auth', authRoutes);
+  app.use('/api/auth/2fa', twoFactorRoutes);
   app.use('/api/groups', groupRoutes);
   app.use('/api/groups', chatRoutes); // Chat routes nested under groups
   app.use('/api/messages', chatRoutes); // Messages routes for batch operations like /api/messages/unread-counts
@@ -178,23 +283,16 @@ const initializeServer = async () => {
   app.use('/api/push', pushRoutes);
   app.use('/api/ocr', ocrRoutes);
   app.use('/api/invites', inviteRoutes);
-
-  // Health check route
-  app.get('/api/health', (req, res) => {
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      mode: 'in-process',
-      scheduler: 'node-cron',
-    });
-  });
+  app.use('/api/audit', auditRoutes);
+  app.use('/api/cross-group', crossGroupRoutes);
+  app.use('/api/balances', balanceRoutes);
 
   // Serve static assets (logos, icons) for emails
   // These need to be publicly accessible without authentication
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
   const buildPath = path.join(__dirname, '..', 'build');
-  
+
   // Serve specific assets needed for emails (logos, icons)
   app.use('/assets', express.static(buildPath, {
     maxAge: '1y', // Cache for a year (versioned files)
@@ -217,37 +315,9 @@ const initializeServer = async () => {
     }
   }
 
-  // Error handling middleware
-  app.use((err, req, res, next) => {
-    // Log error details (in production, use proper logging service)
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('Error occurred:', {
-        message: err.message,
-        stack: err.stack,
-        path: req.path,
-        method: req.method,
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      // In production, log only essential info
-      console.error(`Error: ${err.message} - Path: ${req.path}`);
-    }
-
-    // Log to debug portal collector if enabled
-    if (process.env.DEBUG_ENABLED === 'true') {
-      import('./internal/debug/logCollector.js').then(({ logApiError }) => {
-        logApiError(err, { path: req.path, method: req.method, statusCode: err.status || 500 });
-      }).catch(() => {});
-    }
-
-    // Don't leak error details in production
-    const isDev = process.env.NODE_ENV === 'development';
-
-    res.status(err.status || 500).json({
-      message: err.status === 500 && !isDev ? 'Internal Server Error' : err.message,
-      ...(isDev && { stack: err.stack })
-    });
-  });
+  // Error handling middleware (must be after all routes)
+  // Uses the new ErrorHandler middleware with sanitization
+  app.use(errorHandler);
 
   // 404 handler
   app.use((req, res) => {
@@ -283,6 +353,15 @@ const gracefulShutdown = async (signal) => {
   }, 30000);
 
   try {
+    // Flush pending notification batches first
+    try {
+      const { flushAllBatches } = await import('./jobs/notificationBatcher.js');
+      await flushAllBatches();
+      console.log('Notification batches flushed');
+    } catch (err) {
+      console.error('Error flushing notification batches:', err);
+    }
+
     // Stop scheduled jobs first (prevent new job starts)
     stopScheduler();
     console.log('Scheduler stopped');
@@ -295,11 +374,7 @@ const gracefulShutdown = async (signal) => {
     stopTypingCleanup();
     console.log('Socket cleanup stopped');
 
-    // Close Redis connections (Comment 5)
-    await cleanupRedisConnections();
-    console.log('Redis connections closed');
-
-    // Close Socket.IO connections
+    // Close Socket.IO connections first (before Redis adapter cleanup)
     const socketIO = getSocketIO();
     if (socketIO) {
       await new Promise((resolve) => {
@@ -310,6 +385,23 @@ const gracefulShutdown = async (signal) => {
         // Timeout for Socket.IO close
         setTimeout(resolve, 5000);
       });
+    }
+
+    // Close Socket.IO Redis adapter clients (must be after socketIO.close)
+    await cleanupSocketIO();
+    console.log('Socket.IO Redis adapter clients closed');
+
+    // Close Redis presence state connections
+    await cleanupRedisConnections();
+    console.log('Socket.IO Redis presence connections closed');
+
+    // Close balance cache Redis connection
+    try {
+      const { cleanupRedis } = await import('./config/redis.js');
+      await cleanupRedis();
+      console.log('Balance cache Redis connections closed');
+    } catch (err) {
+      console.error('Error closing balance cache Redis:', err);
     }
 
     // Close HTTP server with timeout

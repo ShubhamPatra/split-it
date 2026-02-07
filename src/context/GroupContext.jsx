@@ -2,6 +2,24 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { useAuth } from './AuthContext';
 import apiClient from '../lib/apiClient';
 import { initializeSocket, leaveGroupRoom, joinGroupRoom, forceRejoinRooms } from '../lib/socketClient';
+import offlineStorage from '../lib/offlineStorage';
+import syncService from '../lib/syncService';
+import {
+  transformGroup,
+  transformExpense,
+  transformSettlement,
+  normalizeUpdates,
+  buildProfilesMap,
+} from './utils/groupTransformers';
+import {
+  calculateGroupBalances,
+  calculateTotalExpenses,
+} from './utils/balanceCalculator';
+import {
+  createSocketHandlers,
+  registerSocketListeners,
+  unregisterSocketListeners,
+} from './utils/socketHandlers';
 
 // Create the context
 const GroupContext = createContext(undefined);
@@ -43,46 +61,17 @@ export const GroupProvider = ({ children }) => {
   const updateGroupLocally = useCallback((groupId, updates) => {
     setGroups(prev => prev.map(g => {
       if (g.id !== groupId) return g;
-      
-      // Normalize the updates to ensure members are ID strings, not objects
-      const normalizedUpdates = { ...updates };
-      
-      // Normalize members array if present (handles populated objects from socket events)
-      if (normalizedUpdates.members && Array.isArray(normalizedUpdates.members)) {
-        normalizedUpdates.members = normalizedUpdates.members.map(m => 
-          (m._id || m.id || m)?.toString()
-        );
-      }
-      
-      // Normalize createdBy if present (handles populated objects from socket events)
-      if (normalizedUpdates.createdBy && typeof normalizedUpdates.createdBy === 'object') {
-        normalizedUpdates.createdBy = (normalizedUpdates.createdBy._id || normalizedUpdates.createdBy.id)?.toString();
-      }
-      
-      // Normalize id/_id
-      if (normalizedUpdates._id) {
-        normalizedUpdates.id = normalizedUpdates._id.toString();
-        delete normalizedUpdates._id;
-      }
-      
+
+      // Use utility function for normalization
+      const normalizedUpdates = normalizeUpdates(updates);
+
       return { ...g, ...normalizedUpdates };
     }));
   }, []);
 
   const addExpenseLocally = useCallback((expense) => {
-    const transformed = {
-      id: (expense._id || expense.id)?.toString(),
-      groupId: (expense.groupId._id || expense.groupId)?.toString(),
-      description: expense.description,
-      amount: expense.amount,
-      currency: expense.currency,
-      category: expense.category,
-      paidBy: (expense.paidBy._id || expense.paidBy)?.toString(),
-      date: expense.date,
-      splitAmong: expense.splitAmong.map(s => (s._id || s)?.toString()),
-      splitConfig: expense.splitConfig,
-      receipts: expense.receipts || [],
-    };
+    const transformed = transformExpense(expense);
+
     // Guard: skip if expense id already exists to prevent duplicates from multiple event handlers
     setExpenses(prev => {
       if (prev.some(e => e.id === transformed.id)) {
@@ -95,37 +84,10 @@ export const GroupProvider = ({ children }) => {
   const updateExpenseLocally = useCallback((expenseId, updates) => {
     setExpenses(prev => prev.map(e => {
       if (e.id !== expenseId) return e;
-      
-      // Normalize updates to ensure IDs are strings, not populated objects
-      const normalizedUpdates = { ...updates };
-      
-      // Normalize id/_id
-      if (normalizedUpdates._id) {
-        normalizedUpdates.id = normalizedUpdates._id.toString();
-        delete normalizedUpdates._id;
-      }
-      
-      // Normalize groupId (handles populated object from socket events)
-      if (normalizedUpdates.groupId && typeof normalizedUpdates.groupId === 'object') {
-        normalizedUpdates.groupId = (normalizedUpdates.groupId._id || normalizedUpdates.groupId.id)?.toString();
-      } else if (normalizedUpdates.groupId) {
-        normalizedUpdates.groupId = normalizedUpdates.groupId.toString();
-      }
-      
-      // Normalize paidBy (handles populated object from socket events)
-      if (normalizedUpdates.paidBy && typeof normalizedUpdates.paidBy === 'object') {
-        normalizedUpdates.paidBy = (normalizedUpdates.paidBy._id || normalizedUpdates.paidBy.id)?.toString();
-      } else if (normalizedUpdates.paidBy) {
-        normalizedUpdates.paidBy = normalizedUpdates.paidBy.toString();
-      }
-      
-      // Normalize splitAmong array (handles populated objects from socket events)
-      if (normalizedUpdates.splitAmong && Array.isArray(normalizedUpdates.splitAmong)) {
-        normalizedUpdates.splitAmong = normalizedUpdates.splitAmong.map(s => 
-          (s._id || s.id || s)?.toString()
-        );
-      }
-      
+
+      // Use utility function for normalization
+      const normalizedUpdates = normalizeUpdates(updates);
+
       return { ...e, ...normalizedUpdates };
     }));
   }, []);
@@ -135,17 +97,8 @@ export const GroupProvider = ({ children }) => {
   }, []);
 
   const addSettlementLocally = useCallback((settlement) => {
-    const transformed = {
-      id: (settlement._id || settlement.id)?.toString(),
-      groupId: (settlement.groupId._id || settlement.groupId)?.toString(),
-      fromUserId: (settlement.fromUserId._id || settlement.fromUserId)?.toString(),
-      toUserId: (settlement.toUserId._id || settlement.toUserId)?.toString(),
-      amount: settlement.amount,
-      currency: settlement.currency,
-      settledAt: settlement.settledAt,
-      paymentMethod: settlement.paymentMethod || 'cash',
-      paymentStatus: settlement.paymentStatus || 'pending',
-    };
+    const transformed = transformSettlement(settlement);
+
     // Guard: skip if settlement id already exists to prevent duplicates from multiple event handlers
     setSettlements(prev => {
       if (prev.some(s => s.id === transformed.id)) {
@@ -156,14 +109,7 @@ export const GroupProvider = ({ children }) => {
   }, []);
 
   const addGroupLocally = useCallback((group) => {
-    const transformed = {
-      id: (group._id || group.id)?.toString(),
-      name: group.name,
-      createdBy: (group.createdBy._id || group.createdBy)?.toString(),
-      createdAt: group.createdAt,
-      members: group.members.map(m => (m._id || m)?.toString()),
-      inviteCode: group.inviteCode,
-    };
+    const transformed = transformGroup(group);
     setGroups(prev => [transformed, ...prev]);
   }, []);
 
@@ -176,37 +122,10 @@ export const GroupProvider = ({ children }) => {
   const updateSettlementLocally = useCallback((settlementId, updates) => {
     setSettlements(prev => prev.map(s => {
       if (s.id !== settlementId) return s;
-      
-      // Normalize updates to ensure IDs are strings, not populated objects
-      const normalizedUpdates = { ...updates };
-      
-      // Normalize id/_id
-      if (normalizedUpdates._id) {
-        normalizedUpdates.id = normalizedUpdates._id.toString();
-        delete normalizedUpdates._id;
-      }
-      
-      // Normalize groupId (handles populated object from socket events)
-      if (normalizedUpdates.groupId && typeof normalizedUpdates.groupId === 'object') {
-        normalizedUpdates.groupId = (normalizedUpdates.groupId._id || normalizedUpdates.groupId.id)?.toString();
-      } else if (normalizedUpdates.groupId) {
-        normalizedUpdates.groupId = normalizedUpdates.groupId.toString();
-      }
-      
-      // Normalize fromUserId (handles populated object from socket events)
-      if (normalizedUpdates.fromUserId && typeof normalizedUpdates.fromUserId === 'object') {
-        normalizedUpdates.fromUserId = (normalizedUpdates.fromUserId._id || normalizedUpdates.fromUserId.id)?.toString();
-      } else if (normalizedUpdates.fromUserId) {
-        normalizedUpdates.fromUserId = normalizedUpdates.fromUserId.toString();
-      }
-      
-      // Normalize toUserId (handles populated object from socket events)
-      if (normalizedUpdates.toUserId && typeof normalizedUpdates.toUserId === 'object') {
-        normalizedUpdates.toUserId = (normalizedUpdates.toUserId._id || normalizedUpdates.toUserId.id)?.toString();
-      } else if (normalizedUpdates.toUserId) {
-        normalizedUpdates.toUserId = normalizedUpdates.toUserId.toString();
-      }
-      
+
+      // Use utility function for normalization
+      const normalizedUpdates = normalizeUpdates(updates);
+
       return { ...s, ...normalizedUpdates };
     }));
   }, []);
@@ -216,45 +135,59 @@ export const GroupProvider = ({ children }) => {
   }, []);
 
   // Load all user data from API (groups + settlements only, expenses loaded lazily)
+  // Falls back to IndexedDB cache when offline
   const loadUserData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    
+
     // Clear balance cache to prevent stale balances after refresh
     setBalancesByGroup({});
 
     try {
+      // Check if offline first
+      if (!navigator.onLine) {
+        console.log('Offline mode: loading from IndexedDB cache');
+
+        // Load from IndexedDB cache
+        const [cachedGroups, cachedSettlements, cachedExpenses] = await Promise.all([
+          offlineStorage.getGroups(),
+          offlineStorage.getSettlements(),
+          offlineStorage.getExpenses(),
+        ]);
+
+        // Transform cached data
+        const transformedGroups = (cachedGroups || []).map(transformGroup);
+        const transformedSettlements = (cachedSettlements || []).map(transformSettlement);
+        const transformedExpenses = (cachedExpenses || []).map(transformExpense);
+
+        setGroups(transformedGroups);
+        setSettlements(transformedSettlements);
+        setExpenses(transformedExpenses);
+
+        // Mark all groups as loaded since we loaded all expenses from cache
+        loadedGroupsRef.current = new Set(transformedGroups.map(g => g.id));
+
+        // Build profiles cache
+        const profilesMap = buildProfilesMap(cachedGroups || []);
+        setProfiles(profilesMap);
+
+        setLoading(false);
+        return;
+      }
+
       // Only load groups and settlements initially - expenses are loaded per-group lazily
       const [groupsData, settlementsData] = await Promise.all([
         apiClient.get('/groups'),
         apiClient.get('/settlements'),
       ]);
 
-      // Transform API data to match frontend format
-      const transformedGroups = groupsData.map(g => ({
-        id: g._id?.toString() || g._id,
-        name: g.name,
-        createdBy: (g.createdBy._id || g.createdBy)?.toString(),
-        createdAt: g.createdAt,
-        members: g.members.map(m => (m._id || m)?.toString()),
-        inviteCode: g.inviteCode,
-      }));
-
-      const transformedSettlements = settlementsData.map(s => ({
-        id: s._id?.toString() || s._id,
-        groupId: (s.groupId._id || s.groupId)?.toString(),
-        fromUserId: (s.fromUserId._id || s.fromUserId)?.toString(),
-        toUserId: (s.toUserId._id || s.toUserId)?.toString(),
-        amount: s.amount,
-        currency: s.currency,
-        settledAt: s.settledAt,
-        paymentMethod: s.paymentMethod || 'cash',
-        paymentStatus: s.paymentStatus || 'pending',
-      }));
+      // Transform API data to match frontend format using utility functions
+      const transformedGroups = groupsData.map(transformGroup);
+      const transformedSettlements = settlementsData.map(transformSettlement);
 
       setGroups(transformedGroups);
       setSettlements(transformedSettlements);
-      
+
       // Reset lazy loading state
       loadedGroupsRef.current = new Set();
       setExpenses([]);
@@ -264,90 +197,135 @@ export const GroupProvider = ({ children }) => {
         joinGroupRoom(g.id);
       });
 
-      // Build profiles cache from populated data
-      const profilesMap = {};
-      groupsData.forEach(g => {
-        if (g.createdBy && typeof g.createdBy === 'object') {
-          const id = g.createdBy._id?.toString();
-          profilesMap[id] = { 
-            id, 
-            name: g.createdBy.name, 
-            email: g.createdBy.email,
-            upiId: g.createdBy.upiId || ''
-          };
-        }
-        g.members.forEach(m => {
-          if (m && typeof m === 'object') {
-            const id = m._id?.toString();
-            profilesMap[id] = { 
-              id, 
-              name: m.name, 
-              email: m.email,
-              upiId: m.upiId || ''
-            };
-          }
-        });
-      });
+      // Build profiles cache from populated data using utility function
+      const profilesMap = buildProfilesMap(groupsData);
       setProfiles(profilesMap);
+
+      // Save to IndexedDB for offline use
+      try {
+        await Promise.all([
+          offlineStorage.syncGroupsFromServer(groupsData || []),
+          offlineStorage.syncSettlementsFromServer(settlementsData || []),
+        ]);
+      } catch (cacheError) {
+        console.warn('Failed to cache data for offline use:', cacheError);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
+
+      // If API call fails, try to load from cache as fallback
+      if (error.message?.includes('Network') || error.message?.includes('offline') || error.message?.includes('Failed to fetch')) {
+        console.log('Network error: falling back to IndexedDB cache');
+        try {
+          const [cachedGroups, cachedSettlements, cachedExpenses] = await Promise.all([
+            offlineStorage.getGroups(),
+            offlineStorage.getSettlements(),
+            offlineStorage.getExpenses(),
+          ]);
+
+          const transformedGroups = (cachedGroups || []).map(transformGroup);
+          const transformedSettlements = (cachedSettlements || []).map(transformSettlement);
+          const transformedExpenses = (cachedExpenses || []).map(transformExpense);
+
+          setGroups(transformedGroups);
+          setSettlements(transformedSettlements);
+          setExpenses(transformedExpenses);
+
+          loadedGroupsRef.current = new Set(transformedGroups.map(g => g.id));
+
+          const profilesMap = buildProfilesMap(cachedGroups || []);
+          setProfiles(profilesMap);
+        } catch (cacheError) {
+          console.error('Failed to load from cache:', cacheError);
+        }
+      }
     } finally {
       setLoading(false);
     }
   }, [user]);
 
   // Lazy load expenses for a specific group
+  // Falls back to IndexedDB cache when offline
   const loadGroupExpenses = useCallback(async (groupId, forceReload = false) => {
     if (!groupId) return [];
-    
+
     // Skip if already loaded and not forcing reload
     if (loadedGroupsRef.current.has(groupId) && !forceReload) {
-      // Access expenses directly instead of using expensesByGroup
       return expenses.filter(e => e.groupId === groupId);
     }
-    
+
     // Use ref for synchronous check to prevent race conditions between renders
     if (loadingGroupsRef.current.has(groupId)) {
       return expenses.filter(e => e.groupId === groupId);
     }
-    
+
     // Mark as loading synchronously BEFORE any async operations
     loadingGroupsRef.current.add(groupId);
     setLoadingGroups(prev => new Set(prev).add(groupId));
-    
+
     try {
+      // Check if offline - load from cache
+      if (!navigator.onLine) {
+        console.log('Offline mode: loading expenses from IndexedDB cache');
+        const cachedExpenses = await offlineStorage.getExpensesByGroup(groupId);
+        const transformedExpenses = (cachedExpenses || []).map(transformExpense);
+
+        setExpenses(prev => {
+          const otherExpenses = prev.filter(e => e.groupId !== groupId);
+          return [...otherExpenses, ...transformedExpenses];
+        });
+
+        loadedGroupsRef.current.add(groupId);
+        return transformedExpenses;
+      }
+
       const response = await apiClient.get(`/expenses/group/${groupId}?limit=${EXPENSES_PER_PAGE}`);
       const expensesData = Array.isArray(response) ? response : (response.data || []);
-      
-      const transformedExpenses = expensesData.map(e => ({
-        id: (e._id || e.id)?.toString(),
-        groupId: (e.groupId?._id || e.groupId)?.toString(),
-        description: e.description,
-        amount: e.amount,
-        currency: e.currency,
-        category: e.category,
-        paidBy: (e.paidBy?._id || e.paidBy)?.toString(),
-        date: e.date,
-        splitAmong: (e.splitAmong || []).map(s => (s._id || s)?.toString()),
-        splitConfig: e.splitConfig,
-        receipts: e.receipts || [],
-      }));
-      
+
+      // Transform expenses using utility function
+      const transformedExpenses = expensesData.map(transformExpense);
+
       // Update expenses state - replace expenses for this group
       setExpenses(prev => {
         const otherExpenses = prev.filter(e => e.groupId !== groupId);
         return [...otherExpenses, ...transformedExpenses];
       });
-      
+
       loadedGroupsRef.current.add(groupId);
-      
+
       // Join socket room for real-time updates after initial load
       const { joinGroupRoom } = await import('../lib/socketClient');
       joinGroupRoom(groupId);
-      
+
+      // Cache expenses for offline use
+      try {
+        await offlineStorage.syncExpensesFromServer(expensesData);
+      } catch (cacheError) {
+        console.warn('Failed to cache expenses:', cacheError);
+      }
+
       return transformedExpenses;
     } catch (error) {
       console.error('Error loading group expenses:', error);
+
+      // Fallback to cache on network error
+      if (error.message?.includes('Network') || error.message?.includes('offline') || error.message?.includes('Failed to fetch')) {
+        try {
+          const cachedExpenses = await offlineStorage.getExpensesByGroup(groupId);
+          const transformedExpenses = (cachedExpenses || []).map(transformExpense);
+
+          setExpenses(prev => {
+            const otherExpenses = prev.filter(e => e.groupId !== groupId);
+            return [...otherExpenses, ...transformedExpenses];
+          });
+
+          loadedGroupsRef.current.add(groupId);
+          return transformedExpenses;
+        } catch (cacheError) {
+          console.error('Failed to load expenses from cache:', cacheError);
+        }
+      }
+
       return [];
     } finally {
       // Clean up both ref and state
@@ -358,7 +336,7 @@ export const GroupProvider = ({ children }) => {
         return next;
       });
     }
-  }, [expenses]); // Only depend on expenses state, not expensesByGroup
+  }, [expenses]);
 
   // Load data when user changes
   useEffect(() => {
@@ -389,11 +367,97 @@ export const GroupProvider = ({ children }) => {
   // Add a new expense
   const addExpense = async (expenseData) => {
     try {
+      // Check if online
+      if (!navigator.onLine) {
+        // Generate temporary ID for offline expense
+        const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Create offline expense object
+        const offlineExpense = {
+          _id: tempId,
+          ...expenseData,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          isOffline: true, // Flag to indicate offline creation
+        };
+
+        // Add to local state immediately (optimistic UI)
+        addExpenseLocally(offlineExpense);
+
+        // Queue for sync when online
+        await offlineStorage.addPendingAction({
+          type: 'CREATE_EXPENSE',
+          data: expenseData,
+          tempId: tempId,
+          timestamp: Date.now(),
+          status: 'pending',
+          retryCount: 0,
+        });
+
+        // Save to IndexedDB for offline viewing
+        await offlineStorage.saveExpense({
+          ...offlineExpense,
+          syncStatus: 'pending',
+        });
+
+        // Register background sync if supported
+        if (syncService.isBackgroundSyncSupported()) {
+          await syncService.registerBackgroundSync();
+        }
+
+        return tempId;
+      }
+
+      // Online mode - normal API call
       const response = await apiClient.post('/expenses', expenseData);
       addExpenseLocally(response);
+
+      // Save to IndexedDB for offline viewing
+      await offlineStorage.saveExpense({
+        ...response,
+        syncStatus: 'synced',
+      });
+
       return response._id;
     } catch (error) {
       console.error('Error adding expense:', error);
+
+      // If API call fails, fall back to offline mode
+      if (error.message.includes('Network') || error.message.includes('Failed to fetch')) {
+        const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        const offlineExpense = {
+          _id: tempId,
+          ...expenseData,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          isOffline: true,
+        };
+
+        addExpenseLocally(offlineExpense);
+
+        await offlineStorage.addPendingAction({
+          type: 'CREATE_EXPENSE',
+          data: expenseData,
+          tempId: tempId,
+          timestamp: Date.now(),
+          status: 'pending',
+          retryCount: 0,
+        });
+
+        await offlineStorage.saveExpense({
+          ...offlineExpense,
+          syncStatus: 'pending',
+        });
+
+        // Register background sync if supported
+        if (syncService.isBackgroundSyncSupported()) {
+          await syncService.registerBackgroundSync();
+        }
+
+        return tempId;
+      }
+
       return null;
     }
   };
@@ -496,8 +560,8 @@ export const GroupProvider = ({ children }) => {
     try {
       await apiClient.delete(`/groups/${groupId}/members/${memberId}`);
       // Update group locally removing member
-      setGroups(prev => prev.map(g => 
-        g.id === groupId 
+      setGroups(prev => prev.map(g =>
+        g.id === groupId
           ? { ...g, members: g.members.filter(m => m !== memberId) }
           : g
       ));
@@ -513,8 +577,8 @@ export const GroupProvider = ({ children }) => {
     try {
       const response = await apiClient.post(`/groups/${groupId}/invite-code`);
       // Update group locally with new invite code
-      setGroups(prev => prev.map(g => 
-        g.id === groupId 
+      setGroups(prev => prev.map(g =>
+        g.id === groupId
           ? { ...g, inviteCode: response.inviteCode }
           : g
       ));
@@ -533,25 +597,25 @@ export const GroupProvider = ({ children }) => {
         code: code || undefined,
         token: token || undefined,
       });
-      
+
       if (response.group) {
         addGroupLocally(response.group);
-        
+
         // Add profile for group creator
         if (response.group.createdBy && typeof response.group.createdBy === 'object') {
           const creator = response.group.createdBy;
           const creatorId = creator._id?.toString();
           setProfiles(prev => ({
             ...prev,
-            [creatorId]: { 
-              id: creatorId, 
-              name: creator.name, 
+            [creatorId]: {
+              id: creatorId,
+              name: creator.name,
               email: creator.email,
               upiId: creator.upiId || ''
             }
           }));
         }
-        
+
         // Add profiles for new group members
         if (response.group.members) {
           response.group.members.forEach(m => {
@@ -559,9 +623,9 @@ export const GroupProvider = ({ children }) => {
               const memberId = m._id?.toString();
               setProfiles(prev => ({
                 ...prev,
-                [memberId]: { 
-                  id: memberId, 
-                  name: m.name, 
+                [memberId]: {
+                  id: memberId,
+                  name: m.name,
                   email: m.email,
                   upiId: m.upiId || ''
                 }
@@ -581,7 +645,7 @@ export const GroupProvider = ({ children }) => {
   const addMemberToGroupLocally = useCallback((groupId, member) => {
     // Ensure groupId is a string for comparison
     const groupIdStr = groupId?.toString() || groupId;
-    
+
     setGroups(prev => prev.map(g => {
       if (g.id === groupIdStr) {
         const memberId = (member.id || member._id || member)?.toString();
@@ -591,15 +655,15 @@ export const GroupProvider = ({ children }) => {
       }
       return g;
     }));
-    
+
     // Add profile for the new member
     if (member && typeof member === 'object') {
       const memberId = (member.id || member._id)?.toString();
       setProfiles(prev => ({
         ...prev,
-        [memberId]: { 
-          id: memberId, 
-          name: member.name, 
+        [memberId]: {
+          id: memberId,
+          name: member.name,
           email: member.email,
           upiId: member.upiId || ''
         }
@@ -684,7 +748,7 @@ export const GroupProvider = ({ children }) => {
     if (balancesByGroup[groupId]) {
       return balancesByGroup[groupId];
     }
-    
+
     // FIX: Fallback to client-side calculation when server balances are unavailable
     // This handles cases where:
     // 1. Socket events haven't been received yet (initial load)
@@ -693,11 +757,11 @@ export const GroupProvider = ({ children }) => {
     // The fallback ensures the UI always displays accurate balances even without real-time updates.
     const groupExpenses = getGroupExpenses(groupId);
     const groupSettlements = getGroupSettlements(groupId);
-    
+
     // Calculate balances
     const balances = {};
     const group = getGroupById(groupId);
-    
+
     if (!group) return balances;
 
     // Initialize balances
@@ -708,10 +772,10 @@ export const GroupProvider = ({ children }) => {
     // Process expenses
     groupExpenses.forEach(expense => {
       const shares = expense.splitConfig?.shares || {};
-      
+
       // Payer gets credited
       balances[expense.paidBy] = (balances[expense.paidBy] || 0) + expense.amount;
-      
+
       // Each member owes their share
       Object.entries(shares).forEach(([memberId, amount]) => {
         balances[memberId] = (balances[memberId] || 0) - amount;
@@ -727,13 +791,13 @@ export const GroupProvider = ({ children }) => {
       });
 
     return balances;
-  // FIX: Dependencies are critical for React to detect when balances need recalculation
-  // - balancesByGroup: When server emits balance:update, this state changes and triggers re-render
-  // - getGroupExpenses: When expenses change, fallback calculation needs to use latest data
-  // - groups: When group membership changes, balance calculations need to update
-  // - settlements: When settlements are added/updated, balances need to reflect changes
-  // Without these dependencies, components using getGroupBalances would display stale data.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // FIX: Dependencies are critical for React to detect when balances need recalculation
+    // - balancesByGroup: When server emits balance:update, this state changes and triggers re-render
+    // - getGroupExpenses: When expenses change, fallback calculation needs to use latest data
+    // - groups: When group membership changes, balance calculations need to update
+    // - settlements: When settlements are added/updated, balances need to reflect changes
+    // Without these dependencies, components using getGroupBalances would display stale data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [balancesByGroup, getGroupExpenses, groups, settlements]);
 
   // Get total expenses for a group
@@ -753,448 +817,30 @@ export const GroupProvider = ({ children }) => {
     // Use cookie-based auth - no token needed
     const socket = initializeSocket();
 
-    // Listen for real-time updates
-    socket.on('expense:created', (expense) => {
-      addExpenseLocally(expense);
+    // Create socket event handlers with all dependencies
+    const handlers = createSocketHandlers({
+      user,
+      addExpenseLocally,
+      updateExpenseLocally,
+      deleteExpenseLocally,
+      addSettlementLocally,
+      updateSettlementLocally,
+      deleteSettlementLocally,
+      updateGroupLocally,
+      addMemberToGroupLocally,
+      deleteGroupLocally,
+      setGroups,
+      setProfiles,
+      setBalancesByGroup,
+      loadedGroupsRef,
+      loadingGroupsRef,
+      setLoadingGroups,
+      joinGroupRoom,
+      leaveGroupRoom,
     });
 
-    // Alias event for contract alignment
-    socket.on('expense:add', (expense) => {
-      addExpenseLocally(expense);
-    });
-
-    socket.on('expense:updated', (expense) => {
-      updateExpenseLocally(expense._id || expense.id, expense);
-    });
-
-    // Alias event for contract alignment
-    socket.on('expense:update', (expense) => {
-      updateExpenseLocally(expense._id || expense.id, expense);
-    });
-
-    socket.on('expense:deleted', (data) => {
-      deleteExpenseLocally(data.expenseId || data);
-    });
-
-    // Alias event for contract alignment
-    socket.on('expense:delete', (data) => {
-      deleteExpenseLocally(data.expenseId || data);
-    });
-
-    socket.on('settlement:created', (settlement) => {
-      addSettlementLocally(settlement);
-    });
-
-    socket.on('settlement:updated', (settlement) => {
-      updateSettlementLocally(settlement._id || settlement.id, settlement);
-    });
-
-    socket.on('settlement:deleted', (data) => {
-      deleteSettlementLocally(data.settlementId || data);
-    });
-
-    socket.on('group:updated', (group) => {
-      const groupId = (group._id || group.id)?.toString();
-      updateGroupLocally(groupId, group);
-      
-      // Also update profiles from populated members if present
-      if (group.members && Array.isArray(group.members)) {
-        group.members.forEach(m => {
-          if (m && typeof m === 'object' && m._id) {
-            const memberId = m._id.toString();
-            setProfiles(prev => ({
-              ...prev,
-              [memberId]: {
-                id: memberId,
-                name: m.name,
-                email: m.email,
-                upiId: m.upiId || ''
-              }
-            }));
-          }
-        });
-      }
-    });
-
-    // Alias event for contract alignment
-    socket.on('group:update', (group) => {
-      const groupId = (group._id || group.id)?.toString();
-      updateGroupLocally(groupId, group);
-      
-      // Also update profiles from populated members if present
-      if (group.members && Array.isArray(group.members)) {
-        group.members.forEach(m => {
-          if (m && typeof m === 'object' && m._id) {
-            const memberId = m._id.toString();
-            setProfiles(prev => ({
-              ...prev,
-              [memberId]: {
-                id: memberId,
-                name: m.name,
-                email: m.email,
-                upiId: m.upiId || ''
-              }
-            }));
-          }
-        });
-      }
-    });
-
-    // Handle new group creation (received via user room for invited members)
-    socket.on('group:created', (group) => {
-      const groupId = (group._id || group.id)?.toString();
-      // Only add if not already in state (avoid duplicates from API response)
-      setGroups(prev => {
-        if (prev.some(g => g.id === groupId)) {
-          return prev;
-        }
-        // Use addGroupLocally transformation
-        const transformed = {
-          id: groupId,
-          name: group.name,
-          createdBy: (group.createdBy?._id || group.createdBy)?.toString(),
-          createdAt: group.createdAt,
-          members: (group.members || []).map(m => (m._id || m)?.toString()),
-          inviteCode: group.inviteCode,
-        };
-        return [transformed, ...prev];
-      });
-      
-      // Join socket room immediately so client receives expense/settlement/chat updates
-      joinGroupRoom(groupId);
-      
-      // Update profiles from populated members
-      if (group.members && Array.isArray(group.members)) {
-        group.members.forEach(m => {
-          if (m && typeof m === 'object' && m._id) {
-            const memberId = m._id.toString();
-            setProfiles(prev => ({
-              ...prev,
-              [memberId]: {
-                id: memberId,
-                name: m.name,
-                email: m.email,
-                upiId: m.upiId || ''
-              }
-            }));
-          }
-        });
-      }
-      
-      // Update profile for creator if populated
-      if (group.createdBy && typeof group.createdBy === 'object' && group.createdBy._id) {
-        const creatorId = group.createdBy._id.toString();
-        setProfiles(prev => ({
-          ...prev,
-          [creatorId]: {
-            id: creatorId,
-            name: group.createdBy.name,
-            email: group.createdBy.email,
-            upiId: group.createdBy.upiId || ''
-          }
-        }));
-      }
-    });
-
-    // New invite-related socket events
-    socket.on('group:memberJoined', ({ groupId, member }) => {
-      addMemberToGroupLocally(groupId, member);
-      
-      // Comment 3 fix: Invalidate balance cache or add new member with zero balance
-      const memberId = (member.id || member._id || member)?.toString();
-      setBalancesByGroup(prev => {
-        if (!prev[groupId]) return prev;
-        // Add new member with zero balance to keep balance view consistent
-        return {
-          ...prev,
-          [groupId]: {
-            ...prev[groupId],
-            [memberId]: 0
-          }
-        };
-      });
-      
-      // If the current user is the one being added, join the socket room
-      if (memberId === user?.id) {
-        joinGroupRoom(groupId);
-      }
-    });
-
-    // Comment 3: Subscribe to aliased events for contract alignment
-    socket.on('group:join', ({ groupId, member }) => {
-      addMemberToGroupLocally(groupId, member);
-      
-      // Comment 3 fix: Invalidate balance cache or add new member with zero balance
-      const memberId = (member.id || member._id || member)?.toString();
-      setBalancesByGroup(prev => {
-        if (!prev[groupId]) return prev;
-        // Add new member with zero balance to keep balance view consistent
-        return {
-          ...prev,
-          [groupId]: {
-            ...prev[groupId],
-            [memberId]: 0
-          }
-        };
-      });
-      
-      // If the current user is the one being added, join the socket room
-      if (memberId === user?.id) {
-        joinGroupRoom(groupId);
-      }
-    });
-    
-    socket.on('group:memberRemoved', ({ groupId, memberId }) => {
-      // Check if the current user was removed from the group
-      if (memberId === user?.id) {
-        // Remove the group from local state
-        deleteGroupLocally(groupId);
-        // Clear stored balances for this group
-        setBalancesByGroup(prev => {
-          const next = { ...prev };
-          delete next[groupId];
-          return next;
-        });
-        // Clear lazy-load tracking so rejoining triggers fresh expense fetch
-        loadedGroupsRef.current.delete(groupId);
-        loadingGroupsRef.current.delete(groupId);
-        setLoadingGroups(prev => {
-          const next = new Set(prev);
-          next.delete(groupId);
-          return next;
-        });
-        // Leave the socket room
-        leaveGroupRoom(groupId);
-      } else {
-        // Another member was removed, just update the members list
-        setGroups(prev => prev.map(g => 
-          g.id === groupId 
-            ? { ...g, members: g.members.filter(m => m !== memberId) }
-            : g
-        ));
-        
-        // Comment 3 fix: Remove the member from balance cache to keep balance view consistent
-        setBalancesByGroup(prev => {
-          if (!prev[groupId]) return prev;
-          const updatedBalances = { ...prev[groupId] };
-          delete updatedBalances[memberId];
-          return {
-            ...prev,
-            [groupId]: updatedBalances
-          };
-        });
-      }
-    });
-
-    // Comment 3: Subscribe to aliased event for contract alignment
-    socket.on('group:leave', ({ groupId, memberId }) => {
-      // Check if the current user was removed from the group
-      if (memberId === user?.id) {
-        deleteGroupLocally(groupId);
-        setBalancesByGroup(prev => {
-          const next = { ...prev };
-          delete next[groupId];
-          return next;
-        });
-        loadedGroupsRef.current.delete(groupId);
-        loadingGroupsRef.current.delete(groupId);
-        setLoadingGroups(prev => {
-          const next = new Set(prev);
-          next.delete(groupId);
-          return next;
-        });
-        leaveGroupRoom(groupId);
-      } else {
-        setGroups(prev => prev.map(g => 
-          g.id === groupId 
-            ? { ...g, members: g.members.filter(m => m !== memberId) }
-            : g
-        ));
-        setBalancesByGroup(prev => {
-          if (!prev[groupId]) return prev;
-          const updatedBalances = { ...prev[groupId] };
-          delete updatedBalances[memberId];
-          return {
-            ...prev,
-            [groupId]: updatedBalances
-          };
-        });
-      }
-    });
-
-    socket.on('group:budgetUpdated', ({ groupId, budget }) => {
-      updateGroupLocally(groupId, { budget });
-    });
-
-    socket.on('group:deleted', ({ groupId }) => {
-      // Remove group from local state
-      deleteGroupLocally(groupId);
-      // Clear balance cache for this group
-      setBalancesByGroup(prev => {
-        const next = { ...prev };
-        delete next[groupId];
-        return next;
-      });
-      // Clear lazy-load tracking
-      loadedGroupsRef.current.delete(groupId);
-      loadingGroupsRef.current.delete(groupId);
-      setLoadingGroups(prev => {
-        const next = new Set(prev);
-        next.delete(groupId);
-        return next;
-      });
-      // Leave the socket room
-      leaveGroupRoom(groupId);
-    });
-
-    /**
-     * Socket Event Listener: balance:update
-     * 
-     * Handles real-time balance updates from the backend after expense operations.
-     * This listener is critical for keeping Balance_Tab and Settlement_Tab synchronized
-     * with the server state.
-     * 
-     * @event balance:update
-     * @listens socket#balance:update
-     * 
-     * @param {Object} payload - The socket event payload
-     * @param {string} payload.groupId - The ID of the group whose balances changed
-     * @param {Object.<string, number>|Object} payload.balances - Balance data (flat or nested structure)
-     * 
-     * @event_structure
-     * The backend can emit balance:update in two formats:
-     * 
-     * 1. **Flat format** (preferred):
-     *    ```javascript
-     *    {
-     *      groupId: "group123",
-     *      balances: {
-     *        "user1": 150.50,
-     *        "user2": -75.25,
-     *        "user3": -75.25
-     *      }
-     *    }
-     *    ```
-     * 
-     * 2. **Nested format** (legacy):
-     *    ```javascript
-     *    {
-     *      groupId: "group123",
-     *      balances: {
-     *        balances: {
-     *          "user1": 150.50,
-     *          "user2": -75.25,
-     *          "user3": -75.25
-     *        }
-     *      }
-     *    }
-     *    ```
-     * 
-     * @normalization
-     * The listener normalizes both formats to a flat userId→amount mapping:
-     * - Checks if `balances.balances` exists (nested format)
-     * - If yes, extracts inner balances object
-     * - If no, uses balances directly (flat format)
-     * - Stores normalized map in `balancesByGroup[groupId]`
-     * 
-     * @validation
-     * Validates event data before processing:
-     * 1. groupId must be a non-empty string
-     * 2. balances must be an object (not null/undefined)
-     * 3. Logs errors for invalid data but continues operation
-     * 
-     * @state_update
-     * Updates `balancesByGroup` state immutably:
-     * ```javascript
-     * setBalancesByGroup(prev => ({
-     *   ...prev,
-     *   [groupId]: balanceMap
-     * }))
-     * ```
-     * 
-     * @reactivity_chain
-     * When this listener updates state:
-     * 1. `balancesByGroup` state changes
-     * 2. `getGroupBalances(groupId)` returns new server balances
-     * 3. Components using `getGroupBalances` detect the change
-     * 4. `balancesForMemo` in GroupDetail recalculates
-     * 5. Balance_Tab re-renders with new balance data
-     * 6. `allDebts` in GroupDetail recalculates
-     * 7. Settlement_Tab re-renders with new suggestions
-     * 
-     * @triggered_by
-     * Backend emits balance:update after:
-     * - Expense created (POST /expenses)
-     * - Expense updated (PUT /expenses/:id)
-     * - Expense deleted (DELETE /expenses/:id)
-     * - Settlement recorded (POST /settlements)
-     * - Manual balance recalculation
-     * 
-     * @error_handling
-     * - Wraps processing in try-catch block
-     * - Logs errors to console for debugging
-     * - Continues operation without crashing
-     * - UI falls back to client-side calculation if needed
-     * 
-     * @example
-     * // Backend emits after expense deletion:
-     * socket.emit('balance:update', {
-     *   groupId: 'group123',
-     *   balances: { user1: 100, user2: -100 }
-     * });
-     * 
-     * // Frontend receives and processes:
-     * // 1. Validates groupId and balances
-     * // 2. Normalizes to flat structure
-     * // 3. Updates balancesByGroup state
-     * // 4. Triggers UI re-renders
-     * 
-     * @see getGroupBalances for balance retrieval
-     * @see Balance_Tab in GroupDetail.jsx for UI updates
-     * @see Settlement_Tab in GroupDetail.jsx for suggestion updates
-     * @see server/utils/socketEmitter.js for event emission
-     */
-    socket.on('balance:update', ({ groupId, balances }) => {
-      try {
-        // Validate groupId
-        if (!groupId || typeof groupId !== 'string') {
-          console.error('[SOCKET] Invalid groupId in balance:update:', groupId);
-          return;
-        }
-        
-        // FIX: Handle both flat and nested socket event structures
-        // The backend emits balance:update events after expense deletion/creation/update.
-        // Event structure can vary:
-        // 1. Flat format: { groupId: "123", balances: { userId1: 100, userId2: -100 } }
-        // 2. Nested format: { groupId: "123", balances: { balances: { userId1: 100, userId2: -100 } } }
-        //
-        // We normalize to flat userId→amount mapping for consistent state structure.
-        // This ensures Balance_Tab and Settlement_Tab can reliably access balance data
-        // regardless of which backend code path emitted the event.
-        const balanceMap = balances && typeof balances === 'object' && balances.balances
-          ? balances.balances
-          : balances;
-        
-        // Validate balanceMap
-        if (!balanceMap || typeof balanceMap !== 'object') {
-          console.error('[SOCKET] Invalid balances in balance:update:', balances);
-          return;
-        }
-        
-        // FIX: Update balancesByGroup state to trigger React re-renders
-        // When this state updates:
-        // 1. getGroupBalances() returns the new server-calculated balances
-        // 2. Components using getGroupBalances (Balance_Tab, Settlement_Tab) re-render
-        // 3. Settlement suggestions recalculate based on new balances
-        // This is why including balancesByGroup in getGroupBalances dependencies is essential.
-        setBalancesByGroup(prev => ({
-          ...prev,
-          [groupId]: balanceMap
-        }));
-      } catch (error) {
-        console.error('[SOCKET] Error processing balance:update:', error);
-      }
-    });
+    // Register all socket event listeners
+    registerSocketListeners(socket, handlers);
 
     // After all listeners are set up, re-join all tracked rooms to ensure we receive events
     // This handles the case where socket connected before listeners were registered
@@ -1202,29 +848,12 @@ export const GroupProvider = ({ children }) => {
       forceRejoinRooms();
     }
 
+    // Cleanup: unregister all listeners on unmount
     return () => {
-      socket.off('expense:created');
-      socket.off('expense:add'); // Alias event
-      socket.off('expense:updated');
-      socket.off('expense:update'); // Alias event
-      socket.off('expense:deleted');
-      socket.off('expense:delete'); // Alias event
-      socket.off('settlement:created');
-      socket.off('settlement:updated');
-      socket.off('settlement:deleted');
-      socket.off('group:created');
-      socket.off('group:updated');
-      socket.off('group:update'); // Alias event
-      socket.off('group:memberJoined');
-      socket.off('group:join'); // Alias event
-      socket.off('group:memberRemoved');
-      socket.off('group:leave'); // Alias event
-      socket.off('group:budgetUpdated');
-      socket.off('group:deleted');
-      socket.off('balance:update');
+      unregisterSocketListeners(socket);
       // Note: Socket disconnection is now managed by AuthContext
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, addExpenseLocally, updateExpenseLocally, deleteExpenseLocally, addSettlementLocally, updateSettlementLocally, deleteSettlementLocally, updateGroupLocally, addMemberToGroupLocally]);
 
   // Memoize context value to prevent unnecessary re-renders

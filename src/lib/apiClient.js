@@ -3,8 +3,21 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 // Request cache and pending requests for deduplication
 const requestCache = new Map();
 const pendingRequests = new Map();
-const CACHE_TTL = 5000; // 5 seconds
+const etagCache = new Map(); // Store ETags for conditional requests
+const CACHE_TTL = 5000; // 5 seconds for regular cache
+const STATIC_CACHE_TTL = 300000; // 5 minutes for static data (user profiles, group members)
 const MAX_CACHE_SIZE = 100;  // Add size limit
+
+// Define which endpoints should use longer cache TTL
+const STATIC_ENDPOINTS = [
+  '/users/', // User profiles
+  '/groups/', // Group details (when not mutating)
+];
+
+// Check if endpoint is static (should use longer cache)
+const isStaticEndpoint = (endpoint) => {
+  return STATIC_ENDPOINTS.some(pattern => endpoint.includes(pattern));
+};
 
 // 429 rate limit tracking
 const rateLimitTracking = new Map(); // key -> { retryAfter, resetTime }
@@ -17,17 +30,22 @@ let refreshPromise = null;
 const cleanupCache = () => {
   const now = Date.now();
   for (const [key, value] of requestCache.entries()) {
-    if (now - value.timestamp > CACHE_TTL) {
+    const ttl = isStaticEndpoint(key) ? STATIC_CACHE_TTL : CACHE_TTL;
+    if (now - value.timestamp > ttl) {
       requestCache.delete(key);
+      etagCache.delete(key); // Clean up associated ETag
     }
   }
-  
+
   // If still too large, remove oldest entries
   if (requestCache.size > MAX_CACHE_SIZE) {
     const entries = Array.from(requestCache.entries())
       .sort((a, b) => a[1].timestamp - b[1].timestamp);
     const toRemove = entries.slice(0, requestCache.size - MAX_CACHE_SIZE);
-    toRemove.forEach(([key]) => requestCache.delete(key));
+    toRemove.forEach(([key]) => {
+      requestCache.delete(key);
+      etagCache.delete(key);
+    });
   }
 };
 
@@ -46,7 +64,7 @@ const calculateBackoffDelay = (retryCount, retryAfter = null) => {
   if (retryAfter) {
     return retryAfter;
   }
-  
+
   // Exponential backoff: 2^retryCount * 100ms, max 32 seconds
   const baseDelay = Math.min(Math.pow(2, retryCount) * 100, 32000);
   // Add jitter: ±25% of baseDelay
@@ -65,7 +83,7 @@ const tryRefreshToken = async () => {
   if (isRefreshing) {
     return refreshPromise;
   }
-  
+
   isRefreshing = true;
   refreshPromise = (async () => {
     try {
@@ -74,11 +92,11 @@ const tryRefreshToken = async () => {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
       });
-      
+
       if (!response.ok) {
         throw new Error('Refresh failed');
       }
-      
+
       const data = await response.json();
       if (data.success && data.user) {
         // Update session storage with refreshed user data
@@ -98,7 +116,7 @@ const tryRefreshToken = async () => {
       refreshPromise = null;
     }
   })();
-  
+
   return refreshPromise;
 };
 
@@ -169,7 +187,9 @@ const makeRequest = async (url, options, retries = 1, cacheKey = null, retryCoun
   // Check cache for GET requests
   if (options.method === 'GET' && cacheKey) {
     const cached = requestCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    const ttl = isStaticEndpoint(cacheKey) ? STATIC_CACHE_TTL : CACHE_TTL;
+
+    if (cached && Date.now() - cached.timestamp < ttl) {
       return cached.data;
     }
 
@@ -177,6 +197,15 @@ const makeRequest = async (url, options, retries = 1, cacheKey = null, retryCoun
     const pending = pendingRequests.get(cacheKey);
     if (pending) {
       return pending;
+    }
+
+    // Add If-None-Match header for ETag support
+    const etag = etagCache.get(cacheKey);
+    if (etag && cached) {
+      options.headers = {
+        ...options.headers,
+        'If-None-Match': etag,
+      };
     }
   }
 
@@ -187,29 +216,59 @@ const makeRequest = async (url, options, retries = 1, cacheKey = null, retryCoun
     try {
       const response = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeout);
+
+      // Handle 304 Not Modified - return cached data
+      if (response.status === 304 && cacheKey) {
+        const cached = requestCache.get(cacheKey);
+        if (cached) {
+          // Update timestamp to extend cache
+          cached.timestamp = Date.now();
+          return cached.data;
+        }
+        // Cache miss on 304 - re-fetch without conditional header
+        // This can happen if cache was evicted between request and response
+        console.warn('304 received but cache miss, re-fetching:', cacheKey);
+        const refetchOptions = { ...options };
+        delete refetchOptions.headers?.['If-None-Match'];
+        const refetchResponse = await fetch(url, { ...refetchOptions, signal: controller.signal });
+        const refetchData = await handleResponse(refetchResponse, { url, options: refetchOptions });
+        requestCache.set(cacheKey, { data: refetchData, timestamp: Date.now() });
+        const newEtag = refetchResponse.headers.get('ETag');
+        if (newEtag) {
+          etagCache.set(cacheKey, newEtag);
+        }
+        return refetchData;
+      }
+
       const data = await handleResponse(response, { url, options });
 
       // Cache successful GET requests
       if (options.method === 'GET' && cacheKey) {
         requestCache.set(cacheKey, { data, timestamp: Date.now() });
+
+        // Store ETag if present
+        const etag = response.headers.get('ETag');
+        if (etag) {
+          etagCache.set(cacheKey, etag);
+        }
       }
 
       return data;
     } catch (error) {
       clearTimeout(timeout);
-      
+
       // Handle abort/timeout
       if (error.name === 'AbortError') {
         throw new Error('Request timeout. Please check your connection.');
       }
-      
+
       // Handle 429 rate limit with exponential backoff retry
       if (error.status === 429) {
         const maxRetries = 3;
         if (retryCount < maxRetries) {
           const backoffDelay = calculateBackoffDelay(retryCount, error.retryAfter);
           console.warn(`Rate limited (429). Retrying after ${backoffDelay}ms (attempt ${retryCount + 1}/${maxRetries})`);
-          
+
           await new Promise(resolve => setTimeout(resolve, backoffDelay));
           return makeRequest(url, options, retries, cacheKey, retryCount + 1);
         } else {
@@ -217,13 +276,13 @@ const makeRequest = async (url, options, retries = 1, cacheKey = null, retryCoun
           throw new Error('Rate limit exceeded. Please try again later.');
         }
       }
-      
+
       // Retry on network errors
       if (retries > 0 && (error.message.includes('Failed to fetch') || error.message.includes('NetworkError'))) {
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
         return makeRequest(url, options, retries - 1, cacheKey, retryCount);
       }
-      
+
       throw error;
     } finally {
       // Clean up pending request
@@ -243,9 +302,35 @@ const makeRequest = async (url, options, retries = 1, cacheKey = null, retryCoun
 };
 
 // Clear cache utility
-const clearCache = () => {
-  requestCache.clear();
-  pendingRequests.clear();
+const clearCache = (selective = false, endpoint = null) => {
+  if (selective && endpoint) {
+    // Clear only caches related to specific endpoint
+    for (const [key] of requestCache.entries()) {
+      if (key.includes(endpoint)) {
+        requestCache.delete(key);
+        etagCache.delete(key);
+      }
+    }
+  } else {
+    // Clear all caches
+    requestCache.clear();
+    pendingRequests.clear();
+    etagCache.clear();
+  }
+};
+
+// Get cache statistics
+const getCacheStats = () => {
+  return {
+    size: requestCache.size,
+    pendingRequests: pendingRequests.size,
+    etags: etagCache.size,
+    entries: Array.from(requestCache.entries()).map(([key, value]) => ({
+      key,
+      age: Date.now() - value.timestamp,
+      hasEtag: etagCache.has(key),
+    })),
+  };
 };
 
 // Create axios-like API client using HttpOnly cookie auth
@@ -267,8 +352,20 @@ const apiClient = {
   },
 
   post: async (endpoint, body) => {
-    // Clear cache on mutations
-    clearCache();
+    // Selective cache clearing - only clear related caches
+    if (endpoint.includes('/expenses')) {
+      clearCache(true, '/expenses');
+      clearCache(true, '/groups'); // Groups contain expenses
+    } else if (endpoint.includes('/settlements')) {
+      clearCache(true, '/settlements');
+      clearCache(true, '/groups'); // Groups contain settlements
+    } else if (endpoint.includes('/groups')) {
+      clearCache(true, '/groups');
+    } else {
+      // Clear all cache for other mutations
+      clearCache();
+    }
+
     return makeRequest(`${API_URL}${endpoint}`, {
       method: 'POST',
       headers: {
@@ -280,8 +377,21 @@ const apiClient = {
   },
 
   put: async (endpoint, body) => {
-    // Clear cache on mutations
-    clearCache();
+    // Selective cache clearing
+    if (endpoint.includes('/expenses')) {
+      clearCache(true, '/expenses');
+      clearCache(true, '/groups');
+    } else if (endpoint.includes('/settlements')) {
+      clearCache(true, '/settlements');
+      clearCache(true, '/groups');
+    } else if (endpoint.includes('/groups')) {
+      clearCache(true, '/groups');
+    } else if (endpoint.includes('/users')) {
+      clearCache(true, '/users');
+    } else {
+      clearCache();
+    }
+
     return makeRequest(`${API_URL}${endpoint}`, {
       method: 'PUT',
       headers: {
@@ -293,8 +403,19 @@ const apiClient = {
   },
 
   delete: async (endpoint) => {
-    // Clear cache on mutations
-    clearCache();
+    // Selective cache clearing
+    if (endpoint.includes('/expenses')) {
+      clearCache(true, '/expenses');
+      clearCache(true, '/groups');
+    } else if (endpoint.includes('/settlements')) {
+      clearCache(true, '/settlements');
+      clearCache(true, '/groups');
+    } else if (endpoint.includes('/groups')) {
+      clearCache(true, '/groups');
+    } else {
+      clearCache();
+    }
+
     return makeRequest(`${API_URL}${endpoint}`, {
       method: 'DELETE',
       headers: {
@@ -306,6 +427,9 @@ const apiClient = {
 
   // Utility to manually clear cache
   clearCache,
+
+  // Utility to get cache statistics
+  getCacheStats,
 };
 
 // Export abort controller for component cleanup

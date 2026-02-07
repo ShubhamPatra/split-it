@@ -5,6 +5,13 @@ import User from '../models/User.js';
 import Notification from '../models/Notification.js';
 import { calculateGroupBalances } from '../jobs/balanceService.js';
 import { invalidateGroupMembershipCache } from '../config/socket.js';
+import crypto from 'crypto';
+
+// Helper to generate ETag from data
+const generateETag = (data) => {
+  const hash = crypto.createHash('md5').update(JSON.stringify(data)).digest('hex');
+  return `"${hash}"`;
+};
 
 // Helper to check if user is admin (enforces server-side role check - Comment 10)
 const requireAdmin = (group, userId) => {
@@ -27,6 +34,19 @@ export const getGroups = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean()  // Convert to plain JS objects (faster)
       .limit(50);  // Add pagination
+
+    // Generate ETag for caching
+    const etag = generateETag(groups);
+
+    // Check If-None-Match header
+    const clientETag = req.headers['if-none-match'];
+    if (clientETag && clientETag === etag) {
+      return res.status(304).end(); // Not Modified
+    }
+
+    // Set ETag header and send response
+    res.setHeader('ETag', etag);
+    res.setHeader('Cache-Control', 'private, max-age=300'); // 5 minutes
     res.json(groups);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -51,6 +71,18 @@ export const getGroupById = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to access this group' });
     }
 
+    // Generate ETag for caching
+    const etag = generateETag(group);
+
+    // Check If-None-Match header
+    const clientETag = req.headers['if-none-match'];
+    if (clientETag && clientETag === etag) {
+      return res.status(304).end(); // Not Modified
+    }
+
+    // Set ETag header and send response
+    res.setHeader('ETag', etag);
+    res.setHeader('Cache-Control', 'private, max-age=300'); // 5 minutes
     res.json(group);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -79,13 +111,13 @@ export const createGroup = async (req, res) => {
     if (io) {
       try {
         const { emitToUser, emitToGroup } = await import('../utils/socketEmitter.js');
-        
+
         // Emit to each member's user room so they receive the group even before joining the group room
         const memberIds = populatedGroup.members.map(m => m._id.toString());
         for (const memberId of memberIds) {
           emitToUser(io, memberId, 'group:created', populatedGroup);
         }
-        
+
         // Also emit to the new group room for any listeners
         emitToGroup(io, group._id.toString(), 'group:updated', populatedGroup);
       } catch (socketError) {
@@ -118,19 +150,19 @@ export const updateGroup = async (req, res) => {
 
     const { name, members } = req.body;
     if (name) group.name = name;
-    
+
     // Track member changes before updating
     const membersChanged = !!members;
     let addedMembers = [];
     let removedMembers = [];
-    
+
     if (members) {
       const oldMemberIds = group.members.map(m => m.toString());
       const newMemberIds = members.map(m => m.toString());
-      
+
       addedMembers = newMemberIds.filter(id => !oldMemberIds.includes(id));
       removedMembers = oldMemberIds.filter(id => !newMemberIds.includes(id));
-      
+
       group.members = members;
     }
 
@@ -139,7 +171,7 @@ export const updateGroup = async (req, res) => {
     // Invalidate socket group membership cache if members were updated
     if (membersChanged) {
       invalidateGroupMembershipCache(group._id.toString());
-      
+
       // Comment 1: Invalidate balance cache when members change
       const { invalidateBalanceCache } = await import('../jobs/balanceService.js');
       invalidateBalanceCache(group._id.toString());
@@ -157,14 +189,14 @@ export const updateGroup = async (req, res) => {
         emitToGroup(io, group._id.toString(), 'group:updated', updatedGroup);
         // Emit alias event for contract alignment
         emitToGroup(io, group._id.toString(), 'group:update', updatedGroup);
-        
+
         // Notify about added members
         for (const memberId of addedMembers) {
           const memberData = updatedGroup.members.find(m => m._id.toString() === memberId);
           if (memberData) {
             // Emit to the new member's user room so they receive the group
             emitToUser(io, memberId, 'group:created', updatedGroup);
-            
+
             // Emit member joined event to group room
             emitToGroup(io, group._id.toString(), 'group:memberJoined', {
               groupId: group._id.toString(),
@@ -177,14 +209,14 @@ export const updateGroup = async (req, res) => {
             });
           }
         }
-        
+
         // Notify about removed members
         for (const memberId of removedMembers) {
           // Force the removed member's sockets to leave the group room BEFORE emitting group-room events
           // so they don't receive broadcasts intended for remaining members
           const { forceLeaveGroupRoom } = await import('../utils/socketEmitter.js');
           await forceLeaveGroupRoom(io, memberId, group._id.toString());
-          
+
           // Emit member removed event to group room (removed member won't receive this)
           emitToGroup(io, group._id.toString(), 'group:memberRemoved', {
             groupId: group._id.toString(),
@@ -195,7 +227,7 @@ export const updateGroup = async (req, res) => {
             groupId: group._id.toString(),
             memberId
           });
-          
+
           // Notify the removed member via their user room so they still receive the removal notice
           emitToUser(io, memberId, 'group:memberRemoved', {
             groupId: group._id.toString(),
@@ -261,15 +293,15 @@ export const deleteGroup = async (req, res) => {
     if (io) {
       try {
         const { emitToGroup, emitToUser } = await import('../utils/socketEmitter.js');
-        
+
         // Emit to group room (for members currently viewing the group)
         emitToGroup(io, req.params.id, 'group:deleted', { groupId: req.params.id });
-        
+
         // Also emit to each member's user room so dashboards update even if they haven't joined the group room
         for (const memberId of memberIds) {
           emitToUser(io, memberId, 'group:deleted', { groupId: req.params.id });
         }
-        
+
         // Force all members' sockets to leave the deleted group room
         const { forceLeaveGroupRoom } = await import('../utils/socketEmitter.js');
         for (const memberId of memberIds) {
@@ -339,18 +371,18 @@ export const addMember = async (req, res) => {
       try {
         const { emitToGroup, emitToUser, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
         const memberData = updatedGroup.members.find(m => m._id.toString() === memberId.toString());
-        
+
         // Emit to the new member's user room so they receive the group before joining the group room
         emitToUser(io, memberId, 'group:created', updatedGroup);
-        
-        emitToGroup(io, req.params.id, 'group:memberJoined', { 
-          groupId: req.params.id, 
-          member: memberData 
+
+        emitToGroup(io, req.params.id, 'group:memberJoined', {
+          groupId: req.params.id,
+          member: memberData
         });
         // Comment 3: Emit aliased event for contract alignment
-        emitToGroup(io, req.params.id, 'group:join', { 
-          groupId: req.params.id, 
-          member: memberData 
+        emitToGroup(io, req.params.id, 'group:join', {
+          groupId: req.params.id,
+          member: memberData
         });
         emitToGroup(io, req.params.id, 'group:updated', updatedGroup);
         // Comment 3: Emit group:update alias for contract alignment
@@ -417,28 +449,28 @@ export const removeMember = async (req, res) => {
     if (io) {
       try {
         const { emitToGroup, emitToUser, emitBalanceUpdate, forceLeaveGroupRoom } = await import('../utils/socketEmitter.js');
-        
+
         // Force the removed member's sockets to leave the group room BEFORE emitting group-room events
         // so they don't receive broadcasts intended for remaining members
         await forceLeaveGroupRoom(io, req.params.memberId, req.params.id);
-        
-        emitToGroup(io, req.params.id, 'group:memberRemoved', { 
-          groupId: req.params.id, 
-          memberId: req.params.memberId 
+
+        emitToGroup(io, req.params.id, 'group:memberRemoved', {
+          groupId: req.params.id,
+          memberId: req.params.memberId
         });
         // Comment 3: Emit aliased event for contract alignment
-        emitToGroup(io, req.params.id, 'group:leave', { 
-          groupId: req.params.id, 
-          memberId: req.params.memberId 
+        emitToGroup(io, req.params.id, 'group:leave', {
+          groupId: req.params.id,
+          memberId: req.params.memberId
         });
         emitToGroup(io, req.params.id, 'group:updated', updatedGroup);
         // Comment 3: Emit group:update alias for contract alignment
         emitToGroup(io, req.params.id, 'group:update', updatedGroup);
-        
+
         // Notify the removed member via their user room so they still receive the removal notice
-        emitToUser(io, req.params.memberId, 'group:memberRemoved', { 
-          groupId: req.params.id, 
-          memberId: req.params.memberId 
+        emitToUser(io, req.params.memberId, 'group:memberRemoved', {
+          groupId: req.params.id,
+          memberId: req.params.memberId
         });
 
         // Comment 1: Recalculate and emit fresh balances after member removal
@@ -567,18 +599,18 @@ export const joinGroupByInvite = async (req, res) => {
       try {
         const { emitToGroup, emitToUser, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
         const memberData = updatedGroup.members.find(m => m._id.toString() === req.user._id.toString());
-        
+
         // Emit to the joining user's room so they see the new group in real time
         emitToUser(io, req.user._id.toString(), 'group:created', updatedGroup);
-        
-        emitToGroup(io, group._id.toString(), 'group:memberJoined', { 
-          groupId: group._id.toString(), 
-          member: memberData 
+
+        emitToGroup(io, group._id.toString(), 'group:memberJoined', {
+          groupId: group._id.toString(),
+          member: memberData
         });
         // Comment 3: Emit aliased event for contract alignment
-        emitToGroup(io, group._id.toString(), 'group:join', { 
-          groupId: group._id.toString(), 
-          member: memberData 
+        emitToGroup(io, group._id.toString(), 'group:join', {
+          groupId: group._id.toString(),
+          member: memberData
         });
         emitToGroup(io, group._id.toString(), 'group:updated', updatedGroup);
         // Comment 3: Emit group:update alias for contract alignment
@@ -711,12 +743,43 @@ export const getGroupBudget = async (req, res) => {
 
     const currentSpending = expenses.reduce((sum, e) => sum + e.amount, 0);
 
+    // Calculate spending per category
+    const categorySpending = {};
+    expenses.forEach(expense => {
+      const category = expense.category || 'other';
+      categorySpending[category] = (categorySpending[category] || 0) + expense.amount;
+    });
+
+    // Calculate category budget status
+    const categoryBudgetStatus = {};
+    // Guard against null/undefined categoryLimits
+    if (group.budget?.categoryLimits && typeof group.budget.categoryLimits.forEach === 'function') {
+      group.budget.categoryLimits.forEach((limitData, categoryId) => {
+        const spent = categorySpending[categoryId] || 0;
+        const limit = limitData.limit || 0;
+        const percentUsed = limit > 0 ? (spent / limit) * 100 : 0;
+        const threshold = limitData.alertThreshold || 80;
+
+        categoryBudgetStatus[categoryId] = {
+          limit,
+          spent,
+          remaining: Math.max(0, limit - spent),
+          percentUsed,
+          alertThreshold: threshold,
+          isOverBudget: limit > 0 && spent > limit,
+          isNearLimit: limit > 0 && percentUsed >= threshold && percentUsed <= 100,
+        };
+      });
+    }
+
     res.json({
       budget: group.budget,
       currentSpending,
       percentUsed: group.budget.monthlyLimit > 0
         ? (currentSpending / group.budget.monthlyLimit) * 100
         : 0,
+      categorySpending,
+      categoryBudgetStatus,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -775,7 +838,7 @@ export const getCollaborators = async (req, res) => {
 // @access  Private (Admin only - Comment 4)
 export const updateGroupBudget = async (req, res) => {
   try {
-    const { monthlyLimit, alertThreshold, currency, enabled } = req.body;
+    const { monthlyLimit, alertThreshold, currency, enabled, categoryLimits } = req.body;
 
     const group = await Group.findById(req.params.id);
 
@@ -811,6 +874,46 @@ export const updateGroupBudget = async (req, res) => {
       group.budget.enabled = enabled;
     }
 
+    // Handle category limits update
+    if (categoryLimits !== undefined) {
+      // Validate category limits structure
+      if (typeof categoryLimits !== 'object') {
+        return res.status(400).json({ message: 'Category limits must be an object' });
+      }
+
+      // Clear existing category limits if provided as empty object
+      if (Object.keys(categoryLimits).length === 0) {
+        group.budget.categoryLimits = new Map();
+      } else {
+        // Update category limits
+        for (const [categoryId, limitData] of Object.entries(categoryLimits)) {
+          if (limitData === null) {
+            // Remove category limit
+            group.removeCategoryLimit(categoryId);
+          } else {
+            // Validate limit data
+            const limit = limitData.limit !== undefined ? limitData.limit : 0;
+            const threshold = limitData.alertThreshold !== undefined ? limitData.alertThreshold : 80;
+
+            if (typeof limit !== 'number' || limit < 0) {
+              return res.status(400).json({
+                message: `Category limit for ${categoryId} must be a non-negative number`
+              });
+            }
+
+            if (typeof threshold !== 'number' || threshold < 0 || threshold > 100) {
+              return res.status(400).json({
+                message: `Alert threshold for ${categoryId} must be between 0 and 100`
+              });
+            }
+
+            // Set category limit
+            group.setCategoryLimit(categoryId, limit, threshold);
+          }
+        }
+      }
+    }
+
     await group.save();
 
     // Emit socket event to group members
@@ -818,16 +921,16 @@ export const updateGroupBudget = async (req, res) => {
     if (io) {
       try {
         const { emitToGroup } = await import('../utils/socketEmitter.js');
-        emitToGroup(io, req.params.id, 'group:budgetUpdated', { 
-          groupId: req.params.id, 
-          budget: group.budget 
+        emitToGroup(io, req.params.id, 'group:budgetUpdated', {
+          groupId: req.params.id,
+          budget: group.budget
         });
-        
+
         // Populate group for full update events
         const updatedGroup = await Group.findById(req.params.id)
           .populate('createdBy', 'name email upiId')
           .populate('members', 'name email upiId');
-        
+
         // Emit group:updated so generic group-update listeners stay in sync
         emitToGroup(io, req.params.id, 'group:updated', updatedGroup);
         // Emit group:update alias for contract alignment

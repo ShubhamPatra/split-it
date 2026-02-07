@@ -1,70 +1,48 @@
 /**
  * Balance Calculation Service
  * 
- * Direct balance calculation service with in-memory caching.
- * Replaces the balance queue/worker system with simple async calls.
+ * Balance calculation service with Redis caching (fallback to in-memory).
+ * Supports horizontal scaling when Redis is available.
  */
 
 import mongoose from 'mongoose';
 import Expense from '../models/Expense.js';
 import Settlement from '../models/Settlement.js';
 import Group from '../models/Group.js';
+import { RedisCache } from '../config/redis.js';
 
-// In-memory cache with TTL
-const balanceCache = new Map();
-const CACHE_TTL = 900000; // 15 minutes in milliseconds
+// Redis cache for balances (with in-memory fallback)
+const balanceCache = new RedisCache('balances', 900); // 15 minutes TTL
+const debounceCache = new RedisCache('balance:debounce', 5); // 5 seconds TTL
 
-// Debounce tracking
-const debounceMap = new Map();
-const DEBOUNCE_TTL = 5000; // 5 seconds in milliseconds
+// Cache TTL constants
+const CACHE_TTL = 900; // 15 minutes in seconds
+const DEBOUNCE_TTL = 5; // 5 seconds in seconds
 
-// Cleanup intervals
+// Cleanup interval for in-memory fallback
 let cacheCleanupInterval = null;
-let debounceCleanupInterval = null;
 
 /**
- * Initialize cache cleanup intervals
+ * Initialize balance service
  */
 export const initializeBalanceService = () => {
-    // Clean up expired cache entries every 5 minutes
+    // Clean up expired cache entries every 5 minutes (for in-memory fallback)
     if (!cacheCleanupInterval) {
         cacheCleanupInterval = setInterval(() => {
-            const now = Date.now();
-            for (const [key, { expiry }] of balanceCache.entries()) {
-                if (expiry < now) {
-                    balanceCache.delete(key);
-                }
-            }
+            balanceCache.cleanup();
+            debounceCache.cleanup();
         }, 300000);
-    }
-
-    // Clean up expired debounce entries every minute
-    if (!debounceCleanupInterval) {
-        debounceCleanupInterval = setInterval(() => {
-            const now = Date.now();
-            for (const [key, expiry] of debounceMap.entries()) {
-                if (expiry < now) {
-                    debounceMap.delete(key);
-                }
-            }
-        }, 60000);
     }
 };
 
 /**
- * Stop cleanup intervals (for graceful shutdown)
+ * Stop balance service (for graceful shutdown)
  */
 export const stopBalanceService = () => {
     if (cacheCleanupInterval) {
         clearInterval(cacheCleanupInterval);
         cacheCleanupInterval = null;
     }
-    if (debounceCleanupInterval) {
-        clearInterval(debounceCleanupInterval);
-        debounceCleanupInterval = null;
-    }
-    balanceCache.clear();
-    debounceMap.clear();
 };
 
 /**
@@ -96,15 +74,24 @@ export const calculateGroupBalancesOptimized = async (groupId) => {
 
     // Use aggregation to calculate expense totals per user
     const [expenseCredits, expenseDebits, settlementTotals, expenseSum, settlementSum] = await Promise.all([
-        // Credits: Amount paid by each user
+        // Credits: Amount paid by each user (use converted amount for balance calculation)
         Expense.aggregate([
             { $match: { groupId: groupObjectId } },
-            { $group: { _id: '$paidBy', totalPaid: { $sum: '$amount' } } },
+            { 
+                $group: { 
+                    _id: '$paidBy', 
+                    totalPaid: { 
+                        $sum: { 
+                            $ifNull: ['$amountInBaseCurrency', '$amount'] // Fallback to amount for old expenses
+                        } 
+                    } 
+                } 
+            },
         ]),
 
         // Debits: Fetch fields for processing
         Expense.find({ groupId: groupObjectId })
-            .select('splitConfig splitAmong amount')
+            .select('splitConfig splitAmong amount amountInBaseCurrency')
             .lean(),
 
         // Settlement totals per user (only count confirmed settlements)
@@ -122,10 +109,19 @@ export const calculateGroupBalancesOptimized = async (groupId) => {
             },
         ]),
 
-        // Total expenses (for stats)
+        // Total expenses (for stats) - use converted amounts
         Expense.aggregate([
             { $match: { groupId: groupObjectId } },
-            { $group: { _id: null, total: { $sum: '$amount' } } },
+            { 
+                $group: { 
+                    _id: null, 
+                    total: { 
+                        $sum: { 
+                            $ifNull: ['$amountInBaseCurrency', '$amount'] 
+                        } 
+                    } 
+                } 
+            },
         ]),
 
         // Total settlements (for stats)
@@ -148,7 +144,8 @@ export const calculateGroupBalancesOptimized = async (groupId) => {
         const shares = expense.splitConfig?.shares || {};
         const splitType = expense.splitConfig?.type || 'equal';
         const splitAmong = (expense.splitAmong || []).map(id => id.toString());
-        const amount = expense.amount;
+        // Use converted amount for balance calculation, fallback to original amount for old expenses
+        const amount = expense.amountInBaseCurrency || expense.amount;
 
         if (splitType === 'equal') {
             const shareAmount = amount / splitAmong.length;
@@ -265,22 +262,18 @@ export const generateSettlementSuggestions = (balances) => {
  * @returns {Promise<Object>} Balances object
  */
 export const calculateGroupBalances = async (groupId, forceRefresh = false) => {
-    const cacheKey = `balances:${groupId}`;
-    const debounceKey = `debounce:${groupId}`;
-    const now = Date.now();
+    const cacheKey = groupId;
+    const debounceKey = groupId;
 
     // If force refresh, skip all caching and debouncing
     if (forceRefresh) {
         const result = await calculateGroupBalancesOptimized(groupId);
         
         // Cache the result
-        balanceCache.set(cacheKey, {
-            data: result,
-            expiry: now + CACHE_TTL,
-        });
+        await balanceCache.set(cacheKey, result, CACHE_TTL);
         
         // Reset debounce timer
-        debounceMap.set(debounceKey, now + DEBOUNCE_TTL);
+        await debounceCache.set(debounceKey, true, DEBOUNCE_TTL);
         
         if (process.env.NODE_ENV !== 'production') {
             console.log(`[Balance] Force calculated for group ${groupId}`);
@@ -290,26 +283,23 @@ export const calculateGroupBalances = async (groupId, forceRefresh = false) => {
     }
 
     // Check cache first (before debounce check)
-    const cached = balanceCache.get(cacheKey);
-    if (cached && cached.expiry > now) {
+    const cached = await balanceCache.get(cacheKey);
+    if (cached) {
         // Check if we're within debounce window - if so, return cached
-        const debounceExpiry = debounceMap.get(debounceKey);
-        if (debounceExpiry && debounceExpiry > now) {
-            return cached.data;
+        const debounced = await debounceCache.exists(debounceKey);
+        if (debounced) {
+            return cached;
         }
     }
 
     // Set debounce flag
-    debounceMap.set(debounceKey, now + DEBOUNCE_TTL);
+    await debounceCache.set(debounceKey, true, DEBOUNCE_TTL);
 
     // Calculate balances
     const result = await calculateGroupBalancesOptimized(groupId);
 
     // Cache the result
-    balanceCache.set(cacheKey, {
-        data: result,
-        expiry: now + CACHE_TTL,
-    });
+    await balanceCache.set(cacheKey, result, CACHE_TTL);
 
     if (process.env.NODE_ENV !== 'production') {
         console.log(`[Balance] Calculated for group ${groupId}`);
@@ -322,12 +312,12 @@ export const calculateGroupBalances = async (groupId, forceRefresh = false) => {
  * Invalidate balance cache for a group
  * @param {string} groupId - The group ID
  */
-export const invalidateBalanceCache = (groupId) => {
-    const cacheKey = `balances:${groupId}`;
-    const debounceKey = `debounce:${groupId}`;
+export const invalidateBalanceCache = async (groupId) => {
+    const cacheKey = groupId;
+    const debounceKey = groupId;
 
-    balanceCache.delete(cacheKey);
-    debounceMap.delete(debounceKey);
+    await balanceCache.delete(cacheKey);
+    await debounceCache.delete(debounceKey);
 
     if (process.env.NODE_ENV !== 'production') {
         console.log(`[Balance] Cache invalidated for group ${groupId}`);
@@ -337,17 +327,11 @@ export const invalidateBalanceCache = (groupId) => {
 /**
  * Get cached balance if available
  * @param {string} groupId - The group ID
- * @returns {Object|null} Cached balance or null
+ * @returns {Promise<Object|null>} Cached balance or null
  */
-export const getCachedBalance = (groupId) => {
-    const cacheKey = `balances:${groupId}`;
-    const cached = balanceCache.get(cacheKey);
-
-    if (cached && cached.expiry > Date.now()) {
-        return cached.data;
-    }
-
-    return null;
+export const getCachedBalance = async (groupId) => {
+    const cacheKey = groupId;
+    return await balanceCache.get(cacheKey);
 };
 
 // Initialize on module load

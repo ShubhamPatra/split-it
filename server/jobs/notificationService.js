@@ -3,10 +3,12 @@
  * 
  * Direct notification creation service.
  * Replaces the notification queue/worker system with simple async calls.
+ * Supports notification batching to reduce noise.
  */
 
 import Notification from '../models/Notification.js';
 import { executeJob } from './jobRunner.js';
+import { addToBatch } from './notificationBatcher.js';
 
 // Reference to Socket.IO instance (set during initialization)
 let ioInstance = null;
@@ -84,16 +86,38 @@ export const sendPushNotification = async (userId, pushData) => {
 /**
  * Create notification and optionally send push notification based on action type
  * @param {Object} notificationData - Notification data
+ * @param {Object} options - Options { batch: boolean }
  * @returns {Promise<Object>} Result object
  */
-const createNotificationWithPush = async (notificationData) => {
-    const { userId, type, title, message, data } = notificationData;
+const createNotificationWithPush = async (notificationData, options = {}) => {
+    const { userId, type, title, message, data, batchMeta } = notificationData;
+    const { batch = false } = options;
 
-    // Create the notification
+    // Determine if this notification should be batched
+    const actionType = data?.actionType;
+    const batchableTypes = ['expense_added', 'expense_updated', 'chat_message'];
+    const shouldBatch = batch && batchableTypes.includes(actionType) && batchMeta;
+
+    if (shouldBatch) {
+        // Add to batch instead of creating immediately
+        await addToBatch(notificationData);
+        
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Notification] Batched for user ${userId}: ${title}`);
+        }
+
+        return {
+            success: true,
+            batched: true,
+            userId,
+            title,
+        };
+    }
+
+    // Create the notification immediately
     const notification = await createNotification(notificationData);
 
     // Determine if we should send a push notification
-    const actionType = data?.actionType;
     const shouldSendPush = [
         'chat_message',
         'expense_added',
@@ -161,13 +185,14 @@ const createNotificationWithPush = async (notificationData) => {
 /**
  * Notify a single user with retry logic
  * @param {string} userId - User ID
- * @param {Object} notificationData - Notification data (type, title, message, data)
+ * @param {Object} notificationData - Notification data (type, title, message, data, batchMeta)
+ * @param {Object} options - Options { batch: boolean }
  * @returns {Promise<Object>} Result object
  */
-export const notifyUser = async (userId, notificationData) => {
+export const notifyUser = async (userId, notificationData, options = {}) => {
     const result = await executeJob(
         'Notification',
-        createNotificationWithPush,
+        (data) => createNotificationWithPush(data, options),
         { userId, ...notificationData },
         { maxRetries: 3, timeout: 10000 }
     );
@@ -178,12 +203,13 @@ export const notifyUser = async (userId, notificationData) => {
 /**
  * Send notifications to multiple users
  * @param {Array<string>} userIds - Array of user IDs
- * @param {Object} notificationData - Notification data (type, title, message, data)
+ * @param {Object} notificationData - Notification data (type, title, message, data, batchMeta)
+ * @param {Object} options - Options { batch: boolean }
  * @returns {Promise<Array<Object>>} Array of results
  */
-export const notifyUsers = async (userIds, notificationData) => {
+export const notifyUsers = async (userIds, notificationData, options = {}) => {
     const results = await Promise.all(
-        userIds.map(userId => notifyUser(userId, notificationData))
+        userIds.map(userId => notifyUser(userId, notificationData, options))
     );
 
     const successCount = results.filter(r => r.success).length;
@@ -201,14 +227,15 @@ export const notifyUsers = async (userIds, notificationData) => {
  * @param {Object} group - Group document with members array
  * @param {Object} notificationData - Notification data
  * @param {string} excludeUserId - User ID to exclude (e.g., the action performer)
+ * @param {Object} options - Options { batch: boolean }
  * @returns {Promise<Array<Object>>} Array of results
  */
-export const notifyGroupMembers = async (group, notificationData, excludeUserId = null) => {
+export const notifyGroupMembers = async (group, notificationData, excludeUserId = null, options = {}) => {
     const memberIds = group.members
         .map(m => m._id?.toString() || m.toString())
         .filter(id => id !== excludeUserId);
 
-    return notifyUsers(memberIds, notificationData);
+    return notifyUsers(memberIds, notificationData, options);
 };
 
 /**

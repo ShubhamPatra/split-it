@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Receipt, IndianRupee, Calendar, Users, Settings2, Scan, AlertCircle, TrendingUp, CheckCircle2, Repeat, ChevronDown, Upload, X, ImageIcon, PieChart, History } from 'lucide-react';
+import { ArrowLeft, Receipt, IndianRupee, Calendar, Users, Settings2, Scan, TrendingUp, CheckCircle2, Repeat, ChevronDown, Upload, X, ImageIcon, PieChart, History, CloudOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupContext';
 import { useNotifications } from '../context/NotificationContext';
+import { useOffline } from '../hooks/useOffline';
 import { categories, getCategoryById } from '../data/categories';
 import { sanitizeInput } from '../lib/utils';
 import Navbar from '../components/layout/Navbar';
@@ -12,6 +13,7 @@ import BillScanner from '../components/expense/BillScanner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { FormFieldError } from '../components/ui/form-field-error';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import {
   Select,
@@ -27,6 +29,7 @@ import {
 } from '../components/ui/collapsible';
 import { Switch } from '../components/ui/switch';
 import { useToast } from '../hooks/use-toast';
+import CurrencySelector from '../components/common/CurrencySelector';
 
 const AddExpense = () => {
   const navigate = useNavigate();
@@ -35,10 +38,12 @@ const AddExpense = () => {
   const { groups, addExpense, getUserProfile } = useGroups();
   const { addNotification } = useNotifications();
   const { toast } = useToast();
+  const { isOffline } = useOffline();
 
   const [selectedGroup, setSelectedGroup] = useState(searchParams.get('groupId') || '');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState('INR');
   const [paidBy, setPaidBy] = useState(user?.id || '');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [category, setCategory] = useState('other');
@@ -264,7 +269,7 @@ const AddExpense = () => {
         groupId: selectedGroup,
         description: sanitizedDescription,
         amount: parseFloat(amount),
-        currency: 'INR',
+        currency: currency,
         paidBy,
         date,
         splitAmong: Object.keys(splitConfig.shares).filter(m => splitConfig.shares[m] > 0),
@@ -286,8 +291,11 @@ const AddExpense = () => {
       const expenseId = await addExpense(expenseData);
 
       if (expenseId) {
-        // Upload receipts if any were selected
-        if (receipts.length > 0) {
+        // Check if expense was created offline
+        const isOfflineExpense = expenseId.startsWith('temp_');
+        
+        // Upload receipts if any were selected (only for online expenses)
+        if (receipts.length > 0 && !isOfflineExpense) {
           try {
             await uploadReceiptsToExpense(expenseId, receipts);
           } catch (uploadError) {
@@ -300,17 +308,27 @@ const AddExpense = () => {
           }
         }
 
-        addNotification({
-          type: 'expense_added',
-          title: 'Expense Added',
-          message: `₹${parseFloat(amount).toLocaleString()} for ${sanitizedDescription}${isRecurring ? ' (Recurring)' : ''}`,
-          groupId: selectedGroup,
-        });
+        // Show appropriate notification based on online/offline status
+        if (isOfflineExpense) {
+          toast({
+            title: "Expense saved offline",
+            description: `₹${parseFloat(amount).toLocaleString()} expense will sync when you're back online.${receipts.length > 0 ? ' Receipts will be uploaded after sync.' : ''}`,
+            variant: "default",
+            duration: 5000,
+          });
+        } else {
+          addNotification({
+            type: 'expense_added',
+            title: 'Expense Added',
+            message: `₹${parseFloat(amount).toLocaleString()} for ${sanitizedDescription}${isRecurring ? ' (Recurring)' : ''}`,
+            groupId: selectedGroup,
+          });
 
-        toast({
-          title: "Expense added!",
-          description: `₹${parseFloat(amount).toLocaleString()} expense has been added.${isRecurring ? ' It will recur ' + recurrenceFrequency + '.' : ''}`
-        });
+          toast({
+            title: "Expense added!",
+            description: `₹${parseFloat(amount).toLocaleString()} expense has been added.${isRecurring ? ' It will recur ' + recurrenceFrequency + '.' : ''}`
+          });
+        }
 
         navigate(`/group/${selectedGroup}`);
       } else {
@@ -366,10 +384,35 @@ const AddExpense = () => {
       setDescription(scannedData.description);
     }
 
-    toast({
-      title: "Data extracted!",
-      description: "Bill details have been filled. You can edit them if needed.",
-    });
+    // Handle line items from OCR (OCR-003)
+    if (scannedData.lineItems && scannedData.lineItems.length > 0 && currentGroup) {
+      // Convert OCR line items to split config format
+      const ocrLineItems = scannedData.lineItems.map((item, index) => ({
+        id: Date.now() + index,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        assignedTo: [], // User will assign members
+      }));
+
+      // Set split type to itemized and pre-populate line items
+      setSplitConfig({
+        type: 'itemized',
+        shares: {},
+        lineItems: ocrLineItems,
+      });
+      setSplitCustomized(true); // Mark as customized so it doesn't get overwritten
+
+      toast({
+        title: "Line items detected!",
+        description: `${scannedData.lineItems.length} items extracted. Click "Customize" to assign members.`,
+      });
+    } else {
+      toast({
+        title: "Data extracted!",
+        description: "Bill details have been filled. You can edit them if needed.",
+      });
+    }
   };
 
   /**
@@ -479,6 +522,21 @@ const AddExpense = () => {
                   </div>
                 </div>
 
+                {/* Offline Mode Indicator */}
+                {isOffline && (
+                  <div className="mb-5 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start gap-3">
+                    <CloudOff size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                        You're offline
+                      </p>
+                      <p className="text-xs text-amber-700 dark:text-amber-200 mt-0.5">
+                        Expense will be saved locally and synced when you're back online.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <form onSubmit={handleSubmit} className="space-y-5">
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Select Group</Label>
@@ -493,12 +551,7 @@ const AddExpense = () => {
                         {userGroups.map(group => (<SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>))}
                       </SelectContent>
                     </Select>
-                    {errors.group && (
-                      <div className="flex items-center gap-1.5 text-sm text-destructive bg-destructive/10 px-2 py-1 rounded-lg">
-                        <AlertCircle size={14} />
-                        <span>{errors.group}</span>
-                      </div>
-                    )}
+                    <FormFieldError error={errors.group} />
                   </div>
 
                   <div className="space-y-2">
@@ -531,12 +584,7 @@ const AddExpense = () => {
                       className={`min-h-[48px] ${errors.description ? 'border-destructive' : 'border-border/50'}`}
                       maxLength={200}
                     />
-                    {errors.description && (
-                      <div className="flex items-center gap-1.5 text-sm text-destructive bg-destructive/10 px-2 py-1 rounded-lg">
-                        <AlertCircle size={14} />
-                        <span>{errors.description}</span>
-                      </div>
-                    )}
+                    <FormFieldError error={errors.description} />
                     {description.length > 150 && (
                       <p className="text-xs text-muted-foreground">
                         {200 - description.length} characters remaining
@@ -583,12 +631,7 @@ const AddExpense = () => {
                         max="10000000"
                       />
                     </div>
-                    {errors.amount && (
-                      <div className="flex items-center gap-1.5 text-sm text-destructive bg-destructive/10 px-2 py-1 rounded-lg">
-                        <AlertCircle size={14} />
-                        <span>{errors.amount}</span>
-                      </div>
-                    )}
+                    <FormFieldError error={errors.amount} />
                     {amount && parseFloat(amount) > 0 && !errors.amount && (
                       <div className="flex items-center gap-1.5 text-sm text-success bg-success/10 px-2 py-1 rounded-lg w-fit">
                         <TrendingUp size={14} />
@@ -596,6 +639,14 @@ const AddExpense = () => {
                       </div>
                     )}
                   </div>
+
+                  {/* Currency Selector */}
+                  <CurrencySelector
+                    value={currency}
+                    onChange={setCurrency}
+                    showLabel={true}
+                    className="space-y-2"
+                  />
 
                   {currentGroup && (
                     <div className="space-y-2">
@@ -782,14 +833,27 @@ const AddExpense = () => {
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           <Users size={16} className="text-primary flex-shrink-0" />
                           <span className="text-sm font-medium text-foreground truncate">
-                            {splitConfig.type === 'equal' ? 'Split equally' : splitConfig.type === 'percentage' ? 'Percentage split' : 'Custom amounts'}
+                            {splitConfig.type === 'equal' ? 'Split equally' : 
+                             splitConfig.type === 'percentage' ? 'Percentage split' : 
+                             splitConfig.type === 'itemized' ? 'Itemized split' : 
+                             'Custom amounts'}
                           </span>
                         </div>
                         <Button type="button" variant="outline" size="sm" onClick={() => setShowSplitDialog(true)} className="min-h-[44px] h-auto flex-shrink-0 border-primary/30 hover:border-primary/50 hover:bg-primary/10">
                           <Settings2 size={14} className="mr-1" /><span className="hidden sm:inline">Customize</span>
                         </Button>
                       </div>
-                      {splitAmountPerPerson > 0 && (
+                      {splitConfig.type === 'itemized' && splitConfig.lineItems && splitConfig.lineItems.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="text-sm text-muted-foreground">
+                            {splitConfig.lineItems.length} line item{splitConfig.lineItems.length > 1 ? 's' : ''} • Click Customize to assign members
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-primary bg-primary/10 px-2 py-1 rounded-lg w-fit">
+                            <CheckCircle2 size={12} />
+                            <span>Itemized split from scanned receipt</span>
+                          </div>
+                        </div>
+                      ) : splitAmountPerPerson > 0 ? (
                         <div className="space-y-2">
                           <p className="text-sm text-muted-foreground">
                             {splitConfig.type === 'equal'
@@ -802,7 +866,7 @@ const AddExpense = () => {
                             <span>Split among {Object.keys(splitConfig.shares).filter(m => splitConfig.shares[m] > 0).length} of {currentGroup.members.length} members</span>
                           </div>
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   )}
 

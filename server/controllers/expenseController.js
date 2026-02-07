@@ -7,6 +7,17 @@ import { generateAndEmailReport } from '../utils/exportService.js';
 import { checkAndSendBudgetAlert } from '../utils/emailUtils.js';
 import { notifyUsers } from '../jobs/notificationService.js';
 import { invalidateBalanceCache } from '../jobs/balanceService.js';
+import { invalidateCrossGroupCacheForMembers } from '../jobs/crossGroupBalanceService.js';
+import { convertToBaseCurrency, getExchangeRate, isCurrencySupported } from '../services/currencyService.js';
+
+// Currency symbol mapping for notifications
+const getCurrencySymbol = (currencyCode) => {
+  const symbols = {
+    INR: '₹', USD: '$', EUR: '€', GBP: '£', AUD: 'A$', CAD: 'C$',
+    SGD: 'S$', AED: 'د.إ', JPY: '¥', CNY: '¥',
+  };
+  return symbols[currencyCode] || currencyCode;
+};
 
 // Helper: Calculate current month spending using aggregation (optimized)
 const getMonthlySpending = async (groupId) => {
@@ -308,6 +319,42 @@ export const createExpense = async (req, res) => {
       splitConfig: finalSplitConfig,
     };
 
+    // Convert amount to base currency (INR) for balance calculation
+    const expenseCurrency = currency || 'INR';
+
+    // Validate currency is supported
+    if (!isCurrencySupported(expenseCurrency)) {
+      return res.status(400).json({
+        message: `Unsupported currency: ${expenseCurrency}`,
+        hint: 'Supported currencies: INR, USD, EUR, GBP, AUD, CAD, SGD, AED, JPY, CNY'
+      });
+    }
+
+    try {
+      // Convert to base currency if not already in INR
+      if (expenseCurrency !== 'INR') {
+        // Fetch exchange rate once and compute converted amount to avoid double API call
+        const exchangeRate = await getExchangeRate(expenseCurrency, 'INR');
+        const convertedAmount = amount * exchangeRate;
+
+        expenseData.amountInBaseCurrency = convertedAmount;
+        expenseData.exchangeRate = exchangeRate;
+
+        console.log(`[Expense] Converted ${amount} ${expenseCurrency} to ${convertedAmount} INR (rate: ${exchangeRate})`);
+      } else {
+        // Already in base currency
+        expenseData.amountInBaseCurrency = amount;
+        expenseData.exchangeRate = 1;
+      }
+    } catch (conversionError) {
+      console.error('[Expense] Currency conversion error:', conversionError.message);
+      return res.status(500).json({
+        message: 'Failed to convert currency',
+        error: conversionError.message,
+        hint: 'Please try again or use INR'
+      });
+    }
+
     // Add line items if provided (Comment 5)
     if (lineItems && lineItems.length > 0) {
       expenseData.lineItems = lineItems;
@@ -344,16 +391,42 @@ export const createExpense = async (req, res) => {
     await invalidateBalanceCache(groupId);
     await invalidateExpenseCache(groupId);
 
-    // Send notifications for expense participants (optimized)
+    // Invalidate cross-group cache for all members
+    const groupMembers = await Group.findById(groupId).select('members').lean();
+    if (groupMembers && groupMembers.members) {
+      invalidateCrossGroupCacheForMembers(groupMembers.members);
+    }
+
+    // Check budget alerts (group and personal)
+    try {
+      const { checkBudgetsAfterExpense } = await import('../jobs/budgetAlertService.js');
+      await checkBudgetsAfterExpense(groupId, paidBy.toString());
+    } catch (budgetError) {
+      console.error('Error checking budget alerts:', budgetError);
+      // Don't fail the request if budget check fails
+    }
+
+    // Send notifications for expense participants (optimized with batching)
     const payerName = populatedExpense.paidBy?.name || 'Someone';
     const notifyIds = (splitAmong || []).filter(id => id.toString() !== paidBy.toString());
     if (notifyIds.length > 0) {
       notifyUsers(notifyIds.map(id => id.toString()), {
         type: 'info',
         title: 'New Expense Added',
-        message: `${payerName} added "${description}" for ₹${amount}`,
-        data: { groupId, expenseId: expense._id.toString(), actionType: 'navigate' },
-      }).catch(err => console.error('Expense notification error:', err));
+        message: `${payerName} added "${description}" for ${getCurrencySymbol(expenseCurrency)}${amount}`,
+        data: {
+          groupId,
+          expenseId: expense._id.toString(),
+          actionType: 'expense_added'
+        },
+        batchMeta: {
+          actorId: paidBy.toString(),
+          actorName: payerName,
+          groupId,
+          groupName: populatedExpense.groupId?.name || 'Unknown Group',
+          actionType: 'expense_added',
+        },
+      }, { batch: true }).catch(err => console.error('Expense notification error:', err));
     }
 
     // Emit socket event to group members
@@ -361,6 +434,7 @@ export const createExpense = async (req, res) => {
     if (io) {
       try {
         const { emitToGroup, emitAnalyticsUpdate, emitBalanceUpdate } = await import('../utils/socketEmitter.js');
+
         // Emit canonical event
         emitToGroup(io, groupId, 'expense:created', populatedExpense);
         // Emit alias event for contract alignment with clients expecting expense:add
@@ -446,8 +520,24 @@ export const updateExpense = async (req, res) => {
 
     const {
       description, amount, currency, category, paidBy, date,
-      splitAmong, splitConfig, lineItems, receipts, recurrence
+      splitAmong, splitConfig, lineItems, receipts, recurrence,
+      updatedAt: clientUpdatedAt // Client sends last known updatedAt for optimistic locking
     } = req.body;
+
+    // Optimistic locking: Check if expense was modified since client last fetched it
+    if (clientUpdatedAt) {
+      const clientTimestamp = new Date(clientUpdatedAt).getTime();
+      const serverTimestamp = new Date(expense.updatedAt).getTime();
+
+      // Allow 1 second tolerance for clock skew
+      if (serverTimestamp > clientTimestamp + 1000) {
+        return res.status(409).json({
+          message: 'This expense was modified by another user. Please refresh and try again.',
+          code: 'CONCURRENT_MODIFICATION',
+          currentVersion: expense.updatedAt,
+        });
+      }
+    }
 
     // Validate paidBy and splitAmong against group members if provided
     const memberStrings = expense.groupId.members.map(m => m.toString());
@@ -473,6 +563,47 @@ export const updateExpense = async (req, res) => {
     if (date !== undefined) expense.date = date;
     if (splitAmong !== undefined) expense.splitAmong = splitAmong;
     if (splitConfig !== undefined) expense.splitConfig = splitConfig;
+
+    // CRITICAL: Recompute amountInBaseCurrency and exchangeRate if amount or currency changed
+    const amountChanged = amount !== undefined;
+    const currencyChanged = currency !== undefined;
+
+    if (amountChanged || currencyChanged) {
+      const finalAmount = amount !== undefined ? amount : expense.amount;
+      const finalCurrency = currency !== undefined ? currency : expense.currency;
+
+      // Validate currency is supported
+      if (!isCurrencySupported(finalCurrency)) {
+        return res.status(400).json({
+          message: `Unsupported currency: ${finalCurrency}`,
+          hint: 'Supported currencies: INR, USD, EUR, GBP, AUD, CAD, SGD, AED, JPY, CNY'
+        });
+      }
+
+      try {
+        // Convert to base currency if not already in INR
+        if (finalCurrency !== 'INR') {
+          const convertedAmount = await convertToBaseCurrency(finalAmount, finalCurrency);
+          const exchangeRate = await getExchangeRate(finalCurrency, 'INR');
+
+          expense.amountInBaseCurrency = convertedAmount;
+          expense.exchangeRate = exchangeRate;
+
+          console.log(`[Expense Update] Converted ${finalAmount} ${finalCurrency} to ${convertedAmount} INR (rate: ${exchangeRate})`);
+        } else {
+          // Already in base currency
+          expense.amountInBaseCurrency = finalAmount;
+          expense.exchangeRate = 1;
+        }
+      } catch (conversionError) {
+        console.error('[Expense Update] Currency conversion error:', conversionError.message);
+        return res.status(500).json({
+          message: 'Failed to convert currency',
+          error: conversionError.message,
+          hint: 'Please try again or use INR'
+        });
+      }
+    }
 
     // Update line items (Comment 5)
     if (lineItems !== undefined) {
@@ -518,6 +649,12 @@ export const updateExpense = async (req, res) => {
     // Invalidate caches for this group
     await invalidateBalanceCache(expense.groupId._id.toString());
     await invalidateExpenseCache(expense.groupId._id.toString());
+
+    // Invalidate cross-group cache for all members
+    const group = await Group.findById(expense.groupId._id).select('members').lean();
+    if (group && group.members) {
+      invalidateCrossGroupCacheForMembers(group.members);
+    }
 
     // Emit socket event to group members
     const io = req.app.get('io');
@@ -585,6 +722,11 @@ export const deleteExpense = async (req, res) => {
     // Invalidate caches for this group
     await invalidateBalanceCache(groupId.toString());
     await invalidateExpenseCache(groupId.toString());
+
+    // Invalidate cross-group cache for all members
+    if (expense.groupId.members) {
+      invalidateCrossGroupCacheForMembers(expense.groupId.members);
+    }
 
     // Emit socket event to group members
     const io = req.app.get('io');

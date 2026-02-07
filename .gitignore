@@ -1,30 +1,32 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# ===================
 # Dependencies
-/node_modules
-/server/node_modules
+# ===================
+node_modules/
 /.pnp
 .pnp.js
+package-lock.json
 
-# Testing
-/coverage
-/server/tests
-
-# Scripts
-/server/scripts
-
-# Production build
+# ===================
+# Build outputs
+# ===================
 /build
+/dist
 
+# ===================
 # Environment variables
+# ===================
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
 server/.env
+server/.env.*
+!server/.env.example
 
+# ===================
 # IDE / Editor
+# ===================
 .vs/
 .idea/
 .vscode/
@@ -33,23 +35,95 @@ server/.env
 *.swo
 *~
 
-# OS generated files
-.DS_Store
-Thumbs.db
+# ===================
+# AI assistants / Tools
+# ===================
+.gemini/
+.agent/
+.cursor/
+.copilot/
 
+# ===================
+# OS generated files
+# ===================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ===================
 # Logs
+# ===================
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-*.log
+pnpm-debug.log*
+lerna-debug.log*
 
+# ===================
+# Testing
+# ===================
+/coverage
+/server/tests
+/test-results
+/server/test-results
+/playwright-report
+/playwright/.cache
+*.lcov
+
+# ===================
 # Uploaded files
+# ===================
 /uploads
 /server/uploads
-/server/uploads/receipts/*
+!/server/uploads/.gitkeep
 !/server/uploads/receipts/.gitkeep
+
+# ===================
+# Documentation / Plans (local only)
+# ===================
 diagrams/
 documentation/
+plans/
+/server/docs
+
+# Internal summary/status docs (not needed in repo)
+EXECUTIVE_SUMMARY.md
+FINAL_SUMMARY.md
+INSTALLATION_NOTES.md
+INSTALL_PLAYWRIGHT.md
+PROJECT_STATUS.md
+RUNBOOK.md
+SECURITY_FIXES_SUMMARY.md
+VALIDATION_REPORT.md
+DEPLOYMENT_CHECKLIST.md
+/server/INSTALL_*.md
+
+# ===================
+# Scripts (local dev)
+# ===================
+/server/scripts
+
+# ===================
+# OCR / ML data files
+# ===================
+*.traineddata
+
+# ===================
+# Internal / Debug
+# ===================
+/server/internal/debug
+
+# ===================
 # Temporary files
+# ===================
 *.tmp
 *.temp
+*.bak
+*.cache

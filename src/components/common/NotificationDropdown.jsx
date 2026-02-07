@@ -11,7 +11,7 @@ import { useToast } from '../../hooks/use-toast';
 // Simple time ago formatter without external dependencies
 const getTimeAgo = (date) => {
   const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-  
+
   if (seconds < 60) return 'just now';
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
@@ -42,23 +42,52 @@ const NotificationDropdown = () => {
   const { notifications, unreadCount, markAsRead, markAllAsRead, removeNotification, clearNotifications, refreshNotifications } = useNotifications();
   const { toast } = useToast();
   const [processingAction, setProcessingAction] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
+
+  // Calculate pagination
+  const totalPages = Math.ceil(notifications.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const paginatedNotifications = notifications.slice(startIndex, endIndex);
+  const hasMore = endIndex < notifications.length;
+  const hasPrevious = currentPage > 1;
+
+  // Reset to page 1 when notifications change significantly
+  React.useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [notifications.length, currentPage, totalPages]);
+
+  const handleLoadMore = () => {
+    if (hasMore) {
+      setCurrentPage(prev => prev + 1);
+    }
+  };
+
+  const handleLoadPrevious = () => {
+    if (hasPrevious) {
+      setCurrentPage(prev => prev - 1);
+    }
+  };
 
   const handleConfirmPayment = async (notification, e) => {
     e.stopPropagation();
     setProcessingAction(notification.id + '_confirm');
-    
+
     try {
       await apiClient.post(`/settlements/${notification.relatedId}/confirm`);
-      toast({ 
-        title: 'Payment confirmed!', 
-        description: 'The settlement has been marked as confirmed.' 
+      toast({
+        title: 'Payment confirmed!',
+        description: 'The settlement has been marked as confirmed.'
       });
       await refreshNotifications();
     } catch (error) {
-      toast({ 
-        title: 'Error', 
-        description: error.response?.data?.message || 'Failed to confirm payment.', 
-        variant: 'destructive' 
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to confirm payment.',
+        variant: 'destructive'
       });
     } finally {
       setProcessingAction(null);
@@ -68,21 +97,21 @@ const NotificationDropdown = () => {
   const handleRejectPayment = async (notification, e) => {
     e.stopPropagation();
     setProcessingAction(notification.id + '_reject');
-    
+
     try {
       await apiClient.post(`/settlements/${notification.relatedId}/reject`, {
         reason: 'Payment not received'
       });
-      toast({ 
-        title: 'Payment marked as not received', 
-        description: 'The payer has been notified.' 
+      toast({
+        title: 'Payment marked as not received',
+        description: 'The payer has been notified.'
       });
       await refreshNotifications();
     } catch (error) {
-      toast({ 
-        title: 'Error', 
-        description: error.response?.data?.message || 'Failed to reject payment.', 
-        variant: 'destructive' 
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to reject payment.',
+        variant: 'destructive'
       });
     } finally {
       setProcessingAction(null);
@@ -106,18 +135,18 @@ const NotificationDropdown = () => {
           <span>Notifications</span>
           {notifications.length > 0 && (
             <div className="flex gap-1">
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-8 text-xs min-h-[32px]" 
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs min-h-[32px]"
                 onClick={markAllAsRead}
               >
                 Mark all read
               </Button>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-8 text-xs text-destructive hover:text-destructive min-h-[32px]" 
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs text-destructive hover:text-destructive min-h-[32px]"
                 onClick={clearNotifications}
               >
                 Clear
@@ -133,74 +162,110 @@ const NotificationDropdown = () => {
               <p className="text-sm">No notifications</p>
             </div>
           ) : (
-            notifications.map(notification => (
-              <DropdownMenuItem 
-                key={notification.id} 
-                className={`flex items-start gap-3 p-3 cursor-pointer min-h-[72px] ${!notification.read ? 'bg-accent/50' : ''}`} 
-                onClick={() => {
-                  markAsRead(notification.id);
-                  // Handle navigation based on action type
-                  if (notification.actionType === 'chat_message') {
-                    // Navigate to group chat tab
-                    const groupId = notification.data?.groupId || notification.relatedId;
-                    if (groupId) {
-                      navigate(`/group/${groupId}?tab=chat`);
+            <>
+              {paginatedNotifications.map(notification => (
+                <DropdownMenuItem
+                  key={notification.id}
+                  className={`flex items-start gap-3 p-3 cursor-pointer min-h-[72px] ${!notification.read ? 'bg-accent/50' : ''}`}
+                  onClick={() => {
+                    markAsRead(notification.id);
+                    // Handle navigation based on action type
+                    if (notification.actionType === 'chat_message') {
+                      // Navigate to group chat tab
+                      const groupId = notification.data?.groupId || notification.relatedId;
+                      if (groupId) {
+                        navigate(`/group/${groupId}?tab=chat`);
+                      }
+                    } else if (notification.actionType === 'navigate') {
+                      // Support both data.url and relatedId for navigation
+                      const url = notification.data?.url || notification.relatedId;
+                      if (url) {
+                        navigate(url);
+                      }
                     }
-                  } else if (notification.actionType === 'navigate') {
-                    // Support both data.url and relatedId for navigation
-                    const url = notification.data?.url || notification.relatedId;
-                    if (url) {
-                      navigate(url);
-                    }
-                  }
-                }}
-              >
-                <div className="mt-1 flex-shrink-0">{getNotificationIcon(notification.type)}</div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm leading-snug ${!notification.read ? 'font-medium' : ''}`}>{notification.title}</p>
-                  <p className="text-xs text-muted-foreground leading-snug mt-1">{notification.message}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{getTimeAgo(notification.timestamp)}</p>
-                  
-                  {/* Action buttons for confirm_payment */}
-                  {notification.actionType === 'confirm_payment' && !notification.actionCompleted && (
-                    <div className="flex gap-2 mt-2 flex-wrap">
-                      <Button 
-                        size="sm" 
-                        className="h-8 text-xs min-h-[36px]"
-                        onClick={(e) => handleConfirmPayment(notification, e)}
-                        disabled={processingAction !== null}
-                      >
-                        <CheckCircle size={14} className="mr-1" />
-                        {processingAction === notification.id + '_confirm' ? 'Confirming...' : 'Confirm Receipt'}
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        className="h-8 text-xs min-h-[36px] text-destructive hover:text-destructive border-destructive/50 hover:bg-destructive/10"
-                        onClick={(e) => handleRejectPayment(notification, e)}
-                        disabled={processingAction !== null}
-                      >
-                        {processingAction === notification.id + '_reject' ? 'Rejecting...' : 'Not Received'}
-                      </Button>
-                    </div>
-                  )}
-                  
-                  {notification.actionCompleted && (
-                    <p className="text-xs text-success mt-1 flex items-center gap-1">
-                      <Check size={12} /> Confirmed
-                    </p>
-                  )}
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-8 w-8 shrink-0 min-h-[36px] min-w-[36px]" 
-                  onClick={(e) => { e.stopPropagation(); removeNotification(notification.id); }}
+                  }}
                 >
-                  <Trash2 size={14} />
-                </Button>
-              </DropdownMenuItem>
-            ))
+                  <div className="mt-1 flex-shrink-0">{getNotificationIcon(notification.type)}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm leading-snug ${!notification.read ? 'font-medium' : ''}`}>{notification.title}</p>
+                    <p className="text-xs text-muted-foreground leading-snug mt-1">{notification.message}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{getTimeAgo(notification.timestamp)}</p>
+
+                    {/* Action buttons for confirm_payment */}
+                    {notification.actionType === 'confirm_payment' && !notification.actionCompleted && (
+                      <div className="flex gap-2 mt-2 flex-wrap">
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs min-h-[36px]"
+                          onClick={(e) => handleConfirmPayment(notification, e)}
+                          disabled={processingAction !== null}
+                        >
+                          <CheckCircle size={14} className="mr-1" />
+                          {processingAction === notification.id + '_confirm' ? 'Confirming...' : 'Confirm Receipt'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs min-h-[36px] text-destructive hover:text-destructive border-destructive/50 hover:bg-destructive/10"
+                          onClick={(e) => handleRejectPayment(notification, e)}
+                          disabled={processingAction !== null}
+                        >
+                          {processingAction === notification.id + '_reject' ? 'Rejecting...' : 'Not Received'}
+                        </Button>
+                      </div>
+                    )}
+
+                    {notification.actionCompleted && (
+                      <p className="text-xs text-success mt-1 flex items-center gap-1">
+                        <Check size={12} /> Confirmed
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 min-h-[36px] min-w-[36px]"
+                    onClick={(e) => { e.stopPropagation(); removeNotification(notification.id); }}
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                </DropdownMenuItem>
+              ))}
+
+              {/* Pagination Controls */}
+              {notifications.length > ITEMS_PER_PAGE && (
+                <div className="sticky bottom-0 bg-popover border-t border-border p-2">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+                    <span>
+                      Showing {startIndex + 1}-{Math.min(endIndex, notifications.length)} of {notifications.length}
+                    </span>
+                    <span>
+                      Page {currentPage} of {totalPages}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 h-8 text-xs"
+                      onClick={(e) => { e.stopPropagation(); handleLoadPrevious(); }}
+                      disabled={!hasPrevious}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 h-8 text-xs"
+                      onClick={(e) => { e.stopPropagation(); handleLoadMore(); }}
+                      disabled={!hasMore}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </ScrollArea>
       </DropdownMenuContent>

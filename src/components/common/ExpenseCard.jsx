@@ -4,6 +4,7 @@ import { categories, getCategoryById } from '../../data/categories';
 import { useGroups } from '../../context/GroupContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useToast } from '../../hooks/use-toast';
+import { getCurrencySymbol, formatCurrency } from '../common/CurrencySelector';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/alert-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -121,8 +122,17 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
               </div>
               <div className="flex items-start gap-1 sm:gap-2 flex-shrink-0">
                 <div className="text-right">
-                  <p className="font-display font-bold text-xl sm:text-2xl tracking-tight text-foreground whitespace-nowrap">₹{expense.amount.toLocaleString()}</p>
-                  <p className="text-[10px] sm:text-xs text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full whitespace-nowrap">₹{splitAmount.toFixed(0)}/person</p>
+                  <div className="flex items-baseline gap-1">
+                    <p className="font-display font-bold text-xl sm:text-2xl tracking-tight text-foreground whitespace-nowrap">
+                      {formatCurrency(expense.amount, expense.currency || 'INR')}
+                    </p>
+                    {expense.currency && expense.currency !== 'INR' && (
+                      <span className="text-[10px] text-muted-foreground">{expense.currency}</span>
+                    )}
+                  </div>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full whitespace-nowrap">
+                    {formatCurrency(splitAmount, expense.currency || 'INR')}/person
+                  </p>
                 </div>
                 {canEdit && (
                   <Button
@@ -210,10 +220,10 @@ const ExpenseCard = React.memo(({ expense, canEdit = true, canDelete = true, isA
                             )}
                           </div>
                           <div className="text-right flex-shrink-0 ml-2">
-                            <span className="font-semibold">₹{(item.totalPrice || item.quantity * item.unitPrice).toFixed(0)}</span>
+                            <span className="font-semibold">{formatCurrency(item.totalPrice || item.quantity * item.unitPrice, expense.currency || 'INR')}</span>
                             {item.quantity > 1 && (
                               <span className="text-[10px] text-muted-foreground block">
-                                {item.quantity} × ₹{item.unitPrice}
+                                {item.quantity} × {formatCurrency(item.unitPrice, expense.currency || 'INR')}
                               </span>
                             )}
                           </div>

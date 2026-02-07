@@ -56,6 +56,9 @@ const BalanceCard = memo(({ memberId, balance }) => {
           `}>
             {isSettled ? '₹0' : `₹${Math.abs(balance).toLocaleString()}`}
           </span>
+          {!isSettled && (
+            <span className="text-[10px] text-muted-foreground">INR</span>
+          )}
         </div>
       </div>
     </div>

@@ -68,6 +68,23 @@ const expenseSchema = new mongoose.Schema({
     type: String,
     default: 'INR',
   },
+  // Converted amount in base currency (INR) for balance calculation
+  amountInBaseCurrency: {
+    type: Number,
+    min: 0,
+  },
+  // Exchange rate used for conversion (for audit trail)
+  exchangeRate: {
+    type: Number,
+    min: 0, // Exchange rate must be positive
+    validate: {
+      validator: function (v) {
+        // If set, must be a positive number
+        return v === undefined || v === null || v > 0;
+      },
+      message: 'Exchange rate must be a positive number'
+    }
+  },
   category: {
     type: String,
     required: true,
@@ -145,7 +162,7 @@ const expenseSchema = new mongoose.Schema({
 });
 
 // Method to calculate next run date for recurring expenses
-expenseSchema.methods.calculateNextRunDate = function() {
+expenseSchema.methods.calculateNextRunDate = function () {
   if (!this.recurrence.enabled || !this.recurrence.frequency) {
     return null;
   }
@@ -183,13 +200,13 @@ expenseSchema.methods.calculateNextRunDate = function() {
 };
 
 // Method to calculate split from line items
-expenseSchema.methods.calculateSplitFromItems = function() {
+expenseSchema.methods.calculateSplitFromItems = function () {
   if (!this.lineItems || this.lineItems.length === 0) {
     return null;
   }
 
   const shares = {};
-  
+
   for (const item of this.lineItems) {
     if (item.assignedTo && item.assignedTo.length > 0) {
       const perPersonAmount = item.totalPrice / item.assignedTo.length;

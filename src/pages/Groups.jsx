@@ -6,6 +6,7 @@ import { useGroups } from '../context/GroupContext';
 import { useChat } from '../context/ChatContext';
 import Navbar from '../components/layout/Navbar';
 import GroupCard from '../components/common/GroupCard';
+import { SkeletonGroupCardList } from '../components/common/SkeletonCards';
 import QRScanner from '../components/common/QRScanner';
 import PastCollaboratorsSelector from '../components/group/PastCollaboratorsSelector';
 import { Button } from '../components/ui/button';
@@ -26,7 +27,7 @@ import { useToast } from '../hooks/use-toast';
 const Groups = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
-  const { groups, addGroup, joinGroupByInvite } = useGroups();
+  const { groups, addGroup, joinGroupByInvite, loading } = useGroups();
   const { fetchUnreadCountsForGroups } = useChat();
   const { toast } = useToast();
 
@@ -375,7 +376,9 @@ const Groups = () => {
             )}
 
             {/* Groups Grid */}
-            {filteredGroups.length > 0 ? (
+            {loading ? (
+              <SkeletonGroupCardList count={6} />
+            ) : filteredGroups.length > 0 ? (
               <div className={viewMode === 'grid'
                 ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
                 : "space-y-3"
