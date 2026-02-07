@@ -31,7 +31,7 @@ jobs:
           cache: 'npm'
       
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
       
       - name: Install Playwright browsers
         run: npx playwright install --with-deps ${{ matrix.browser }}
@@ -44,7 +44,7 @@ jobs:
       - name: Start backend server
         run: |
           cd server
-          npm ci
+          npm ci --legacy-peer-deps
           npm run dev &
           sleep 10
         env:
