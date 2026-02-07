@@ -5,9 +5,10 @@ name: E2E Tests
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, master, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, master, develop ]
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   test:
@@ -49,8 +50,16 @@ jobs:
         env:
           NODE_ENV: test
           MONGODB_URI: mongodb://localhost:27017/split-it-test
-          JWT_SECRET: test-secret-key
+          JWT_SECRET: test-secret-key-for-ci-testing-only-32chars
+          JWT_EXPIRES_IN: 7d
           PORT: 5000
+          CLIENT_URL: http://localhost:3000
+          SERVER_URL: http://localhost:5000
+          SMTP_HOST: smtp.test.local
+          SMTP_PORT: 587
+          SMTP_USER: test@test.local
+          SMTP_PASS: testpassword
+          SMTP_FROM: test@test.local
       
       - name: Start frontend server
         run: |

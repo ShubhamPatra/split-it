@@ -83,7 +83,7 @@ jobs:
             docker-compose ps
             
             echo "=== Checking API health ==="
-            curl -sf http://localhost:5000/api/health | jq . || echo "Health check failed - check logs with: docker compose logs api"
+            curl -sf http://localhost:5000/health | jq . || echo "Health check failed - check logs with: docker compose logs api"
             
             echo "=== Deployment complete ==="
           EOF
