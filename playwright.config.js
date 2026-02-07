@@ -78,7 +78,7 @@ module.exports = defineConfig({
   webServer: {
     command: 'npm start',
     url: 'http://localhost:3000',
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     timeout: 120000,
   },
 });

@@ -34,7 +34,7 @@ jobs:
           
           # Deploy via SSH
           ssh -i ~/.ssh/deploy_key -p $EC2_SSH_PORT $EC2_USER@$EC2_HOST << 'EOF'
-            set -ex  # Exit on any error AND print commands
+            set -e  # Exit on any error
             cd ~/split-it
             
             echo "=== Backing up .env file ==="
@@ -70,21 +70,20 @@ jobs:
             rm -rf node_modules src public
             
             echo "=== Cleaning up old Docker images ==="
-            docker image prune -f || true
+            docker image prune -f
             
             echo "=== Restarting containers ==="
-            docker-compose down || true
+            docker-compose down
             docker-compose up -d --build
             
             echo "=== Waiting for services to start ==="
-            sleep 20
+            sleep 15
             
             echo "=== Checking container status ==="
             docker-compose ps
-            docker-compose logs --tail=50 api
             
             echo "=== Checking API health ==="
-            curl -sf http://localhost:5000/health || echo "Health check endpoint not responding"
+            curl -sf http://localhost:5000/api/health | jq . || echo "Health check failed - check logs with: docker compose logs api"
             
             echo "=== Deployment complete ==="
           EOF

@@ -5,10 +5,9 @@ name: E2E Tests
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main, master, develop ]
-  workflow_dispatch:  # Allow manual trigger
+    branches: [ main, develop ]
 
 jobs:
   test:
@@ -22,16 +21,16 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
       
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
           node-version: '18'
           cache: 'npm'
       
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci
       
       - name: Install Playwright browsers
         run: npx playwright install --with-deps ${{ matrix.browser }}
@@ -44,22 +43,14 @@ jobs:
       - name: Start backend server
         run: |
           cd server
-          npm ci --legacy-peer-deps
+          npm ci
           npm run dev &
           sleep 10
         env:
           NODE_ENV: test
           MONGODB_URI: mongodb://localhost:27017/split-it-test
-          JWT_SECRET: test-secret-key-for-ci-testing-only-32chars
-          JWT_EXPIRES_IN: 7d
+          JWT_SECRET: test-secret-key
           PORT: 5000
-          CLIENT_URL: http://localhost:3000
-          SERVER_URL: http://localhost:5000
-          SMTP_HOST: smtp.test.local
-          SMTP_PORT: 587
-          SMTP_USER: test@test.local
-          SMTP_PASS: testpassword
-          SMTP_FROM: test@test.local
       
       - name: Start frontend server
         run: |
@@ -75,7 +66,7 @@ jobs:
           CI: true
       
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         if: always()
         with:
           name: playwright-report-${{ matrix.browser }}
@@ -83,7 +74,7 @@ jobs:
           retention-days: 30
       
       - name: Upload test videos
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: playwright-videos-${{ matrix.browser }}
