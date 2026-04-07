@@ -36,6 +36,7 @@ jobs:
       - name: Build frontend
         env:
           CI: false
+          REACT_APP_GOOGLE_CLIENT_ID: ${{ secrets.REACT_APP_GOOGLE_CLIENT_ID }}
         run: npm run build
 
       - name: Setup Pages
