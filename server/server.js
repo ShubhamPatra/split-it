@@ -289,23 +289,26 @@ const initializeServer = async () => {
   app.use('/api', healthRoutes);
 
   // Routes
-  app.use('/api/auth', authRoutes);
-  app.use('/api/auth/2fa', twoFactorRoutes);
-  app.use('/api/groups', groupRoutes);
-  app.use('/api/groups', chatRoutes); // Chat routes nested under groups
-  app.use('/api/messages', chatRoutes); // Messages routes for batch operations like /api/messages/unread-counts
-  app.use('/api/expenses', expenseRoutes);
-  app.use('/api/settlements', settlementRoutes);
-  app.use('/api/notifications', notificationRoutes);
-  app.use('/api/realtime', realtimeRoutes);
-  app.use('/api/jobs', jobRoutes);
-  app.use('/api/users', userRoutes);
-  app.use('/api/push', pushRoutes);
-  app.use('/api/ocr', ocrRoutes);
-  app.use('/api/invites', inviteRoutes);
-  app.use('/api/audit', auditRoutes);
-  app.use('/api/cross-group', crossGroupRoutes);
-  app.use('/api/balances', balanceRoutes);
+  const routePrefixes = ['/api', ''];
+  for (const prefix of routePrefixes) {
+    app.use(`${prefix}/auth`, authRoutes);
+    app.use(`${prefix}/auth/2fa`, twoFactorRoutes);
+    app.use(`${prefix}/groups`, groupRoutes);
+    app.use(`${prefix}/groups`, chatRoutes); // Chat routes nested under groups
+    app.use(`${prefix}/messages`, chatRoutes); // Messages routes for batch operations like /api/messages/unread-counts
+    app.use(`${prefix}/expenses`, expenseRoutes);
+    app.use(`${prefix}/settlements`, settlementRoutes);
+    app.use(`${prefix}/notifications`, notificationRoutes);
+    app.use(`${prefix}/realtime`, realtimeRoutes);
+    app.use(`${prefix}/jobs`, jobRoutes);
+    app.use(`${prefix}/users`, userRoutes);
+    app.use(`${prefix}/push`, pushRoutes);
+    app.use(`${prefix}/ocr`, ocrRoutes);
+    app.use(`${prefix}/invites`, inviteRoutes);
+    app.use(`${prefix}/audit`, auditRoutes);
+    app.use(`${prefix}/cross-group`, crossGroupRoutes);
+    app.use(`${prefix}/balances`, balanceRoutes);
+  }
 
   // Serve static assets (logos, icons) for emails
   // These need to be publicly accessible without authentication
