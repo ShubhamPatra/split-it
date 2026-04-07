@@ -284,7 +284,16 @@ const initializeServer = async () => {
     optionsSuccessStatus: 200,
   };
   app.use(cors(corsOptions));
-  app.options('*', cors(corsOptions));
+  app.use((req, res, next) => {
+    if (req.method !== 'OPTIONS') {
+      next();
+      return;
+    }
+
+    cors(corsOptions)(req, res, () => {
+      res.sendStatus(204);
+    });
+  });
 
   // Cookie parser middleware (must be before auth routes)
   app.use(cookieParser());
