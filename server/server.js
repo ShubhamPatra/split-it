@@ -286,7 +286,7 @@ const initializeServer = async () => {
   }
 
   // Health check routes (should be first for quick responses)
-  app.use('/', healthRoutes);
+  app.use('/api', healthRoutes);
 
   // Routes
   app.use('/api/auth', authRoutes);
