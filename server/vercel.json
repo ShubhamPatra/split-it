@@ -14,10 +14,6 @@
       "destination": "/api/ready"
     },
     {
-      "source": "/auth/:path*",
-      "destination": "/api/auth/:path*"
-    },
-    {
       "source": "/:path*",
       "destination": "/api/:path*"
     }
