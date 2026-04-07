@@ -253,6 +253,7 @@ const Login = () => {
               size="large"
               text="signin_with"
               shape="rectangular"
+              use_fedcm_for_button={true}
             />
           </div>
 
