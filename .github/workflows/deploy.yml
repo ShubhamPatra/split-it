@@ -37,6 +37,7 @@ jobs:
         env:
           CI: false
           REACT_APP_GOOGLE_CLIENT_ID: ${{ secrets.REACT_APP_GOOGLE_CLIENT_ID }}
+          REACT_APP_API_URL: https://api.split-it.live
         run: npm run build
 
       - name: Setup Pages
