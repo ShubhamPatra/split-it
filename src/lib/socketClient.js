@@ -1,6 +1,6 @@
-const API_ROOT = (process.env.REACT_APP_API_URL || 'http://localhost:5000')
-  .replace(/\/$/, '')
-  .replace(/\/api$/, '');
+import { getApiOriginUrl } from '../utils/apiPaths';
+
+const API_ROOT = getApiOriginUrl();
 const POLL_INTERVAL_MS = Number(process.env.REACT_APP_REALTIME_POLL_INTERVAL_MS || 2000);
 
 class PollingRealtimeClient {
@@ -68,7 +68,7 @@ class PollingRealtimeClient {
       }
       params.set('limit', '100');
 
-      const response = await fetch(`${API_ROOT}/api/realtime/events?${params.toString()}`, {
+      const response = await fetch(`${API_ROOT}/realtime/events?${params.toString()}`, {
         credentials: 'include',
       });
 

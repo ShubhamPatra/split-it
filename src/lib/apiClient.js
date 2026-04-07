@@ -1,6 +1,7 @@
 import { getFrontendUrl } from '../utils/frontendPaths';
+import { getApiBaseUrl } from '../utils/apiPaths';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API_URL = getApiBaseUrl();
 
 // Request cache and pending requests for deduplication
 const requestCache = new Map();

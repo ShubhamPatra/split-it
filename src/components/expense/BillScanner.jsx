@@ -4,10 +4,9 @@ import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { Progress } from '../ui/progress';
 import { useToast } from '../../hooks/use-toast';
+import { getApiOriginUrl } from '../../utils/apiPaths';
 
-const API_ROOT = (process.env.REACT_APP_API_URL || 'http://localhost:5000')
-  .replace(/\/$/, '')
-  .replace(/\/api$/, '');
+const API_ROOT = getApiOriginUrl();
 const OCR_POLL_INTERVAL_MS = Number(process.env.REACT_APP_OCR_POLL_INTERVAL_MS || 2000);
 const OCR_POLL_TIMEOUT_MS = Number(process.env.REACT_APP_OCR_POLL_TIMEOUT_MS || 120000);
 
@@ -47,7 +46,7 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
     let lastStatus = 'queued';
 
     while (Date.now() - startTime < OCR_POLL_TIMEOUT_MS) {
-      const response = await fetch(`${API_ROOT}/api/ocr/jobs/${jobId}`, {
+      const response = await fetch(`${API_ROOT}/ocr/jobs/${jobId}`, {
         credentials: 'include',
       });
 
@@ -142,7 +141,7 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
         setScanProgress(prev => Math.min(prev + 10, 90));
       }, 300);
 
-      const response = await fetch(`${API_ROOT}/api/ocr/scan`, {
+      const response = await fetch(`${API_ROOT}/ocr/scan`, {
         method: 'POST',
         credentials: 'include', // Send HttpOnly auth cookie
         body: formData,

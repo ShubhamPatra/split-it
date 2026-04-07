@@ -23,8 +23,9 @@ import {
   SelectValue,
 } from '../ui/select';
 import { useToast } from '../../hooks/use-toast';
+import { getApiBaseUrl } from '../../utils/apiPaths';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API_URL = getApiBaseUrl();
 
 /**
  * EditExpenseDialog Component

@@ -30,6 +30,7 @@ import {
 import { Switch } from '../components/ui/switch';
 import { useToast } from '../hooks/use-toast';
 import CurrencySelector from '../components/common/CurrencySelector';
+import { getApiBaseUrl } from '../utils/apiPaths';
 
 const AddExpense = () => {
   const navigate = useNavigate();
@@ -355,7 +356,7 @@ const AddExpense = () => {
       formData.append('receipts', receipt.file);
     }
 
-    const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+    const API_URL = getApiBaseUrl();
     const response = await fetch(`${API_URL}/expenses/${expenseId}/receipts`, {
       method: 'POST',
       credentials: 'include',
