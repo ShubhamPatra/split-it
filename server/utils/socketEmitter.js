@@ -1,25 +1,45 @@
+import { groupChannel, publishRealtimeEvent, publishToGroup, publishToUser, userChannel } from '../services/realtimeService.js';
+
+const fireAndForget = (promise) => {
+  void promise.catch((error) => {
+    console.error('[Realtime] Failed to publish event:', error.message);
+  });
+};
+
 // Helper to emit events from controllers
 export const emitToGroup = (io, groupId, event, data) => {
-  io.to(`group:${groupId}`).emit(event, data);
+  fireAndForget(publishRealtimeEvent({
+    channels: [groupChannel(groupId)],
+    event,
+    payload: data,
+    audience: 'group',
+    io,
+  }));
 };
 
 export const emitToUser = (io, userId, event, data) => {
-  io.to(`user:${userId}`).emit(event, data);
+  fireAndForget(publishRealtimeEvent({
+    channels: [userChannel(userId)],
+    event,
+    payload: data,
+    audience: 'user',
+    io,
+  }));
 };
 
 // Emit notification to a specific user
 export const emitNotification = (io, userId, notification) => {
-  io.to(`user:${userId}`).emit('notification:new', notification);
+  fireAndForget(publishToUser(userId, 'notification:new', notification, { io }));
 };
 
 // Emit notification read update
 export const emitNotificationUpdate = (io, userId, notificationId) => {
-  io.to(`user:${userId}`).emit('notification:read', { notificationId });
+  fireAndForget(publishToUser(userId, 'notification:read', { notificationId }, { io }));
 };
 
 // Emit notification deletion
 export const emitNotificationDeleted = (io, userId, notificationId) => {
-  io.to(`user:${userId}`).emit('notification:deleted', { notificationId });
+  fireAndForget(publishToUser(userId, 'notification:deleted', { notificationId }, { io }));
 };
 
 // Emit analytics update to group
@@ -30,46 +50,46 @@ export const emitAnalyticsUpdate = (io, groupId, analyticsData) => {
   
   switch (action) {
     case 'expenseAdded':
-      io.to(`group:${groupId}`).emit('analytics:expenseAdded', eventData);
+      fireAndForget(publishToGroup(groupId, 'analytics:expenseAdded', eventData, { io }));
       break;
     case 'expenseRemoved':
-      io.to(`group:${groupId}`).emit('analytics:expenseRemoved', eventData);
+      fireAndForget(publishToGroup(groupId, 'analytics:expenseRemoved', eventData, { io }));
       break;
     case 'expenseUpdated':
       // For updates, emit both category and balance updates
-      io.to(`group:${groupId}`).emit('analytics:categoryUpdated', eventData);
-      io.to(`group:${groupId}`).emit('analytics:balanceUpdated', eventData);
+      fireAndForget(publishToGroup(groupId, 'analytics:categoryUpdated', eventData, { io }));
+      fireAndForget(publishToGroup(groupId, 'analytics:balanceUpdated', eventData, { io }));
       break;
     case 'balanceUpdated':
-      io.to(`group:${groupId}`).emit('analytics:balanceUpdated', eventData);
+      fireAndForget(publishToGroup(groupId, 'analytics:balanceUpdated', eventData, { io }));
       break;
     case 'categoryUpdated':
-      io.to(`group:${groupId}`).emit('analytics:categoryUpdated', eventData);
+      fireAndForget(publishToGroup(groupId, 'analytics:categoryUpdated', eventData, { io }));
       break;
     default:
       // Fallback to expenseAdded for backwards compatibility
-      io.to(`group:${groupId}`).emit('analytics:expenseAdded', eventData);
+      fireAndForget(publishToGroup(groupId, 'analytics:expenseAdded', eventData, { io }));
   }
 };
 
 // Emit chat message to group
 export const emitChatMessage = (io, groupId, message) => {
-  io.to(`group:${groupId}`).emit('chat:new', message);
+  fireAndForget(publishToGroup(groupId, 'chat:new', message, { io }));
 };
 
 // Emit typing indicator to group
 export const emitChatTyping = (io, groupId, data) => {
-  io.to(`group:${groupId}`).emit('chat:typing', data);
+  fireAndForget(publishToGroup(groupId, 'chat:typing', data, { io }));
 };
 
 // Emit message read receipt to group
 export const emitChatMessageRead = (io, groupId, data) => {
-  io.to(`group:${groupId}`).emit('chat:read', data);
+  fireAndForget(publishToGroup(groupId, 'chat:read', data, { io }));
 };
 
 // Emit balance update to group
 export const emitBalanceUpdate = (io, groupId, balances) => {
-  io.to(`group:${groupId}`).emit('balance:update', { groupId, balances });
+  fireAndForget(publishToGroup(groupId, 'balance:update', { groupId, balances }, { io }));
 };
 
 // Force a user's sockets to leave a group room (when removed from group)
@@ -83,18 +103,20 @@ export const forceLeaveGroupRoom = async (io, userId, groupId) => {
   await removeUserTyping(groupId, userId);
   
   // Emit offline event to group so other members see the user go offline
-  io.to(`group:${groupId}`).emit('chat:userOffline', { userId, groupId });
+  fireAndForget(publishToGroup(groupId, 'chat:userOffline', { userId, groupId }, { io }));
   
   // Also emit typing stopped in case they were typing
-  io.to(`group:${groupId}`).emit('chat:typing', {
+  fireAndForget(publishToGroup(groupId, 'chat:typing', {
     userId,
     isTyping: false,
     groupId,
-  });
+  }, { io }));
   
   // Force all user's sockets to leave the group room
-  const sockets = await io.in(`user:${userId}`).fetchSockets();
-  for (const socket of sockets) {
-    socket.leave(`group:${groupId}`);
+  if (io?.in) {
+    const sockets = await io.in(`user:${userId}`).fetchSockets();
+    for (const socket of sockets) {
+      socket.leave(`group:${groupId}`);
+    }
   }
 };

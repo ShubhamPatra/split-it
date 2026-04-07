@@ -8,6 +8,7 @@ import { useNotifications } from '../context/NotificationContext';
 import { useGroupRoles } from '../hooks/useGroupRoles';
 import { getCategoryById } from '../data/categories';
 import { calculateOptimalSettlements } from '../utils/settlementOptimizer';
+import { getFrontendUrl } from '../utils/frontendPaths';
 import apiClient from '../lib/apiClient';
 import {
   exportFullReportToCsv,
@@ -151,7 +152,7 @@ const GroupDetail = () => {
   useEffect(() => {
     // Set invite link if group has an existing invite code
     if (group?.inviteCode) {
-      setInviteLink(`${window.location.origin}/join/${group.inviteCode}`);
+      setInviteLink(getFrontendUrl(`/join/${group.inviteCode}`));
     }
   }, [group?.inviteCode]);
 
@@ -358,7 +359,7 @@ const GroupDetail = () => {
     try {
       const code = await generateInviteCode(group.id);
       if (code) {
-        const link = `${window.location.origin}/join/${code}`;
+        const link = getFrontendUrl(`/join/${code}`);
         setInviteLink(link);
         toast({ title: "Invite link generated", description: "Share this link to invite members." });
       } else {
@@ -374,7 +375,7 @@ const GroupDetail = () => {
 
   // eslint-disable-next-line no-unused-vars
   const handleCopyInviteLink = () => {
-    const linkToCopy = inviteLink || (group?.inviteCode ? `${window.location.origin}/join/${group.inviteCode}` : null);
+    const linkToCopy = inviteLink || (group?.inviteCode ? getFrontendUrl(`/join/${group.inviteCode}`) : null);
     if (linkToCopy) {
       navigator.clipboard.writeText(linkToCopy);
       setLinkCopied(true);

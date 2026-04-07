@@ -40,6 +40,8 @@ import groupRoutes from './routes/groupRoutes.js';
 import expenseRoutes from './routes/expenseRoutes.js';
 import settlementRoutes from './routes/settlementRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import realtimeRoutes from './routes/realtimeRoutes.js';
+import jobRoutes from './routes/jobRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import pushRoutes from './routes/pushRoutes.js';
 import ocrRoutes from './routes/ocrRoutes.js';
@@ -106,21 +108,37 @@ const initializeServer = async () => {
   const { initializeRedis } = await import('./config/redis.js');
   await initializeRedis();
 
-  // Initialize Socket.IO (with optional Redis adapter for horizontal scaling)
-  io = await initializeSocket(httpServer);
+  const realtimeProvider = (process.env.REALTIME_PROVIDER || (process.env.VERCEL ? 'polling' : 'socketio')).toLowerCase();
+  const enablePersistentScheduler = process.env.ENABLE_IN_PROCESS_SCHEDULER === 'true' && !process.env.VERCEL;
+  const enablePersistentTimers = process.env.ENABLE_PERSISTENT_TIMERS === 'true' && !process.env.VERCEL;
 
-  // Store io instance on app for use in controllers
-  app.set('io', io);
-
-  // Pass io to notification service for real-time notifications
-  setSocketIO(io);
-
-  // Pass io to notification controller
   const { setIo } = await import('./controllers/notificationController.js');
-  setIo(io);
+
+  if (realtimeProvider === 'socketio') {
+    // Initialize Socket.IO (with optional Redis adapter for horizontal scaling)
+    io = await initializeSocket(httpServer);
+
+    // Store io instance on app for use in controllers
+    app.set('io', io);
+
+    // Pass io to notification service for real-time notifications
+    setSocketIO(io);
+
+    // Pass io to notification controller
+    setIo(io);
+  } else {
+    console.log(`Realtime provider '${realtimeProvider}' enabled, skipping Socket.IO initialization`);
+    app.set('io', null);
+    setSocketIO(null);
+    setIo(null);
+  }
 
   // Initialize balance service (cache cleanup intervals)
-  initializeBalanceService();
+  if (enablePersistentTimers) {
+    initializeBalanceService();
+  } else {
+    console.log('Balance service timers disabled (serverless-friendly mode)');
+  }
 
   // Security middleware (should be first)
   // Helmet sets various HTTP security headers
@@ -279,6 +297,8 @@ const initializeServer = async () => {
   app.use('/api/expenses', expenseRoutes);
   app.use('/api/settlements', settlementRoutes);
   app.use('/api/notifications', notificationRoutes);
+  app.use('/api/realtime', realtimeRoutes);
+  app.use('/api/jobs', jobRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api/push', pushRoutes);
   app.use('/api/ocr', ocrRoutes);
@@ -325,19 +345,27 @@ const initializeServer = async () => {
   });
 
   // Initialize scheduled jobs (cron scheduler)
-  initializeScheduler();
-  console.log('Scheduled jobs initialized (node-cron)');
+  if (enablePersistentScheduler) {
+    initializeScheduler();
+    console.log('Scheduled jobs initialized (node-cron)');
+  } else {
+    console.log('Scheduled jobs disabled; use an external scheduler for recurring work');
+  }
 
-  // Start server
+  // Start server only for long-lived deployments
   const PORT = process.env.PORT || 5000;
-  httpServer.listen(PORT, () => {
-    console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-    console.log('Background job system: In-process (no Redis required)');
-  });
+  if (!process.env.VERCEL) {
+    httpServer.listen(PORT, () => {
+      console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+      console.log('Background job system: In-process (no Redis required)');
+    });
+  } else {
+    console.log('Vercel serverless mode detected; listen() skipped');
+  }
 };
 
 // Start the async initialization
-initializeServer().catch((err) => {
+await initializeServer().catch((err) => {
   console.error('Failed to initialize server:', err);
   process.exit(1);
 });
@@ -434,9 +462,11 @@ const gracefulShutdown = async (signal) => {
   }
 };
 
-// Listen for termination signals
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+// Listen for termination signals in long-lived deployments only
+if (!process.env.VERCEL) {
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+}
 
 // Export for tests
 export { app, httpServer, io };

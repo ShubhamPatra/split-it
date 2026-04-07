@@ -1,33 +1,180 @@
-import { io } from 'socket.io-client';
+const API_ROOT = (process.env.REACT_APP_API_URL || 'http://localhost:5000')
+  .replace(/\/$/, '')
+  .replace(/\/api$/, '');
+const POLL_INTERVAL_MS = Number(process.env.REACT_APP_REALTIME_POLL_INTERVAL_MS || 2000);
+
+class PollingRealtimeClient {
+  constructor() {
+    this.listeners = new Map();
+    this.joinedRooms = new Set();
+    this.connected = false;
+    this.pollCursor = null;
+    this.pollTimer = null;
+    this.pollInFlight = false;
+  }
+
+  on(event, handler) {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+
+    this.listeners.get(event).add(handler);
+    return this;
+  }
+
+  off(event, handler) {
+    const handlers = this.listeners.get(event);
+    if (handlers) {
+      handlers.delete(handler);
+      if (handlers.size === 0) {
+        this.listeners.delete(event);
+      }
+    }
+
+    return this;
+  }
+
+  emit(event, data) {
+    const handlers = this.listeners.get(event);
+    if (!handlers || handlers.size === 0) {
+      return false;
+    }
+
+    handlers.forEach((handler) => {
+      try {
+        handler(data);
+      } catch (error) {
+        console.error(`Realtime handler error for event ${event}:`, error);
+      }
+    });
+
+    return true;
+  }
+
+  async pollOnce() {
+    if (!this.connected || this.pollInFlight) {
+      return;
+    }
+
+    this.pollInFlight = true;
+
+    try {
+      const params = new URLSearchParams();
+      if (this.joinedRooms.size > 0) {
+        params.set('channels', Array.from(this.joinedRooms).map((groupId) => `group:${groupId}`).join(','));
+      }
+      if (this.pollCursor) {
+        params.set('cursor', this.pollCursor);
+      }
+      params.set('limit', '100');
+
+      const response = await fetch(`${API_ROOT}/api/realtime/events?${params.toString()}`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+      const events = Array.isArray(data.events) ? data.events : [];
+
+      for (const event of events) {
+        this.pollCursor = event.id || this.pollCursor;
+        this.emit(event.event, event.payload);
+      }
+
+      if (data.nextCursor) {
+        this.pollCursor = data.nextCursor;
+      }
+    } catch (error) {
+      console.warn('Realtime polling failed:', error.message);
+    } finally {
+      this.pollInFlight = false;
+    }
+  }
+
+  startPolling() {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+    }
+
+    this.pollTimer = setInterval(() => {
+      void this.pollOnce();
+    }, POLL_INTERVAL_MS);
+
+    void this.pollOnce();
+  }
+
+  connect() {
+    if (this.connected) {
+      return this;
+    }
+
+    this.connected = true;
+    queueMicrotask(() => this.emit('connect'));
+    this.startPolling();
+    return this;
+  }
+
+  disconnect() {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+
+    this.connected = false;
+    queueMicrotask(() => this.emit('disconnect'));
+    return this;
+  }
+
+  join(groupId) {
+    if (!groupId) {
+      return;
+    }
+
+    this.joinedRooms.add(groupId);
+    if (this.connected) {
+      void this.pollOnce();
+    }
+  }
+
+  leave(groupId) {
+    if (!groupId) {
+      return;
+    }
+
+    this.joinedRooms.delete(groupId);
+    if (this.connected) {
+      void this.pollOnce();
+    }
+  }
+
+  getJoinedRooms() {
+    return Array.from(this.joinedRooms);
+  }
+
+  forceRejoinRooms() {
+    void this.pollOnce();
+  }
+}
 
 let socket = null;
-let joinedRooms = new Set(); // Track joined rooms for reconnection
 
 export const initializeSocket = () => {
-  // Return existing socket if already created (connecting or connected)
-  // This prevents multiple socket instances across providers
-  if (socket) return socket;
+  if (socket) {
+    return socket;
+  }
 
-  socket = io(process.env.REACT_APP_API_URL || 'http://localhost:5000', {
-    // Use cookie-based auth instead of token in auth header
-    withCredentials: true,
-    transports: ['websocket'],
-    reconnection: true,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    reconnectionAttempts: 5,
-  });
+  socket = new PollingRealtimeClient();
+  socket.connect();
 
   socket.on('connect', () => {
-    console.log('Socket connected');
-    // Rejoin all rooms after reconnection
-    joinedRooms.forEach(groupId => {
-      socket.emit('join:group', groupId);
-    });
+    console.log('Realtime client connected');
   });
 
   socket.on('disconnect', () => {
-    console.log('Socket disconnected');
+    console.log('Realtime client disconnected');
   });
 
   return socket;
@@ -37,53 +184,38 @@ export const disconnectSocket = () => {
   if (socket) {
     socket.disconnect();
     socket = null;
-    joinedRooms.clear();
   }
 };
 
 export const getSocket = () => socket;
 
 export const joinGroup = (groupId) => {
-  socket?.emit('join:group', groupId);
+  socket?.join(groupId);
 };
 
 export const leaveGroup = (groupId) => {
-  socket?.emit('leave:group', groupId);
+  socket?.leave(groupId);
 };
 
-// Join group room and track for reconnection
+// Join group room and track for refresh polling
 export const joinGroupRoom = (groupId) => {
   if (!groupId) return;
-  // Guard: skip if already joined to prevent duplicate room joins and repeated presence broadcasts
-  if (joinedRooms.has(groupId)) return;
-  joinedRooms.add(groupId);
-  // Ensure socket is initialized before emitting
-  const s = socket || initializeSocket();
-  if (s && s.connected) {
-    s.emit('join:group', groupId);
-  }
-  // If not connected, the 'connect' event handler will rejoin all rooms
+  const realtimeClient = socket || initializeSocket();
+  realtimeClient.join(groupId);
 };
 
 // Leave group room and stop tracking
 export const leaveGroupRoom = (groupId) => {
   if (!groupId) return;
-  // Guard: skip if not in room to prevent duplicate leave events and unnecessary socket traffic
-  if (!joinedRooms.has(groupId)) return;
-  joinedRooms.delete(groupId);
-  socket?.emit('leave:group', groupId);
+  socket?.leave(groupId);
 };
 
 // Get all joined rooms (for debugging or re-joining)
-export const getJoinedRooms = () => Array.from(joinedRooms);
+export const getJoinedRooms = () => socket?.getJoinedRooms() || [];
 
 // Force re-join all tracked rooms (useful when listeners are set up after connection)
 export const forceRejoinRooms = () => {
-  if (socket && socket.connected) {
-    joinedRooms.forEach(groupId => {
-      socket.emit('join:group', groupId);
-    });
-  }
+  socket?.forceRejoinRooms();
 };
 
 // Analytics event listeners

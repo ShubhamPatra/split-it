@@ -5,6 +5,12 @@ import { Card, CardContent } from '../ui/card';
 import { Progress } from '../ui/progress';
 import { useToast } from '../../hooks/use-toast';
 
+const API_ROOT = (process.env.REACT_APP_API_URL || 'http://localhost:5000')
+  .replace(/\/$/, '')
+  .replace(/\/api$/, '');
+const OCR_POLL_INTERVAL_MS = Number(process.env.REACT_APP_OCR_POLL_INTERVAL_MS || 2000);
+const OCR_POLL_TIMEOUT_MS = Number(process.env.REACT_APP_OCR_POLL_TIMEOUT_MS || 120000);
+
 /**
  * BillScanner Component
  * 
@@ -24,6 +30,51 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
   const [extractedData, setExtractedData] = useState(null);
   const fileInputRef = useRef(null);
   const { toast } = useToast();
+
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  const parseOcrResult = (data) => ({
+    amount: data?.result?.extracted?.amount ?? data?.extracted?.amount ?? null,
+    date: data?.result?.extracted?.date ?? data?.extracted?.date ?? null,
+    merchantName: data?.result?.extracted?.merchantName ?? data?.extracted?.merchantName ?? null,
+    lineItems: data?.result?.extracted?.lineItems ?? data?.extracted?.lineItems ?? null,
+    rawText: data?.result?.rawText ?? data?.rawText ?? '',
+    ocrConfidence: data?.result?.ocrConfidence ?? data?.ocrConfidence ?? 0,
+    extractionConfidence: data?.result?.extractionConfidence ?? data?.extractionConfidence ?? 0,
+  });
+
+  const pollForOcrResult = async (jobId, startTime) => {
+    let lastStatus = 'queued';
+
+    while (Date.now() - startTime < OCR_POLL_TIMEOUT_MS) {
+      const response = await fetch(`${API_ROOT}/api/ocr/jobs/${jobId}`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to check OCR job status');
+      }
+
+      const job = await response.json();
+      lastStatus = job.status;
+
+      if (job.status === 'completed') {
+        return parseOcrResult(job);
+      }
+
+      if (job.status === 'failed') {
+        throw new Error(job.error || 'OCR processing failed');
+      }
+
+      const elapsed = Date.now() - startTime;
+      setScanProgress(Math.min(30 + Math.floor((elapsed / OCR_POLL_TIMEOUT_MS) * 60), 90));
+      setScanStatus('scanning');
+      await sleep(OCR_POLL_INTERVAL_MS);
+    }
+
+    throw new Error(`OCR job is still ${lastStatus} after waiting too long. Please try again.`);
+  };
 
   /**
    * Handle image file selection
@@ -86,21 +137,18 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
       const formData = new FormData();
       formData.append('receipt', image);
 
-      const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
       // Simulate progress
       const progressInterval = setInterval(() => {
         setScanProgress(prev => Math.min(prev + 10, 90));
       }, 300);
 
-      const response = await fetch(`${API_URL}/ocr/scan`, {
+      const response = await fetch(`${API_ROOT}/api/ocr/scan`, {
         method: 'POST',
         credentials: 'include', // Send HttpOnly auth cookie
         body: formData,
       });
 
       clearInterval(progressInterval);
-      setScanProgress(100);
 
       // Safely handle non-JSON error responses (e.g. Nginx HTML 413 page)
       let data;
@@ -123,15 +171,17 @@ const BillScanner = ({ onScanComplete, isOpen, onClose }) => {
         throw new Error((data && data.message) || 'Failed to scan receipt');
       }
 
-      const extracted = {
-        amount: data.extracted?.amount || null,
-        date: data.extracted?.date || null,
-        merchantName: data.extracted?.merchantName || null,
-        lineItems: data.extracted?.lineItems || null,
-        rawText: data.rawText || '',
-        ocrConfidence: data.ocrConfidence || 0,
-        extractionConfidence: data.extractionConfidence || 0,
-      };
+      let extracted;
+
+      if (data.mode === 'async' && data.jobId) {
+        setScanStatus('scanning');
+        setScanProgress(35);
+        extracted = await pollForOcrResult(data.jobId, Date.now());
+      } else {
+        extracted = parseOcrResult(data);
+      }
+
+      setScanProgress(100);
 
       setExtractedData(extracted);
       setScanStatus('success');

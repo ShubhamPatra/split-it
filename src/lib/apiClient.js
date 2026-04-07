@@ -1,3 +1,5 @@
+import { getFrontendUrl } from '../utils/frontendPaths';
+
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 // Request cache and pending requests for deduplication
@@ -152,7 +154,7 @@ const handleResponse = async (response, originalRequest = null) => {
         }
         // Session expired or invalid - clear session storage
         sessionStorage.removeItem('splitit_user');
-        setTimeout(() => window.location.href = '/login', 100);
+        setTimeout(() => window.location.href = getFrontendUrl('/login'), 100);
         throw new Error('Session expired. Please login again.');
       case 403:
         throw new Error('You do not have permission to perform this action');

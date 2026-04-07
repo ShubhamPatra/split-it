@@ -2,6 +2,7 @@
   "name": "split-it",
   "version": "0.1.0",
   "private": true,
+  "homepage": "https://shubhampatra.github.io/split-it",
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
@@ -44,6 +45,8 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "predeploy": "npm run build",
+    "deploy:gh-pages": "gh-pages -d build",
     "test": "react-scripts test",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
@@ -81,6 +84,7 @@
     "@testing-library/user-event": "^14.6.1",
     "autoprefixer": "^10.4.16",
     "concurrently": "^8.2.2",
+    "gh-pages": "^6.3.0",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0"
   }

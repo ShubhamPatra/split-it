@@ -5,6 +5,12 @@ import './index.css';
 import App from './App';
 import { registerServiceWorker } from './utils/registerServiceWorker';
 
+const redirectPath = sessionStorage.getItem('splitit-redirect');
+if (redirectPath) {
+  sessionStorage.removeItem('splitit-redirect');
+  window.history.replaceState(null, '', redirectPath);
+}
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>

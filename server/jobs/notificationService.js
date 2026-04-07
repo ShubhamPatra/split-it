@@ -9,6 +9,7 @@
 import Notification from '../models/Notification.js';
 import { executeJob } from './jobRunner.js';
 import { addToBatch } from './notificationBatcher.js';
+import { publishToUser } from '../services/realtimeService.js';
 
 // Reference to Socket.IO instance (set during initialization)
 let ioInstance = null;
@@ -63,6 +64,19 @@ export const createNotification = async (notificationData) => {
             data,
         });
     }
+
+    void publishToUser(userId, 'notification:new', {
+        id: notification._id,
+        type: notification.type,
+        title: notification.title,
+        message: notification.message,
+        timestamp: notification.timestamp,
+        read: notification.read,
+        actionType: notification.actionType,
+        data,
+    }).catch((error) => {
+        console.error(`[Notification] Failed to publish realtime notification for user ${userId}:`, error.message);
+    });
 
     return notification;
 };

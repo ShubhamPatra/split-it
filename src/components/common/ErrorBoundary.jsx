@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '../ui/button';
+import { getFrontendUrl } from '../../utils/frontendPaths';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -18,7 +19,7 @@ class ErrorBoundary extends React.Component {
 
   handleReset = () => {
     this.setState({ hasError: false, error: null });
-    window.location.href = '/dashboard';
+    window.location.href = getFrontendUrl('/dashboard');
   };
 
   render() {

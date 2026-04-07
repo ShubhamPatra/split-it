@@ -9,6 +9,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { ChatProvider } from './context/ChatContext';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
+import { getRouterBasename } from './utils/frontendPaths';
 import Loading from './components/common/Loading';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import OfflineIndicator from './components/common/OfflineIndicator';
@@ -66,10 +67,12 @@ const AppProvider = ({ children }) => (
 );
 
 function App() {
+  const basename = getRouterBasename();
+
   return (
     <ErrorBoundary>
       <GoogleOAuthProvider clientId={process.env.REACT_APP_GOOGLE_CLIENT_ID}>
-        <BrowserRouter>
+        <BrowserRouter basename={basename}>
           <AppProvider>
             <TooltipProvider>
               <OfflineIndicator />

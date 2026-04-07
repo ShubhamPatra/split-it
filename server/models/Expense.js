@@ -35,6 +35,10 @@ const receiptSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  storageId: {
+    type: String,
+    default: null,
+  },
   filename: {
     type: String,
   },
