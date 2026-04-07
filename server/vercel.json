@@ -22,6 +22,66 @@
       "destination": "/api/:path*"
     }
   ],
+  "headers": [
+    {
+      "source": "/auth/:path*",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "https://split-it.live"
+        },
+        {
+          "key": "Access-Control-Allow-Credentials",
+          "value": "true"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        },
+        {
+          "key": "Access-Control-Max-Age",
+          "value": "86400"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        }
+      ]
+    },
+    {
+      "source": "/api/:path*",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "https://split-it.live"
+        },
+        {
+          "key": "Access-Control-Allow-Credentials",
+          "value": "true"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        },
+        {
+          "key": "Access-Control-Max-Age",
+          "value": "86400"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        }
+      ]
+    }
+  ],
   "functions": {
     "api/**/*.js": {
       "maxDuration": 30
