@@ -1,92 +1,59 @@
-name: Deploy to EC2
+name: Deploy Frontend to GitHub Pages
 
 on:
   push:
     branches:
       - master
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: Deploy to EC2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build frontend
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
-        run: |
-          # Set default port if not specified
-          EC2_SSH_PORT="${EC2_SSH_PORT:-22}"
-          
-          # Create SSH key file
-          mkdir -p ~/.ssh
-          echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          
-          # Add EC2 to known_hosts
-          ssh-keyscan -p $EC2_SSH_PORT $EC2_HOST >> ~/.ssh/known_hosts 2>/dev/null
-          
-          # Deploy via SSH
-          ssh -i ~/.ssh/deploy_key -p $EC2_SSH_PORT $EC2_USER@$EC2_HOST << 'EOF'
-            set -e  # Exit on any error
-            cd ~/split-it
-            
-            echo "=== Backing up .env file ==="
-            if [ -f .env ]; then
-              cp .env ~/.env.split-it.backup
-              echo "Backup created at ~/.env.split-it.backup"
-            else
-              echo "Warning: No .env file found to backup"
-            fi
-            
-            echo "=== Pulling latest code ==="
-            git stash --include-untracked || true
-            git fetch origin
-            git reset --hard origin/$(git remote show origin | grep 'HEAD branch' | awk '{print $NF}')
-            
-            echo "=== Restoring .env file ==="
-            if [ -f ~/.env.split-it.backup ]; then
-              cp ~/.env.split-it.backup .env
-              echo ".env restored successfully"
-            else
-              echo "ERROR: No .env backup found! Deployment may fail."
-              exit 1
-            fi
-            
-            echo "=== Installing dependencies ==="
-            npm install --legacy-peer-deps
-            cd server && npm install && cd ..
-            
-            echo "=== Building frontend ==="
-            npm run build
-            
-            echo "=== Cleaning up frontend dev files ==="
-            rm -rf node_modules src public
-            
-            echo "=== Cleaning up old Docker images ==="
-            docker image prune -f
-            
-            echo "=== Restarting containers ==="
-            docker compose down
-            docker compose up -d --build
-            
-            echo "=== Waiting for services to start ==="
-            sleep 15
-            
-            echo "=== Checking container status ==="
-            docker compose ps
-            
-            echo "=== Checking API health ==="
-            curl -sf http://localhost:5000/health | jq . || echo "Health check failed - check logs with: docker compose logs api"
-            
-            echo "=== Deployment complete ==="
-          EOF
-          
-          # Cleanup
-          rm -f ~/.ssh/deploy_key
+          CI: false
+        run: npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload build artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
