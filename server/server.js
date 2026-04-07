@@ -224,6 +224,7 @@ const initializeServer = async () => {
       // Report CSP violations (optional - can be configured later)
       reportOnly: false,
     },
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }, // Allow Google OAuth popups to communicate back
     crossOriginEmbedderPolicy: false, // Disable for compatibility with Google OAuth
     crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin resources
   }));
@@ -235,10 +236,22 @@ const initializeServer = async () => {
   app.use(securityHeaders);
 
   // Parse allowed origins from environment for CORS
+  const normalizeOrigin = (origin) => {
+    if (!origin) {
+      return origin;
+    }
+
+    try {
+      return new URL(origin).origin;
+    } catch (error) {
+      return origin.replace(/\/$/, '');
+    }
+  };
+
   const parseAllowedOrigins = () => {
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const clientUrl = normalizeOrigin(process.env.CLIENT_URL || 'http://localhost:3000');
     const allowedOrigins = process.env.ALLOWED_ORIGINS
-      ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+      ? process.env.ALLOWED_ORIGINS.split(',').map(o => normalizeOrigin(o.trim())).filter(Boolean)
       : [];
     const origins = [clientUrl, ...allowedOrigins];
     // In development, also allow common dev ports
@@ -254,20 +267,27 @@ const initializeServer = async () => {
       return true;
     }
 
-    if (allowedOrigins.has(origin)) {
+    const normalizedOrigin = normalizeOrigin(origin);
+
+    if (allowedOrigins.has(normalizedOrigin)) {
       return true;
     }
 
-    if (process.env.NODE_ENV === 'production') {
-      try {
-        const host = new URL(origin).host;
-        return host === 'split-it.live' || host === 'www.split-it.live' || host.endsWith('.split-it.live');
-      } catch (error) {
-        return false;
-      }
-    }
+    try {
+      const host = new URL(normalizedOrigin).host;
 
-    return false;
+      if (host === 'split-it.live' || host === 'www.split-it.live' || host.endsWith('.split-it.live')) {
+        return true;
+      }
+
+      if (process.env.NODE_ENV !== 'production') {
+        return host === 'localhost:3000' || host === 'localhost:5173' || host === '127.0.0.1:3000' || host === '127.0.0.1:5173';
+      }
+
+      return false;
+    } catch (error) {
+      return false;
+    }
   };
 
   // CORS configuration with origin allowlist
@@ -283,17 +303,8 @@ const initializeServer = async () => {
     credentials: true,
     optionsSuccessStatus: 200,
   };
+  app.options('*', cors(corsOptions));
   app.use(cors(corsOptions));
-  app.use((req, res, next) => {
-    if (req.method !== 'OPTIONS') {
-      next();
-      return;
-    }
-
-    cors(corsOptions)(req, res, () => {
-      res.sendStatus(204);
-    });
-  });
 
   // Cookie parser middleware (must be before auth routes)
   app.use(cookieParser());
