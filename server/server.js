@@ -248,13 +248,43 @@ const initializeServer = async () => {
     return [...new Set(origins)]; // Deduplicate
   };
 
+  const allowedOrigins = new Set(parseAllowedOrigins());
+  const isAllowedOrigin = (origin) => {
+    if (!origin) {
+      return true;
+    }
+
+    if (allowedOrigins.has(origin)) {
+      return true;
+    }
+
+    if (process.env.NODE_ENV === 'production') {
+      try {
+        const host = new URL(origin).host;
+        return host === 'split-it.live' || host === 'www.split-it.live' || host.endsWith('.split-it.live');
+      } catch (error) {
+        return false;
+      }
+    }
+
+    return false;
+  };
+
   // CORS configuration with origin allowlist
   const corsOptions = {
-    origin: parseAllowedOrigins(),
+    origin: (origin, callback) => {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked for origin: ${origin || 'unknown'}`));
+    },
     credentials: true,
-    optionsSuccessStatus: 200
+    optionsSuccessStatus: 200,
   };
   app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
 
   // Cookie parser middleware (must be before auth routes)
   app.use(cookieParser());
