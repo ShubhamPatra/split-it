@@ -79,8 +79,8 @@ if (vapidInitialized) {
 // Initialize Express app
 const app = express();
 
-// Trust proxy when behind Nginx/load balancer (required for rate limiting, secure cookies)
-if (process.env.NODE_ENV === 'production') {
+// Trust proxy when behind Nginx/load balancer/Vercel (required for rate limiting, secure cookies)
+if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
   app.set('trust proxy', 1);
 }
 

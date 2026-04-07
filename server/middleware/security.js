@@ -23,10 +23,23 @@ export const rateLimiter = (options = {}) => {
     message: options.message || 'Too many requests',
     standardHeaders: true,
     legacyHeaders: false,
+    // Disable IP validation — on serverless platforms (Vercel) req.ip can be
+    // undefined before Express processes the request, which causes
+    // ERR_ERL_UNDEFINED_IP_ADDRESS.  The custom keyGenerator below handles
+    // the fallback safely.
+    validate: { ip: false, trustProxy: false, xForwardedForHeader: false },
+    // Custom key generator that gracefully handles missing req.ip
+    keyGenerator: (req) => {
+      return req.ip
+        || req.headers?.['x-forwarded-for']?.split(',')[0]?.trim()
+        || req.socket?.remoteAddress
+        || 'unknown';
+    },
     // Skip rate limiting for localhost in development
     skip: (req) => {
+      const clientIp = req.ip || req.headers?.['x-forwarded-for']?.split(',')[0]?.trim();
       // Skip if in development and from localhost
-      if (process.env.NODE_ENV === 'development' && isLocalhost(req.ip)) {
+      if (process.env.NODE_ENV === 'development' && isLocalhost(clientIp)) {
         return true;
       }
       // Also skip if caller-provided skip function returns true
